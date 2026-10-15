@@ -1,0 +1,6 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "node \"E:/project/assistant/.claude/statusline.js\""
+  }
+}
