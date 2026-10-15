@@ -233,7 +233,8 @@ PENDING → PROCESSING → NEED_INPUT → AWAITING_CONFIRM → SENT
 ```
 
 - **`NEED_INPUT` 是核心分支**：填表发现画像缺字段时不卡死，流转到「补信息」，与草稿确认机制衔接。
-- 个人项目用「内存字典 + 简单 JSON 落盘」即可，**不需要 Spring Boot 维护状态表**。
+- 个人项目用「内存字典 + 简单 JSON 落盘」即可，**状态机不在 Spring Boot 维护**。
+- 但 Vue 需要展示状态：Spring Boot 侧加一张**只读镜像表 `file_task`**（见 [`database_schema.md`](./database_schema.md)），LangBot 状态变更时顺带同步一行——只写不回读业务逻辑，状态机真身仍在插件内。
 
 ### 关键决策记录
 

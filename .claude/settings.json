@@ -1,6 +1,6 @@
 {
   "statusLine": {
     "type": "command",
-    "command": "node \"E:/project/assistant/.claude/statusline.js\""
+    "command": "\"E:/develop/Vue/nodeJs/node.exe\" \"E:/project/assistant/.claude/statusline.js\""
   }
 }
