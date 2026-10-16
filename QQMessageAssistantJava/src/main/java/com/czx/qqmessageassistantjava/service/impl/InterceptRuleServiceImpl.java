@@ -23,10 +23,16 @@ public class InterceptRuleServiceImpl extends ServiceImpl<InterceptRuleMapper, I
     @Override
     public InterceptRule createRule(InterceptRuleRequest request) {
         if(request.getName() == null || request.getName().isBlank()){
-            throw new IllegalArgumentException("规则名称不能为空");
+            throw new BusinessException("规则名称不能为空");
         }
         InterceptRule interceptRule = new InterceptRule();
         BeanUtil.copyProperties(request, interceptRule,CopyOptions.create().ignoreNullValue());
+        if (interceptRule.getPriority() == null) {
+            interceptRule.setPriority(0);
+        }
+        if (interceptRule.getEnabled() == null) {
+            interceptRule.setEnabled(true);
+        }
         save(interceptRule);
         return interceptRule;
     }

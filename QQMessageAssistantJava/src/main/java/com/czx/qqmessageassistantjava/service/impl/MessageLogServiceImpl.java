@@ -23,8 +23,8 @@ public class MessageLogServiceImpl extends ServiceImpl<MessageLogMapper, Message
 
     @Override
     public int batchSave(List<MessageLogItem> items) {
-        if(items.isEmpty() || items == null){
-            throw new IllegalArgumentException("日志列表不能为空");
+        if(items == null || items.isEmpty()){
+            throw new BusinessException("日志列表不能为空");
         }
         List<MessageLog> logs = new ArrayList<>(items.size());
         for (int i = 0; i < items.size(); i++) {

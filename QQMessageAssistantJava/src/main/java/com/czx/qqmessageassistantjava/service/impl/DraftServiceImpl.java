@@ -7,6 +7,7 @@ import com.czx.qqmessageassistantjava.dto.DraftCreateRequest;
 import com.czx.qqmessageassistantjava.entity.Draft;
 import com.czx.qqmessageassistantjava.mapper.DraftMapper;
 import com.czx.qqmessageassistantjava.service.DraftService;
+import com.czx.qqmessageassistantjava.service.MemoService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,19 +19,22 @@ import java.util.Set;
 @Service
 public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements DraftService {
 
+    @Autowired
+    private MemoService memoService;
+
     private static final Set<String> TYPES = Set.of("REPLY","FILE","MEMO","FACT");
     private static final Set<String> STATUS = Set.of("PENDING","CONFIRMED","REJECTED");
 
     @Override
     public Draft createDraft(DraftCreateRequest draftCreateRequest) {
         if(draftCreateRequest.getType() == null || !TYPES.contains(draftCreateRequest.getType())){
-            throw new IllegalArgumentException("Invalid type, type必须是【" + TYPES + "】其中之一");
+            throw new BusinessException("Invalid type, type必须是【" + TYPES + "】其中之一");
         }
         if(draftCreateRequest.getSenderId() == null){
-            throw new IllegalArgumentException("Sender ID不能为空");
+            throw new BusinessException("Sender ID不能为空");
         }
         if(draftCreateRequest.getPayload() == null){
-            throw new IllegalArgumentException("Payload不能为空");
+            throw new BusinessException("Payload不能为空");
         }
         Draft draft = BeanUtil.copyProperties(draftCreateRequest, Draft.class);
         draft.setStatus("PENDING");
@@ -40,15 +44,15 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
 
     @Override
     public List<Draft> getDraftList(String type, String status) {
-//      TODO type与status可传可不传
-        if(type == null || !TYPES.contains(type)){
+        if(type != null || !TYPES.contains(type)){
             throw new BusinessException("Invalid type, type必须是【" + TYPES + "】其中之一");
         }
-        if(status == null || !STATUS.contains(status)){
+        if(status !=null || !STATUS.contains(status)){
             throw new BusinessException("Invalid status, status必须是【" + STATUS + "】其中之一");
         }
-        return lambdaQuery().eq(Draft::getType,type)
-                .eq(Draft::getStatus,status)
+        return lambdaQuery()
+                .eq(type != null, Draft::getType,type)
+                .eq(status != null, Draft::getStatus,status)
                 .orderByDesc(Draft::getCreatedAt)
                 .list();
     }
@@ -86,7 +90,7 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
     private void dispatch(Draft draft) {
         switch (draft.getType()){
             case "MEMO":
-//                TODO: 处理Memo
+                memoService.createFromDraft(draft);
                 break;
             case "FILE":
 //                TODO: 处理File
