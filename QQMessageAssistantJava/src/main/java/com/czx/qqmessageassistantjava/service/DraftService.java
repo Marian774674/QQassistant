@@ -3,6 +3,7 @@ package com.czx.qqmessageassistantjava.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.czx.qqmessageassistantjava.dto.DraftCreateRequest;
 import com.czx.qqmessageassistantjava.entity.Draft;
+import org.springframework.stereotype.Service;
 
 import java.util.List;
 

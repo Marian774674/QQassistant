@@ -8,15 +8,15 @@ import com.czx.qqmessageassistantjava.entity.Draft;
 import com.czx.qqmessageassistantjava.mapper.DraftMapper;
 import com.czx.qqmessageassistantjava.service.DraftService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
+@Service
 public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements DraftService {
-
-    @Autowired
-    private DraftMapper draftMapper;
 
     private static final Set<String> TYPES = Set.of("REPLY","FILE","MEMO","FACT");
     private static final Set<String> STATUS = Set.of("PENDING","CONFIRMED","REJECTED");
@@ -40,6 +40,7 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
 
     @Override
     public List<Draft> getDraftList(String type, String status) {
+//      TODO type与status可传可不传
         if(type == null || !TYPES.contains(type)){
             throw new BusinessException("Invalid type, type必须是【" + TYPES + "】其中之一");
         }
@@ -53,6 +54,7 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
     }
 
     @Override
+    @Transactional
     public Draft confirmDraft(Long id) {
         Draft draft = isPending(id);
         draft.setConfirmedAt(LocalDateTime.now());
