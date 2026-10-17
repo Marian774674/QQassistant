@@ -19,3 +19,25 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 - **Spring Boot**：状态机、持久化、定时调度、REST API——**不直连 NapCat**。
 - **LangBot**：QQ 收发、正则拦截、拟人延迟、**文件 I/O**、主动发送接口。
 - **Vue**：展示、人工确认、配置——不做业务判定。
+
+---
+
+## 实现进度
+
+| 阶段 | 内容 | 状态 | 文档 |
+|---|---|---|---|
+| ① 架构 + 表结构 | 分层、红线、三个抽象、10 张表 DDL | ✅ 完成 | `architecture.md` / `optimization_schemes.md` / `database_schema.md` |
+| ② Spring Boot API | 27 个对外端点 | 🟡 草稿 / 日志 / 拦截规则 / 防重 / 备忘录 已完成；画像 / 设置 / 文件任务镜像 / 调度推送待补 | `api_contract.md` + `plans/` |
+| ③ LangBot 插件 | 收发 / 拦截 / 拟人延迟 / 文件 I/O / 主动发送 | ⬜ 未开始 | 待编写 |
+| ④ Dify 工作流 | 意图识别 / 提炼 / 决策 / 风格总结 | ⬜ 未开始 | 待编写 |
+| ⑤ Vue 前端 | 草稿中心 / 备忘 / 记忆总控台 / 设置 | ⬜ 未开始 | 待编写 |
+
+### Phase 2 计划索引
+
+| 计划 | 覆盖 | 状态 |
+|---|---|---|
+| [`plans/2026-10-15-phase2-1-foundation-draft-log.md`](./plans/2026-10-15-phase2-1-foundation-draft-log.md) | 数据源接入 + 统一草稿中心 + 统一消息日志 | 参考（实际实现已扩展，见下方说明） |
+| [`plans/2026-10-17-phase2-2-profile-setting-filetask.md`](./plans/2026-10-17-phase2-2-profile-setting-filetask.md) | 修复既有缺陷 + 画像（事实/风格）+ 设置 + 文件任务镜像 | 待执行 |
+| [`plans/2026-10-17-phase2-3-langbot-client-and-scheduler.md`](./plans/2026-10-17-phase2-3-langbot-client-and-scheduler.md) | LangBot 客户端 + 草稿分发落地 + 定时提醒推送 | 待执行（依赖 2-2） |
+
+> **关于 Plan 2-1**：该计划写于实际编码之前，其中提到的类名（`ApiResponse` / `BizException` / `CreateDraftRequest` / `MessageLogController`）与**实际落地**的实现（`Result` / `BusinessException` / `DraftCreateRequest` / `MessageController`）不一致，MyBatis-Plus 版本也从 3.5.17 落到 3.5.9。**以实际代码为准**，Plan 2-2 / 2-3 已按实际命名编写。Plan 2-1 保留作为当时的思路记录。

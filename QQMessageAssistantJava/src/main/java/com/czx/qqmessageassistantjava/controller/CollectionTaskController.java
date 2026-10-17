@@ -1,6 +1,7 @@
 package com.czx.qqmessageassistantjava.controller;
 
 import com.czx.qqmessageassistantjava.common.Result;
+import com.czx.qqmessageassistantjava.dto.CheckResult;
 import com.czx.qqmessageassistantjava.dto.CollectionTaskRequest;
 import com.czx.qqmessageassistantjava.entity.CollectionTask;
 import com.czx.qqmessageassistantjava.entity.InterceptRule;
@@ -32,8 +33,8 @@ public class CollectionTaskController {
 
     @Operation(summary = "检查任务是否已执行")
     @PostMapping("/check")
-    public Result<Boolean> check(@RequestBody CollectionTaskRequest request){
-        return Result.ok(collectionTaskService.checkReplied(request));
+    public Result<CheckResult> check(@RequestBody CollectionTaskRequest request){
+        return Result.ok(new CheckResult(collectionTaskService.checkReplied(request)));
     }
 
     @Operation(summary = "标记任务已执行")
