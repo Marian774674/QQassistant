@@ -44,10 +44,10 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
 
     @Override
     public List<Draft> getDraftList(String type, String status) {
-        if(type != null || !TYPES.contains(type)){
+        if(type != null && !TYPES.contains(type)){
             throw new BusinessException("Invalid type, type必须是【" + TYPES + "】其中之一");
         }
-        if(status !=null || !STATUS.contains(status)){
+        if(status !=null && !STATUS.contains(status)){
             throw new BusinessException("Invalid status, status必须是【" + STATUS + "】其中之一");
         }
         return lambdaQuery()

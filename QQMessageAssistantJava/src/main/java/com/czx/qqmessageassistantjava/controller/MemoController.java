@@ -14,7 +14,7 @@ import java.util.List;
 
 @Tag(name = "备忘录",description = "创建/列表/编辑/完成/取消")
 @RestController
-@RequestMapping("/api/memo")
+@RequestMapping("/api/memos")
 public class MemoController {
 
     @Autowired
