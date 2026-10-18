@@ -18,7 +18,7 @@ public class StyleProfileController {
     private StyleProfileService styleProfileService;
 
     @Operation(summary = "查看当前画像·风格")
-    @RequestMapping("/{senderId}")
+    @GetMapping("/{senderId}")
     public Result<StyleProfile> getStyleProfile(@PathVariable Long senderId) {
         return Result.ok(styleProfileService.getBySenderId(senderId));
     }

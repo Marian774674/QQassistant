@@ -52,7 +52,7 @@ class ProfileFactServiceTest {
         req.setFactValue("张三");
         profileFactService.createManual(req);
 
-        assertThat(profileFactService.factMap(1002L)).containsEntry("姓名", "张三");
+        assertThat(profileFactService.factsMap(1002L)).containsEntry("姓名", "张三");
     }
 
     @Test

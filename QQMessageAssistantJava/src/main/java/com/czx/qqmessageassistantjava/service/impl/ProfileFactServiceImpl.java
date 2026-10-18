@@ -80,7 +80,7 @@ public class ProfileFactServiceImpl extends ServiceImpl<ProfileFactMapper, Profi
     }
 
     @Override
-    public Map<String, String> factMap(Long senderId) {
+    public Map<String, String> factsMap(Long senderId) {
         return listBySenderId(senderId).stream()
                 .collect(Collectors.toMap(ProfileFact::getFactKey, ProfileFact::getFactValue));
     }
