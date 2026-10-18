@@ -27,8 +27,8 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 | 阶段 | 内容 | 状态 | 文档 |
 |---|---|---|---|
 | ① 架构 + 表结构 | 分层、红线、三个抽象、10 张表 DDL | ✅ 完成 | `architecture.md` / `optimization_schemes.md` / `database_schema.md` |
-| ② Spring Boot API | 27 个对外端点 | 🟡 草稿 / 日志 / 拦截规则 / 防重 / 备忘录 已完成；画像 / 设置 / 文件任务镜像 / 调度推送待补 | `api_contract.md` + `plans/` |
-| ③ LangBot 插件 | 收发 / 拦截 / 拟人延迟 / 文件 I/O / 主动发送 | ⬜ 未开始 | 待编写 |
+| ② Spring Boot API | 27 个对外端点 + 调度 + LangBot 客户端 | ✅ 代码完成（30/30 测试绿）；5 项加固待做 | `api_contract.md` + `plans/2026-10-18-phase2-hardening.md` |
+| ③ LangBot 插件 | 收发 / 拦截 / 拟人延迟 / 文件 I/O / 主动发送 | 🟡 计划已就绪，待开发 | `plans/2026-10-18-phase3-*.md` |
 | ④ Dify 工作流 | 意图识别 / 提炼 / 决策 / 风格总结 | ⬜ 未开始 | 待编写 |
 | ⑤ Vue 前端 | 草稿中心 / 备忘 / 记忆总控台 / 设置 | ⬜ 未开始 | 待编写 |
 
@@ -38,6 +38,22 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 |---|---|---|
 | [`plans/2026-10-15-phase2-1-foundation-draft-log.md`](./plans/2026-10-15-phase2-1-foundation-draft-log.md) | 数据源接入 + 统一草稿中心 + 统一消息日志 | 参考（实际实现已扩展，见下方说明） |
 | [`plans/2026-10-17-phase2-2-profile-setting-filetask.md`](./plans/2026-10-17-phase2-2-profile-setting-filetask.md) | 修复既有缺陷 + 画像（事实/风格）+ 设置 + 文件任务镜像 | 待执行 |
-| [`plans/2026-10-17-phase2-3-langbot-client-and-scheduler.md`](./plans/2026-10-17-phase2-3-langbot-client-and-scheduler.md) | LangBot 客户端 + 草稿分发落地 + 定时提醒推送 | 待执行（依赖 2-2） |
+| [`plans/2026-10-17-phase2-3-langbot-client-and-scheduler.md`](./plans/2026-10-17-phase2-3-langbot-client-and-scheduler.md) | LangBot 客户端 + 草稿分发落地 + 定时提醒推送 | ✅ 已执行 |
+| [`plans/2026-10-18-phase2-hardening.md`](./plans/2026-10-18-phase2-hardening.md) | **代码审计后的 5 项加固**（memo importance 校验、事实 confidence、调度配置/事务、测试配置归位） | 待执行 |
+
+### Phase 3 计划索引
+
+| 计划 | 覆盖 | 依赖 |
+|---|---|---|
+| [`plans/2026-10-18-phase3-1-plugin-core.md`](./plans/2026-10-18-phase3-1-plugin-core.md) | 插件骨架 + 事件监听 + 前置拦截 + Dify 分发 + 拟人延迟 + 备忘闭环 + 日志 | Phase 2 加固完成 |
+| [`plans/2026-10-18-phase3-2-file-tasks.md`](./plans/2026-10-18-phase3-2-file-tasks.md) | 文件下载 / xlsx·docx 读写 / pypdf 只读 / NEED_INPUT 反问 / 文件回传 | 3-1 |
+| [`plans/2026-10-18-phase3-3-send-bridge.md`](./plans/2026-10-18-phase3-3-send-bridge.md) | 主动发送桥（Spring Boot → LangBot / NapCat）+ 延迟 + OUT 日志 + 幂等 | 可与 3-1 并行 |
 
 > **关于 Plan 2-1**：该计划写于实际编码之前，其中提到的类名（`ApiResponse` / `BizException` / `CreateDraftRequest` / `MessageLogController`）与**实际落地**的实现（`Result` / `BusinessException` / `DraftCreateRequest` / `MessageController`）不一致，MyBatis-Plus 版本也从 3.5.17 落到 3.5.9。**以实际代码为准**，Plan 2-2 / 2-3 已按实际命名编写。Plan 2-1 保留作为当时的思路记录。
+
+> **关于 Phase 3 的三个决策**（详见 3-1 第〇节）：
+> 1. 插件**绕过** LangBot 内置 Dify 管线，自己编排；群聊触发规则由插件实现。
+> 2. Dify 的 `answer` 必须是结构化 JSON（`action` + payload），插件只做机械分发；解析失败整段当文本发。
+> 3. 备忘「完成/取消」闭环改为**查 Spring Boot** 的 `AWAITING_REPLY` 列表，不再在插件内存里维护映射。
+>
+> 另：主动发送由独立 Python 桥（`:5301`）实现，Spring Boot 的 `langbot.base-url` 需改指向它；LangBot 官方发送 API 的真实路径与请求体见 3-3。

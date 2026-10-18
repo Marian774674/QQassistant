@@ -26,9 +26,8 @@ public class ProfileFactServiceImpl extends ServiceImpl<ProfileFactMapper, Profi
         Long senderId = request.getSenderId();
         String factValue = request.getFactValue();
         require(factKey, factValue, senderId);
-        if (request.getConfidence() == null) {
-            throw new BusinessException("confidence 不能为空");
-        }
+        BigDecimal confidence = request.getConfidence() == null
+                ? BigDecimal.ONE : request.getConfidence();
         return upsert(senderId, factKey, factValue, request.getConfidence(), "AUTO");
     }
 
@@ -48,10 +47,10 @@ public class ProfileFactServiceImpl extends ServiceImpl<ProfileFactMapper, Profi
         if (fact == null) {
             throw new BusinessException("事实不存在");
         }
-        if (factKey != null && !factKey.isBlank() && !fact.equals(fact.getFactKey())) {
+        if (factKey != null && !factKey.isBlank() && !factKey.equals(fact.getFactKey())) {
             ProfileFact clash = findOne(fact.getSenderId(), factKey);
             if (clash != null && !clash.getId().equals(id)) {
-                throw new BusinessException("用户已存在该试试键");
+                throw new BusinessException("该用户已存在相同事实键");
             }
             fact.setFactKey(request.getFactKey());
         }

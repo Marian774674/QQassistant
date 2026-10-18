@@ -79,6 +79,10 @@ public class MemoServiceImpl extends ServiceImpl<MemoMapper, Memo> implements Me
         if(request.getStatus()!=null && !PATCH_STATUSES.contains(request.getStatus())){
             throw new BusinessException("status 只能为 " + PATCH_STATUSES + " 之一");
         }
+        if (request.getImportance() != null
+                && (request.getImportance() < 1 || request.getImportance() > 5)) {
+            throw new BusinessException("importance 必须为 1-5");
+        }
         boolean needRecalc = (request.getImportance() != null && !memo.getImportance().equals(request.getImportance())
             || request.getDueTime() != null && !request.getDueTime().equals(memo.getDueTime()));
         BeanUtil.copyProperties(request,memo, CopyOptions.create().ignoreNullValue());
@@ -116,11 +120,20 @@ public class MemoServiceImpl extends ServiceImpl<MemoMapper, Memo> implements Me
 
     private void expandReminders(Memo memo) {
         if (memo.getDueTime() == null)return;
+        List<String> labels = REMINDER_STRATEGY.get(memo.getImportance());
+        if (labels == null) {
+            throw new BusinessException("importance 必须为 1-5");
+        }
+        LocalDateTime now = LocalDateTime.now();
         for (String label : REMINDER_STRATEGY.get(memo.getImportance())) {
+            LocalDateTime remindAt = computeRemindAt(memo.getDueTime(), label);
+            if (!remindAt.isAfter(now)) {
+                continue;                     // 过去的提醒点跳过，避免集中补发
+            }
             MemoReminder reminder = new MemoReminder();
             reminder.setMemoId(memo.getId());
             reminder.setOffsetLabel(label);
-            reminder.setRemindAt(computeRemindAt(memo.getDueTime(), label));
+            reminder.setRemindAt(remindAt);
             reminder.setStatus("PENDING");
             memoReminderMapper.insert(reminder);
         }

@@ -89,7 +89,8 @@
 
 ```jsonc
 // REPLY —— 拟人回复草稿
-{ "content": "好的，我看看", "chatId": 2002 }
+// targetType 默认 "private"；targetId 缺省时按 chatId → senderId 回退
+{ "content": "好的，我看看", "targetType": "private", "targetId": 2002 }
 
 // FILE —— 文件回传草稿
 { "taskRef": "ft_0001", "fileName": "表单.xlsx", "fileRef": "local://out/ft_0001.xlsx" }
@@ -386,6 +387,7 @@
 | `target` | object | 是 | `{ "type": "private"\|"group", "id": 2002 }` |
 | `content` | string | 是 | 文本 |
 | `delayMs` | int | 否 | 拟人延迟（毫秒）；不传由 LangBot 按字数计算 |
+| `bizRef` | string | 否 | 业务引用，如 `memo:123` / `draft:45`；LangBot 据此做 QQ 内闭环路由与幂等 |
 
 ### 12.2 `POST /api/langbot/send_file` — 发文件
 
@@ -396,8 +398,14 @@
 | `target` | object | 是 | 同上 |
 | `fileRef` | string | 是 | 文件引用（LangBot 本地路径或任务引用） |
 | `fileName` | string | 否 | 展示文件名 |
+| `bizRef` | string | 否 | 业务引用，如 `draft:45` |
 
 **响应**（两者一致）：`{ "code": 0, "message": "ok", "data": { "messageId": "..." } }`。
+
+> **实现说明（Phase 3 定稿）**：上面是本项目对 Spring Boot 的**稳定契约**，由 Python 侧 `send_bridge`（默认 `http://localhost:5301`）实现，不是 LangBot 原生路径。
+> - `send_message` → 转发到 LangBot 官方 API `POST /api/v1/platform/bots/{bot_uuid}/send_message`（`X-API-Key` 鉴权，`target_type` 为 `person|group`，`message_chain=[{type:"Plain",text:...}]`），并在桥内完成拟人延迟与 OUT 日志。
+> - `send_file` → 若 LangBot 官方 `send_message` 实测接受 `File` 组件则同样转发；否则由桥调 NapCat OneBot 11 的 `upload_private_file` / `upload_group_file`。
+> 详见 `plans/2026-10-18-phase3-3-send-bridge.md`。
 
 ---
 

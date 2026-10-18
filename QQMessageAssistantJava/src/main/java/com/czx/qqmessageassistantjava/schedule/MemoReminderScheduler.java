@@ -14,7 +14,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -37,8 +36,12 @@ public class MemoReminderScheduler {
     @Value("${app.reminder.batch-size:50}")
     private int batchSize = 50;
 
+    @Value("${app.reminder.enabled:true}")
+    private boolean enabled;
+
     @Scheduled(fixedDelayString = "${app.reminder.delay:60000}")
     public void scan() {
+        if (!enabled) return;
         try {
             int sent = scanOnce();
             if (sent > 0) {
@@ -49,7 +52,6 @@ public class MemoReminderScheduler {
         }
     }
 
-    @Transactional
     public int scanOnce() {
         List<MemoReminder> due = memoReminderMapper.selectList(
                 new LambdaQueryWrapper<MemoReminder>()
