@@ -18,3 +18,11 @@ mybatis-plus:
       logic-delete-field: isDeleted
       logic-delete-value: 1
       logic-not-delete-value: 0
+
+langbot:
+  base-url: http://localhost:5300
+
+app:
+  reminder:
+    scan-interval-ms: 3600000
+    batch-size: 50

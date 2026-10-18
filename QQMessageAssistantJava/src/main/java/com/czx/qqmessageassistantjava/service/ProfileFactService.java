@@ -21,5 +21,5 @@ public interface ProfileFactService extends IService<ProfileFact> {
 
     List<ProfileFact> listBySenderId(Long senderId);
 
-    Map<String, String> factMap(Long senderId);
+    Map<String, String> factsMap(Long senderId);
 }

@@ -29,7 +29,7 @@ public class ProfileController {
     @GetMapping("/{senderId}")
     public Result<ProfileView> inject(@PathVariable Long senderId){
         return Result.ok(new ProfileView(
-                profileFactService.factMap(senderId),
+                profileFactService.factsMap(senderId),
                 styleProfileService.promptOf(senderId)
         ));
     }
