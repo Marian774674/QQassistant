@@ -25,6 +25,6 @@ langbot:
 
 app:
   reminder:
-    enabled: true
+    enabled: false
     scan-interval-ms: 60000
     batch-size: 50

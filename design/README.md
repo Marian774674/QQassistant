@@ -9,6 +9,7 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 | [`optimization_schemes.md`](./optimization_schemes.md) | 五大优化方案定稿（分工/数据流/状态机/决策记录） | 实现某个功能时的设计出处 |
 | [`database_schema.md`](./database_schema.md) | 10 张表的字段级结构 + 可执行 DDL | 建表、写实体/Mapper 时 |
 | [`api_contract.md`](./api_contract.md) | 全部对外接口契约（请求/响应/错误） | 写 Controller / 对接时 |
+| [`team/`](./team/) | **前端团队文档**：共享手册 + A/B 两份角色手册（职责、任务、验收） | 前端开发前必读 |
 | [`plans/`](./plans/) | 分期实现计划（Task 级 TDD 步骤） | 开发时逐步执行 |
 
 **注意**：`optimization_schemes.md` 在冲突时**优先于** `prompt_init.md`（见方案④：文件 I/O 已从 Spring Boot 改到 LangBot 插件）。
@@ -30,7 +31,7 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 | ② Spring Boot API | 27 个对外端点 + 调度 + LangBot 客户端 | ✅ 代码完成（30/30 测试绿）；5 项加固待做 | `api_contract.md` + `plans/2026-10-18-phase2-hardening.md` |
 | ③ LangBot 插件 | 收发 / 拦截 / 拟人延迟 / 文件 I/O / 主动发送 | 🟡 计划已就绪，待开发 | `plans/2026-10-18-phase3-*.md` |
 | ④ Dify 工作流 | 意图识别 / 提炼 / 决策 / 风格总结 | ⬜ 未开始 | 待编写 |
-| ⑤ Vue 前端 | 草稿中心 / 备忘 / 记忆总控台 / 设置 | ⬜ 未开始 | 待编写 |
+| ⑤ Vue 前端 | 草稿中心 / 备忘 / 记忆总控台 / 设置 | 🟡 团队开发文档已就绪，待开工 | [`team/`](./team/) |
 
 ### Phase 2 计划索引
 
@@ -48,6 +49,16 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 | [`plans/2026-10-18-phase3-1-plugin-core.md`](./plans/2026-10-18-phase3-1-plugin-core.md) | 插件骨架 + 事件监听 + 前置拦截 + Dify 分发 + 拟人延迟 + 备忘闭环 + 日志 | Phase 2 加固完成 |
 | [`plans/2026-10-18-phase3-2-file-tasks.md`](./plans/2026-10-18-phase3-2-file-tasks.md) | 文件下载 / xlsx·docx 读写 / pypdf 只读 / NEED_INPUT 反问 / 文件回传 | 3-1 |
 | [`plans/2026-10-18-phase3-3-send-bridge.md`](./plans/2026-10-18-phase3-3-send-bridge.md) | 主动发送桥（Spring Boot → LangBot / NapCat）+ 延迟 + OUT 日志 + 幂等 | 可与 3-1 并行 |
+
+### 前端团队文档索引
+
+| 文档 | 谁读 | 内容 |
+|---|---|---|
+| [`team/README.md`](./team/README.md) | 两人共同 | 共享手册：项目、接口、工程规范、Git、AI 协作、两人交接 |
+| [`team/A-前端开发手册.md`](./team/A-前端开发手册.md) | A | A 的职责、任务卡、交付顺序、评审与演示 |
+| [`team/B-前端开发手册.md`](./team/B-前端开发手册.md) | B | B 的职责、任务卡、交付顺序、评审与演示 |
+
+> 仓库根的 `.github/pull_request_template.md` 已配置，PR 会自动带出自查清单。
 
 > **关于 Plan 2-1**：该计划写于实际编码之前，其中提到的类名（`ApiResponse` / `BizException` / `CreateDraftRequest` / `MessageLogController`）与**实际落地**的实现（`Result` / `BusinessException` / `DraftCreateRequest` / `MessageController`）不一致，MyBatis-Plus 版本也从 3.5.17 落到 3.5.9。**以实际代码为准**，Plan 2-2 / 2-3 已按实际命名编写。Plan 2-1 保留作为当时的思路记录。
 
