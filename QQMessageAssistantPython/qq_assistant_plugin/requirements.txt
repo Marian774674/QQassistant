@@ -1,0 +1,5 @@
+langbot-plugin
+httpx>=0.27
+openpyxl
+python-docx
+pypdf

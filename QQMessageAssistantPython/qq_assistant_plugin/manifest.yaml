@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: Plugin
+metadata:
+  author: Marian
+  name: qq_assistant_plugin
+  repository: ''
+  version: 0.2.0
+  description:
+    en_US: nothing
+    zh_Hans: nothing
+    th_TH: nothing
+    vi_VN: nothing
+    es_ES: nothing
+  label:
+    en_US: qq assistant plugin
+    zh_Hans: qq assistant plugin
+    th_TH: qq assistant plugin
+    vi_VN: qq assistant plugin
+    es_ES: qq assistant plugin
+  icon: assets/icon.svg
+spec:
+  config:
+    - name: spring_base_url
+      type: string
+      label: { zh_Hans: Spring Boot 地址 }
+      default: http://localhost:8080
+    - name: spring_timeout
+      type: float
+      label: { zh_Hans: Spring Boot 超时时间 }
+    - name: dify_base_url
+      type: string
+      label: { zh_Hans: Dify API 地址（到 /v1） }
+      default: http://127.0.0.1/v1
+    - name: dify_api_key
+      type: string
+      label: { zh_Hans: Dify App API Key }
+      required: true
+    - name: dify_timeout
+      type: float
+      label: { zh_Hans: 连接 Dify 超时时间 }
+    - name: dify_file_workflow_key
+      type: string
+      label: { zh_Hans: Dify 文件工作流 API Key }
+    - name: file_confirm_threshold
+      type: float
+      label: { zh_Hans: 文件回写置信度阈值 }
+      default: 0.85
+    - name: bot
+      type: bot-selector
+      label: { zh_Hans: 使用的机器人 }
+      required: true
+    - name: bot_qq
+      type: string
+      label: { zh_Hans: 机器人 QQ 号（用于识别 @） }
+      required: true
+    - name: group_prefix
+      type: string
+      label: { zh_Hans: 群聊触发前缀 }
+      default: "!"
+    - name: fact_auto_threshold
+      type: float
+      label: { zh_Hans: 事实自动写入置信度阈值 }
+      default: 0.85
+    - name: delay_base_ms
+      type: int
+      label: { zh_Hans: 延迟基础时间（毫秒） }
+    - name: delay_per_char_ms
+      type: int
+      label: { zh_Hans: 每字符延迟时间（毫秒） }
+    - name: delay_jitter_ms
+      type: int
+      label: { zh_Hans: 延迟抖动时间（毫秒） }
+    - name: delay_max_ms
+      type: int
+      label: { zh_Hans: 延迟最大时间（毫秒） }
+    - name: intercept_refresh_s
+      type: int
+      label: { zh_Hans: 前置拦截刷新间隔（秒） }
+    - name: intercept_scope
+      type: select
+      label: { zh_Hans: 前置拦截范围 }
+      default: group
+      options:
+        - name: "group"
+          label: { zh_Hans: 群聊, en_US: Group }
+        - name: "all"
+          label: { zh_Hans: 全部, en_US: All }
+        - name: "off"
+          label: { zh_Hans: 关闭, en_US: Off }
+  components:
+    EventListener:
+      fromDirs:
+      - path: components/event_listener/
+execution:
+  python:
+    path: main.py
+    attr: qqassistantplugin

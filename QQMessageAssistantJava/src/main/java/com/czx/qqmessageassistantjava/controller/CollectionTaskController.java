@@ -3,7 +3,6 @@ package com.czx.qqmessageassistantjava.controller;
 import com.czx.qqmessageassistantjava.common.Result;
 import com.czx.qqmessageassistantjava.dto.CheckResult;
 import com.czx.qqmessageassistantjava.dto.CollectionTaskRequest;
-import com.czx.qqmessageassistantjava.entity.CollectionTask;
 import com.czx.qqmessageassistantjava.entity.InterceptRule;
 import com.czx.qqmessageassistantjava.service.CollectionTaskService;
 import com.czx.qqmessageassistantjava.service.InterceptRuleService;

@@ -16,10 +16,10 @@ public class InterceptRule {
 
     private String name;
     private String keywords;
-    private String regex;
-    private String replyTemplate;
-    private Integer priority;
-    private Boolean enabled;
+    private String regex; // 正则表达式
+    private String replyTemplate; // 回复模板
+    private Integer priority; // 优先级
+    private Boolean enabled; // 是否启用
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

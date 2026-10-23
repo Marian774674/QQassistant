@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "LangBot Plugin Debug",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "E:\project\assistant\QQMessageAssistantPython\.venv\Scripts\lbp.exe",
+      "console": "integratedTerminal",
+      "args": ["run"]
+    }
+  ]
+}
