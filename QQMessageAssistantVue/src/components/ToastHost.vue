@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckCircle2, Info, TriangleAlert, X } from 'lucide-vue-next'
+import { Check, Info, TriangleAlert } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 
 const toast = useToast()
@@ -8,96 +8,89 @@ const toast = useToast()
 <template>
   <div class="toast-host" aria-live="polite" aria-atomic="false">
     <TransitionGroup name="toast">
-      <div
+      <button
         v-for="item in toast.items"
         :key="item.id"
+        type="button"
         class="toast"
         :class="`toast-${item.tone}`"
-        role="status"
+        @click="toast.dismiss(item.id)"
       >
-        <CheckCircle2 v-if="item.tone === 'success'" :size="17" aria-hidden="true" />
-        <TriangleAlert v-else-if="item.tone === 'error'" :size="17" aria-hidden="true" />
-        <Info v-else :size="17" aria-hidden="true" />
+        <span class="toast-icon" aria-hidden="true">
+          <Check v-if="item.tone === 'success'" :size="13" :stroke-width="3" />
+          <TriangleAlert v-else-if="item.tone === 'error'" :size="13" :stroke-width="2.4" />
+          <Info v-else :size="13" :stroke-width="2.4" />
+        </span>
         <span class="toast-text">{{ item.message }}</span>
-        <button class="toast-close" type="button" aria-label="关闭提示" @click="toast.dismiss(item.id)">
-          <X :size="15" aria-hidden="true" />
-        </button>
-      </div>
+      </button>
     </TransitionGroup>
   </div>
 </template>
 
 <style scoped>
 .toast-host {
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
-  z-index: 1000;
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  z-index: 90;
   display: grid;
   gap: 8px;
-  max-width: min(380px, calc(100vw - 40px));
+  pointer-events: none;
 }
 
 .toast {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 11px 12px 11px 14px;
-  border: 1px solid var(--line);
-  border-left-width: 3px;
-  border-radius: 3px;
-  background: var(--sheet);
-  box-shadow: var(--shadow-float);
-  font-size: 14px;
-  animation: rise 0.24s var(--ease) both;
+  gap: 9px;
+  width: 100%;
+  padding: 11px 14px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: rgba(16, 16, 17, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 12px 30px -14px rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 13.5px;
+  line-height: 1.45;
+  text-align: left;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
-.toast-success {
-  border-left-color: var(--u3);
+.toast-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  flex: none;
 }
-.toast-error {
-  border-left-color: var(--danger);
+
+.toast-success .toast-icon {
+  background: rgba(87, 190, 140, 0.9);
+  color: #06251a;
 }
-.toast-info {
-  border-left-color: var(--signal);
+
+.toast-error .toast-icon {
+  background: #e2584a;
+  color: #fff;
 }
 
 .toast-text {
   flex: 1;
 }
 
-.toast-close {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: 2px;
-  background: transparent;
-  color: var(--ink-soft);
-  cursor: pointer;
-}
-
-.toast-close:hover {
-  background: rgba(22, 35, 44, 0.06);
-}
-
 .toast-enter-active,
 .toast-leave-active {
-  transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
+  transition: opacity 0.22s var(--ease), transform 0.22s var(--ease);
 }
+
 .toast-enter-from,
 .toast-leave-to {
   opacity: 0;
-  transform: translateY(6px);
-}
-
-@media (max-width: 640px) {
-  .toast-host {
-    left: 12px;
-    right: 12px;
-    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
-    max-width: none;
-  }
+  transform: translateY(-10px) scale(0.98);
 }
 </style>

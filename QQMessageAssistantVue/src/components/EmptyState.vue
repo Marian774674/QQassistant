@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { CircleDashed } from 'lucide-vue-next'
+
 defineProps<{
   title: string
   hint?: string
@@ -7,7 +9,10 @@ defineProps<{
 
 <template>
   <div class="empty">
-    <p class="display empty-title">{{ title }}</p>
+    <span class="empty-mark" aria-hidden="true">
+      <CircleDashed :size="22" :stroke-width="1.6" />
+    </span>
+    <p class="empty-title">{{ title }}</p>
     <p v-if="hint" class="empty-hint">{{ hint }}</p>
     <div v-if="$slots.default" class="empty-action">
       <slot />
@@ -18,25 +23,37 @@ defineProps<{
 <style scoped>
 .empty {
   display: grid;
-  justify-items: start;
-  gap: 6px;
-  padding: 44px 28px 40px;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius-sheet);
-  background: rgba(255, 255, 255, 0.5);
+  justify-items: center;
+  gap: 8px;
+  padding: 46px 24px 42px;
+  text-align: center;
+}
+
+.empty-mark {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 4px;
+  border-radius: 50%;
+  background: rgba(17, 18, 20, 0.045);
+  color: var(--ink-3);
 }
 
 .empty-title {
-  font-size: 20px;
+  font-size: 16.5px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
 }
 
 .empty-hint {
-  max-width: 46ch;
-  color: var(--ink-soft);
-  font-size: 14px;
+  max-width: 30ch;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .empty-action {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 </style>

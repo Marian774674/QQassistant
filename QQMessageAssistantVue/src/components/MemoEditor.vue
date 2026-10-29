@@ -1,17 +1,13 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { CalendarPlus } from 'lucide-vue-next'
-import Modal from '@/components/Modal.vue'
+import Sheet from '@/components/Sheet.vue'
 import { createMemo, patchMemo } from '@/api/memos'
 import { CATEGORIES } from '@/api/types'
 import type { Category, Memo, MemoPatchBody } from '@/api/types'
 import { useOwner } from '@/composables/useOwner'
 import { useToast } from '@/composables/useToast'
-import {
-  formatDateTime,
-  fromDatetimeLocalValue,
-  toDatetimeLocalValue,
-} from '@/utils/datetime'
+import { fromDatetimeLocalValue, toDatetimeLocalValue } from '@/utils/datetime'
+import { importanceLabel } from '@/utils/meta'
 
 const props = defineProps<{
   open: boolean
@@ -24,19 +20,19 @@ const owner = useOwner()
 const toast = useToast()
 
 const IMPORTANCE_OPTIONS = [
-  { value: 5, label: '5 · 紧要', hint: '考试、面试、答辩、截止缴费' },
-  { value: 4, label: '4 · 重要', hint: '重要邀约、班委通知' },
-  { value: 3, label: '3 · 一般', hint: '班会、聚餐、一般截止' },
-  { value: 2, label: '2 · 轻量', hint: '可做可不做' },
-  { value: 1, label: '1 · 存档', hint: '纯信息，不提醒' },
+  { value: 5, label: '紧要' },
+  { value: 4, label: '重要' },
+  { value: 3, label: '一般' },
+  { value: 2, label: '轻量' },
+  { value: 1, label: '存档' },
 ]
 
-const PLAN: Record<number, string[]> = {
-  5: ['提前 24 小时', '提前 2 小时', '提前 30 分钟'],
-  4: ['提前 24 小时', '提前 1 小时'],
-  3: ['提前 2 小时'],
-  2: ['当天 09:00'],
-  1: [],
+const PLAN: Record<number, string> = {
+  5: '提前 24 小时、2 小时、30 分钟各提醒一次',
+  4: '提前 24 小时、1 小时各提醒一次',
+  3: '提前 2 小时提醒一次',
+  2: '当天 09:00 提醒一次',
+  1: '只存档，不提醒',
 }
 
 const form = reactive({
@@ -51,15 +47,10 @@ const errors = reactive({ title: '', form: '' })
 const saving = ref(false)
 
 const isEdit = computed(() => Boolean(props.memo))
-const selectedImportance = computed(
-  () => IMPORTANCE_OPTIONS.find((option) => option.value === form.importance) ?? IMPORTANCE_OPTIONS[2],
-)
 
 const planText = computed(() => {
-  const labels = PLAN[form.importance] ?? []
-  if (!form.due) return '没有截止时间：只存档，不会创建提醒。'
-  if (!labels.length) return '1 级备忘只存档，不会提醒。'
-  return `会在 ${formatDateTime(form.due)} 前提醒：${labels.join('、')}。`
+  if (!form.due) return '没填截止时间：只存档，不会创建提醒。'
+  return `${PLAN[form.importance]}。`
 })
 
 watch(
@@ -127,128 +118,204 @@ async function save() {
 </script>
 
 <template>
-  <Modal
+  <Sheet
     :open="open"
     :title="isEdit ? '编辑备忘' : '新建备忘'"
     :description="isEdit ? '改重要性或时间会重算提醒计划' : '写清楚要做的事，再决定什么时候提醒你'"
     @close="emit('close')"
   >
     <form class="form" @submit.prevent="save">
-      <div class="field">
-        <label for="memo-title">要做的事</label>
+      <div class="frow">
+        <label class="frow-label" for="memo-title">要做的事</label>
         <input
           id="memo-title"
           v-model="form.title"
+          class="frow-input"
           type="text"
           placeholder="例如：交实验报告"
           maxlength="120"
           :aria-invalid="Boolean(errors.title)"
-          aria-describedby="memo-title-error"
         />
-        <p v-if="errors.title" id="memo-title-error" class="error" role="alert">{{ errors.title }}</p>
+        <p v-if="errors.title" class="frow-error" role="alert">{{ errors.title }}</p>
       </div>
 
-      <div class="field">
-        <label for="memo-content">补充说明</label>
+      <div class="frow">
+        <label class="frow-label" for="memo-content">补充说明</label>
         <textarea
           id="memo-content"
           v-model="form.content"
+          class="frow-input"
+          rows="2"
           placeholder="地点、对象、要带的东西…"
-          rows="3"
         />
       </div>
 
-      <div class="row">
-        <div class="field">
-          <label for="memo-importance">重要性</label>
-          <select id="memo-importance" v-model.number="form.importance">
-            <option v-for="option in IMPORTANCE_OPTIONS" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
-          <p class="hint">{{ selectedImportance.hint }}</p>
+      <div class="frow">
+        <label class="frow-label" for="memo-due">截止时间</label>
+        <input id="memo-due" v-model="form.due" class="frow-input" type="datetime-local" />
+      </div>
+
+      <div class="frow">
+        <span class="frow-label">分类</span>
+        <div class="grid3">
+          <button
+            v-for="category in CATEGORIES"
+            :key="category"
+            type="button"
+            class="pick"
+            :aria-pressed="form.category === category"
+            @click="form.category = category"
+          >
+            {{ category }}
+          </button>
         </div>
+      </div>
 
-        <div class="field">
-          <label for="memo-category">分类</label>
-          <select id="memo-category" v-model="form.category">
-            <option v-for="category in CATEGORIES" :key="category" :value="category">
-              {{ category }}
-            </option>
-          </select>
+      <div class="frow">
+        <span class="frow-label">重要性</span>
+        <div class="scale">
+          <button
+            v-for="option in IMPORTANCE_OPTIONS"
+            :key="option.value"
+            type="button"
+            class="scale-cell num"
+            :aria-pressed="form.importance === option.value"
+            :aria-label="`${option.value} 级 ${option.label}`"
+            @click="form.importance = option.value"
+          >
+            {{ option.value }}
+          </button>
         </div>
+        <p class="frow-hint">{{ importanceLabel(form.importance) }} · {{ planText }}</p>
       </div>
 
-      <div class="field">
-        <label for="memo-due">截止时间</label>
-        <input id="memo-due" v-model="form.due" type="datetime-local" />
-        <p class="hint">不填就只存档。填了才会按重要性生成提醒。</p>
-      </div>
-
-      <p class="plan">
-        <CalendarPlus :size="16" aria-hidden="true" />
-        <span>{{ planText }}</span>
+      <p v-if="errors.form" class="form-error" role="alert">{{ errors.form }}</p>
+      <p v-if="!owner.senderId" class="form-error" role="alert">
+        还没有记录你的 QQ 号，去设置里填一下再保存。
       </p>
-
-      <p v-if="errors.form" class="error form-error" role="alert">{{ errors.form }}</p>
-      <p v-if="!owner.senderId" class="error form-error" role="alert">
-        还没有记录你的 QQ 号，去<RouterLink to="/settings">设置</RouterLink>里填一下再保存。
-      </p>
-
-      <div class="actions">
-        <button type="button" class="btn" @click="emit('close')">取消</button>
-        <button type="submit" class="btn btn-primary" :disabled="saving || !owner.senderId">
-          {{ saving ? '保存中…' : isEdit ? '保存修改' : '记下来' }}
-        </button>
-      </div>
     </form>
-  </Modal>
+
+    <template #footer>
+      <button type="button" class="btn btn-ghost" @click="emit('close')">取消</button>
+      <button
+        type="button"
+        class="btn btn-on-dark"
+        :disabled="saving || !owner.senderId"
+        @click="save"
+      >
+        {{ saving ? '保存中…' : isEdit ? '保存修改' : '记下来' }}
+      </button>
+    </template>
+  </Sheet>
 </template>
 
 <style scoped>
 .form {
   display: grid;
-  gap: 16px;
+  gap: 10px;
 }
 
-.row {
+.frow {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: #fff;
+  color: var(--ink);
 }
 
-.plan {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 11px 12px;
-  border-left: 2px solid var(--signal);
-  border-radius: 0 2px 2px 0;
-  background: var(--signal-wash);
-  color: var(--signal-deep);
-  font-size: 13.5px;
+.frow-label {
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.frow-input {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 15.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  outline: none;
+  resize: none;
+}
+
+.frow-input::placeholder {
+  color: var(--ink-3);
+}
+
+.frow-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.frow-hint {
+  color: var(--ink-3);
+  font-size: 11.5px;
   line-height: 1.5;
 }
 
-.plan svg {
-  margin-top: 2px;
-  flex: none;
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.scale {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.scale-cell {
+  min-height: 38px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+.scale-cell[aria-pressed="true"] {
+  border-color: var(--card-inverse);
+  background: var(--card-inverse);
+  color: #fff;
+}
+
+.pick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+.pick[aria-pressed="true"] {
+  border-color: var(--card-inverse);
+  background: var(--card-inverse);
+  color: #fff;
 }
 
 .form-error {
-  margin: 0;
-}
-
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding-top: 4px;
-}
-
-@media (max-width: 560px) {
-  .row {
-    grid-template-columns: 1fr;
-  }
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: rgba(191, 58, 43, 0.18);
+  color: #ffb4ab;
+  font-size: 12.5px;
 }
 </style>

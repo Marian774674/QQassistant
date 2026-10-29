@@ -107,3 +107,67 @@ export interface MemoPatchBody {
   clearDueTime?: boolean
   status?: 'DONE' | 'CANCELLED'
 }
+
+/* ── 消息日志 ─────────────────────────────────────────────── */
+
+export type LogDirection = 'IN' | 'OUT'
+
+export interface MessageLog {
+  id: number
+  senderId: number
+  chatId: number | null
+  conversationId: string | null
+  messageId: string | null
+  dedupeKey: string | null
+  direction: LogDirection
+  msgType: string
+  content: string | null
+  createdAt: string
+}
+
+/* ── 文件任务 ─────────────────────────────────────────────── */
+
+export type FileTaskStatus =
+  | 'PENDING'
+  | 'PROCESSING'
+  | 'NEED_INPUT'
+  | 'AWAITING_CONFIRM'
+  | 'SENT'
+  | 'FAILED'
+  | 'CANCELLED'
+
+export interface FileTask {
+  id: number
+  taskRef: string
+  senderId: number
+  chatId: number | null
+  fileName: string | null
+  status: FileTaskStatus
+  detail: unknown
+  createdAt: string
+  updatedAt: string
+}
+
+/* ── 拦截规则 ─────────────────────────────────────────────── */
+
+export interface InterceptRule {
+  id: number
+  name: string
+  keywords: string | null
+  regex: string | null
+  replyTemplate: string | null
+  priority: number
+  enabled: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface InterceptRuleBody {
+  name: string
+  keywords?: string | null
+  regex?: string | null
+  replyTemplate?: string | null
+  priority?: number
+  enabled?: boolean
+}
+

@@ -1,52 +1,73 @@
 <script setup lang="ts">
-import { CalendarClock, Inbox, SlidersHorizontal, Sparkles } from 'lucide-vue-next'
+import { computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { CalendarDays, Inbox, LayoutGrid, Plus, Sparkles } from 'lucide-vue-next'
+import { useDraftStore } from '@/composables/useDraftStore'
+import { useFabState } from '@/composables/useFab'
+
+const route = useRoute()
+const draftStore = useDraftStore()
+const fab = useFabState()
 
 const navItems = [
-  { to: '/memos', label: '备忘', icon: CalendarClock },
-  { to: '/drafts', label: '草稿', icon: Inbox },
+  { to: '/memos', label: '备忘', icon: CalendarDays },
+  { to: '/drafts', label: '草稿', icon: Inbox, badge: true },
   { to: '/memory', label: '记忆', icon: Sparkles },
-  { to: '/settings', label: '设置', icon: SlidersHorizontal },
+  { to: '/more', label: '更多', icon: LayoutGrid },
 ]
+
+const pendingCount = computed(() => draftStore.pendingCount.value)
+const badgeText = computed(() => (pendingCount.value > 99 ? '99+' : String(pendingCount.value)))
+
+onMounted(() => {
+  void draftStore.refreshPendingDrafts()
+})
+
+// 回到首页时刷新一次，QQ 那边新产生的草稿能及时出现；顺带把滚动位置归零
+watch(
+  () => route.path,
+  (path) => {
+    document.querySelector('.screen')?.scrollTo({ top: 0 })
+    if (path === '/memos' || path === '/drafts') void draftStore.refreshPendingDrafts()
+  },
+)
 </script>
 
 <template>
   <div class="app">
     <a class="skip-link" href="#main">跳到主要内容</a>
 
-    <aside class="rail">
-      <RouterLink to="/memos" class="brand">
-        <span class="display brand-name">值守台</span>
-        <span class="brand-sub">QQ 助手</span>
-      </RouterLink>
-
-      <nav class="rail-nav" aria-label="主导航">
-        <RouterLink
-          v-for="item in navItems"
-          :key="item.to"
-          :to="item.to"
-          class="nav-item"
-          active-class="is-active"
-        >
-          <component :is="item.icon" :size="18" :stroke-width="1.75" aria-hidden="true" />
-          <span>{{ item.label }}</span>
-        </RouterLink>
-      </nav>
-    </aside>
-
-    <main id="main" class="main">
-      <RouterView />
+    <main id="main" class="screen" :class="{ 'has-fab': fab.visible }">
+      <RouterView v-slot="{ Component }">
+        <Transition name="page" mode="out-in">
+          <component :is="Component" />
+        </Transition>
+      </RouterView>
     </main>
 
-    <nav class="tabbar" aria-label="主导航（移动端）">
+    <button
+      v-if="fab.visible"
+      type="button"
+      class="fab"
+      :aria-label="fab.label"
+      @click="fab.action?.()"
+    >
+      <Plus :size="24" :stroke-width="2" aria-hidden="true" />
+    </button>
+
+    <nav class="tabbar" aria-label="主导航">
       <RouterLink
         v-for="item in navItems"
         :key="item.to"
         :to="item.to"
-        class="tab-item"
+        class="tab"
         active-class="is-active"
       >
-        <component :is="item.icon" :size="20" :stroke-width="1.75" aria-hidden="true" />
-        <span>{{ item.label }}</span>
+        <span class="tab-icon">
+          <component :is="item.icon" :size="21" :stroke-width="1.9" aria-hidden="true" />
+          <span v-if="item.badge && pendingCount" class="badge num">{{ badgeText }}</span>
+        </span>
+        <span class="tab-label">{{ item.label }}</span>
       </RouterLink>
     </nav>
   </div>
@@ -54,19 +75,23 @@ const navItems = [
 
 <style scoped>
 .app {
-  min-height: 100dvh;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 
 .skip-link {
   position: absolute;
   left: 12px;
   top: -60px;
-  z-index: 1100;
-  padding: 8px 14px;
-  background: var(--sheet);
-  border: 1px solid var(--signal);
-  border-radius: 2px;
-  font-size: 14px;
+  z-index: 120;
+  padding: 10px 16px;
+  border-radius: var(--r-pill);
+  background: var(--card-inverse);
+  color: #fff;
+  font-size: 13px;
   transition: top 0.2s var(--ease);
 }
 
@@ -74,126 +99,132 @@ const navItems = [
   top: 12px;
 }
 
-/* ── 左侧导航 ─────────────────────────────────────────── */
-
-.rail {
-  position: fixed;
-  inset: 0 auto 0 0;
-  width: var(--rail-w);
-  display: flex;
-  flex-direction: column;
-  padding: 26px 16px 24px;
-  border-right: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.62);
-  backdrop-filter: blur(6px);
+.screen {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(var(--tab-h) + 26px + env(safe-area-inset-bottom, 0px));
 }
 
-.brand {
+/* 有悬浮按钮时多留一截，别让按钮压住最后一条 */
+.screen.has-fab {
+  padding-bottom: calc(var(--tab-h) + 88px + env(safe-area-inset-bottom, 0px));
+}
+
+.page-enter-active {
+  transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
+}
+
+.page-leave-active {
+  transition: opacity 0.12s var(--ease);
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-leave-to {
+  opacity: 0;
+}
+
+/* ── 悬浮新建 ─────────────────────────────────────────────── */
+
+.fab {
+  position: absolute;
+  right: var(--pad-x);
+  bottom: calc(var(--tab-h) + 20px + env(safe-area-inset-bottom, 0px));
+  z-index: 40;
   display: grid;
-  gap: 2px;
-  padding: 0 10px 26px;
-  color: var(--ink);
-  text-decoration: none;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--card-inverse);
+  color: #fff;
+  box-shadow: var(--shadow-lift);
+  cursor: pointer;
+  transition: transform var(--dur) var(--ease);
+  animation: rise 0.3s var(--ease) both;
 }
 
-.brand-name {
-  font-size: 25px;
-  line-height: 1.15;
+.fab:active {
+  transform: scale(0.94);
 }
 
-.brand-sub {
-  font-size: 12.5px;
-  color: var(--ink-soft);
-}
-
-.rail-nav {
-  display: grid;
-  gap: 2px;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  min-height: 44px;
-  padding: 0 10px;
-  border-left: 2px solid transparent;
-  border-radius: 0 2px 2px 0;
-  color: var(--ink-soft);
-  font-size: 14.5px;
-  text-decoration: none;
-  transition: background-color 0.15s var(--ease), color 0.15s var(--ease);
-}
-
-.nav-item:hover {
-  background: rgba(22, 35, 44, 0.045);
-  color: var(--ink);
-}
-
-.nav-item.is-active {
-  border-left-color: var(--signal);
-  background: var(--signal-wash);
-  color: var(--signal-deep);
-  font-weight: 600;
-}
-
-/* ── 主区域 ───────────────────────────────────────────── */
-
-.main {
-  margin-left: var(--rail-w);
-  padding: 34px clamp(20px, 3.2vw, 44px) 72px;
-}
-
-.main > :deep(*) {
-  max-width: 1180px;
-  margin: 0 auto;
-}
-
-/* ── 移动端导航 ───────────────────────────────────────── */
+/* ── 底部导航 ─────────────────────────────────────────────── */
 
 .tabbar {
-  display: none;
+  position: relative;
+  z-index: 30;
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  height: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px));
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--hairline);
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: saturate(1.6) blur(18px);
+  -webkit-backdrop-filter: saturate(1.6) blur(18px);
 }
 
-@media (max-width: 900px) {
-  .rail {
-    display: none;
-  }
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: var(--r-md);
+  color: var(--ink-3);
+  transition: color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
 
-  .main {
-    margin-left: 0;
-    padding: 22px 16px calc(84px + env(safe-area-inset-bottom, 0px));
-  }
+.tab-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
 
-  .tabbar {
-    position: fixed;
-    inset: auto 0 0 0;
-    z-index: 800;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
-    border-top: 1px solid var(--line);
-    background: rgba(255, 255, 255, 0.94);
-    backdrop-filter: blur(8px);
-  }
+.tab-label {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
 
-  .tab-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    min-height: 52px;
-    border-radius: 3px;
-    color: var(--ink-soft);
-    font-size: 11.5px;
-    text-decoration: none;
-  }
+.tab.is-active {
+  color: var(--ink);
+}
 
-  .tab-item.is-active {
-    color: var(--signal-deep);
-    background: var(--signal-wash);
-    font-weight: 600;
-  }
+.tab.is-active .tab-icon::before {
+  content: "";
+  position: absolute;
+  inset: -7px -12px;
+  border-radius: var(--r-pill);
+  background: rgba(17, 18, 20, 0.055);
+}
+
+.tab-icon > svg {
+  position: relative;
+}
+
+.badge {
+  position: absolute;
+  top: -5px;
+  right: -10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
 }
 </style>

@@ -27,10 +27,22 @@ export function formatDateTime(iso: string | null | undefined): string {
   return `${formatMonthDay(date)} ${formatTime(date)}`
 }
 
+/** 列表里用的紧凑时间：今天只显示时分，其他显示月日 */
+export function formatStamp(iso: string | null | undefined): string {
+  const date = parseLocal(iso)
+  if (!date) return ''
+  return isSameDay(date, new Date()) ? formatTime(date) : formatMonthDay(date)
+}
+
 export function formatFullDate(date: Date): string {
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 星期${
     WEEKDAYS[date.getDay()]
   }`
+}
+
+/** 10月29日 周四 */
+export function formatHeadDate(date: Date): string {
+  return `${date.getMonth() + 1}月${date.getDate()}日 周${WEEKDAYS[date.getDay()]}`
 }
 
 export function dayKey(date: Date): string {
@@ -58,7 +70,7 @@ export function fromDatetimeLocalValue(value: string): string | null {
   return value.length === 16 ? `${value}:00` : value
 }
 
-/** 距离截止还有多久：用于条目右侧的提醒锚点 */
+/** 距离截止还有多久 */
 export function relativeUntil(iso: string | null | undefined): string {
   const date = parseLocal(iso)
   if (!date) return ''
@@ -79,69 +91,4 @@ export function relativeUntil(iso: string | null | undefined): string {
     text = rest ? `${days} 天 ${rest} 小时` : `${days} 天`
   }
   return past ? `已过 ${text}` : `还有 ${text}`
-}
-
-export interface Tone {
-  label: string
-  cls: string
-  wash: string
-}
-
-const IMPORTANCE_TONES: Record<number, Tone> = {
-  5: { label: '紧要', cls: 'tone-u5', wash: 'var(--u5-wash)' },
-  4: { label: '重要', cls: 'tone-u4', wash: 'var(--u4-wash)' },
-  3: { label: '一般', cls: 'tone-u3', wash: 'var(--u3-wash)' },
-  2: { label: '轻量', cls: 'tone-low', wash: 'var(--u-low-wash)' },
-  1: { label: '存档', cls: 'tone-low', wash: 'var(--u-low-wash)' },
-}
-
-export function importanceTone(importance: number): Tone {
-  return IMPORTANCE_TONES[importance] ?? IMPORTANCE_TONES[3]
-}
-
-export function memoStatusMeta(status: string): { label: string; cls: string } {
-  switch (status) {
-    case 'ACTIVE':
-      return { label: '待提醒', cls: 'status-open' }
-    case 'REMINDED':
-      return { label: '已提醒', cls: 'status-open' }
-    case 'AWAITING_REPLY':
-      return { label: '等收尾', cls: 'status-wait' }
-    case 'OVERDUE':
-      return { label: '已逾期', cls: 'status-late' }
-    case 'DONE':
-      return { label: '已完成', cls: 'status-done' }
-    case 'CANCELLED':
-      return { label: '已取消', cls: 'status-done' }
-    default:
-      return { label: status, cls: 'status-done' }
-  }
-}
-
-export function draftTypeLabel(type: string): string {
-  switch (type) {
-    case 'REPLY':
-      return '回复'
-    case 'FILE':
-      return '文件'
-    case 'MEMO':
-      return '备忘'
-    case 'FACT':
-      return '事实'
-    default:
-      return type
-  }
-}
-
-export function draftStatusLabel(status: string): string {
-  switch (status) {
-    case 'PENDING':
-      return '待处理'
-    case 'CONFIRMED':
-      return '已确认'
-    case 'REJECTED':
-      return '已拒绝'
-    default:
-      return status
-  }
 }
