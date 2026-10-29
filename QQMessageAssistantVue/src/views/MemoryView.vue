@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { Check, Pencil, Plus, Trash2, X } from 'lucide-vue-next'
+import { Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
+import Segmented from '@/components/Segmented.vue'
+import Sheet from '@/components/Sheet.vue'
+import Skeleton from '@/components/Skeleton.vue'
 import {
   createFact,
   deleteFact,
@@ -10,10 +13,13 @@ import {
   updateFact,
   updateStyleProfile,
 } from '@/api/memory'
+import { getSettings, putSettings } from '@/api/settings'
 import type { ProfileFact, StyleProfile } from '@/api/types'
 import { useOwner } from '@/composables/useOwner'
 import { useToast } from '@/composables/useToast'
 import { formatDateTime } from '@/utils/datetime'
+
+type Frequency = 'DAILY_7D' | 'DAILY_TODAY' | 'WEEKLY'
 
 const owner = useOwner()
 const toast = useToast()
@@ -22,16 +28,26 @@ const facts = ref<ProfileFact[]>([])
 const loadingFacts = ref(true)
 const factsError = ref('')
 
-const draft = reactive({ factKey: '', factValue: '' })
-const adding = ref(false)
-const editingId = ref<number | null>(null)
-const editDraft = reactive({ factKey: '', factValue: '' })
-const confirmingId = ref<number | null>(null)
-
 const profile = ref<StyleProfile | null>(null)
 const profileText = ref('')
 const profileError = ref('')
 const savingProfile = ref(false)
+
+const frequency = ref<Frequency>('DAILY_7D')
+const savingFrequency = ref(false)
+
+const sheetOpen = ref(false)
+const editing = ref<ProfileFact | null>(null)
+const form = reactive({ factKey: '', factValue: '' })
+const saving = ref(false)
+const formError = ref('')
+const confirmingDelete = ref(false)
+
+const FREQUENCIES = [
+  { key: 'DAILY_7D' as const, label: '每日·近7天' },
+  { key: 'DAILY_TODAY' as const, label: '每日·当天' },
+  { key: 'WEEKLY' as const, label: '每周' },
+]
 
 const senderId = computed(() => owner.senderId)
 
@@ -64,74 +80,91 @@ async function loadProfile() {
   }
 }
 
+async function loadFrequency() {
+  try {
+    const kv = await getSettings()
+    const raw = kv['summary_frequency']
+    if (raw === 'DAILY_7D' || raw === 'DAILY_TODAY' || raw === 'WEEKLY') frequency.value = raw
+  } catch {
+    // 读不到就保持默认，不打扰
+  }
+}
+
 async function loadAll() {
   if (!senderId.value) {
     loadingFacts.value = false
     return
   }
-  await Promise.all([loadFacts(), loadProfile()])
+  await Promise.all([loadFacts(), loadProfile(), loadFrequency()])
 }
 
 onMounted(loadAll)
 watch(senderId, loadAll)
 
-async function addFact() {
+function openAdd() {
+  editing.value = null
+  form.factKey = ''
+  form.factValue = ''
+  formError.value = ''
+  confirmingDelete.value = false
+  sheetOpen.value = true
+}
+
+function openEdit(fact: ProfileFact) {
+  editing.value = fact
+  form.factKey = fact.factKey
+  form.factValue = fact.factValue
+  formError.value = ''
+  confirmingDelete.value = false
+  sheetOpen.value = true
+}
+
+async function save() {
   if (!senderId.value) return
-  if (!draft.factKey.trim() || !draft.factValue.trim()) {
-    toast.error('键和值都要填')
+  if (!form.factKey.trim() || !form.factValue.trim()) {
+    formError.value = '键和值都要填'
     return
   }
-  adding.value = true
+  saving.value = true
+  formError.value = ''
   try {
-    const created = await createFact({
-      senderId: senderId.value,
-      factKey: draft.factKey.trim(),
-      factValue: draft.factValue.trim(),
-    })
-    facts.value = [...facts.value, created]
-    draft.factKey = ''
-    draft.factValue = ''
-    toast.success('已记下这条事实')
+    if (editing.value) {
+      const updated = await updateFact(editing.value.id, {
+        factKey: form.factKey.trim(),
+        factValue: form.factValue.trim(),
+      })
+      facts.value = facts.value.map((item) => (item.id === updated.id ? updated : item))
+      toast.success('已更新')
+    } else {
+      const created = await createFact({
+        senderId: senderId.value,
+        factKey: form.factKey.trim(),
+        factValue: form.factValue.trim(),
+      })
+      facts.value = [...facts.value, created]
+      toast.success('已记下')
+    }
+    sheetOpen.value = false
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '保存失败')
+    formError.value = e instanceof Error ? e.message : '保存失败'
   } finally {
-    adding.value = false
+    saving.value = false
   }
 }
 
-function startEdit(fact: ProfileFact) {
-  editingId.value = fact.id
-  editDraft.factKey = fact.factKey
-  editDraft.factValue = fact.factValue
-  confirmingId.value = null
-}
-
-async function saveEdit(fact: ProfileFact) {
-  if (!editDraft.factKey.trim() || !editDraft.factValue.trim()) {
-    toast.error('键和值都要填')
-    return
-  }
-  try {
-    const updated = await updateFact(fact.id, {
-      factKey: editDraft.factKey.trim(),
-      factValue: editDraft.factValue.trim(),
-    })
-    facts.value = facts.value.map((item) => (item.id === updated.id ? updated : item))
-    editingId.value = null
-    toast.success('已更新')
-  } catch (e) {
-    toast.error(e instanceof Error ? e.message : '保存失败')
-  }
-}
-
-async function removeFact(fact: ProfileFact) {
+async function removeFact() {
+  const fact = editing.value
+  if (!fact) return
+  saving.value = true
   try {
     await deleteFact(fact.id)
     facts.value = facts.value.filter((item) => item.id !== fact.id)
-    confirmingId.value = null
-    toast.push('已删除')
+    sheetOpen.value = false
+    toast.push('已删除这条事实')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '删除失败')
+    formError.value = e instanceof Error ? e.message : '删除失败'
+  } finally {
+    saving.value = false
   }
 }
 
@@ -151,358 +184,407 @@ async function saveProfile() {
     savingProfile.value = false
   }
 }
+
+async function changeFrequency(value: Frequency) {
+  const previous = frequency.value
+  frequency.value = value
+  savingFrequency.value = true
+  try {
+    await putSettings({ summary_frequency: value })
+    toast.success('总结频率已更新')
+  } catch (e) {
+    frequency.value = previous
+    toast.error(e instanceof Error ? e.message : '保存失败')
+  } finally {
+    savingFrequency.value = false
+  }
+}
 </script>
 
 <template>
   <div class="page">
-    <header class="head">
-      <h1 class="display page-title">记忆</h1>
-      <p class="page-sub">
-        事实是会即时生效的硬信息；风格画像只在你手动保存或定时总结时更新，不会每句话都改动。
-      </p>
+    <header class="page-head">
+      <p class="eyebrow">记忆总控台</p>
+      <h1 class="page-title">记忆</h1>
+      <p class="page-sub">事实是即时生效的硬信息；风格画像只在手动保存或定时总结时更新。</p>
     </header>
 
-    <p v-if="!owner.loaded" class="faint loading">正在读取设置…</p>
+    <p v-if="!owner.loaded" class="faint">正在读取设置…</p>
 
     <EmptyState
       v-else-if="!senderId"
       title="还不知道你是谁"
       hint="先填上你的 QQ 号，才能查看和整理属于你的记忆。"
     >
-      <RouterLink to="/settings" class="btn btn-sm">去设置里填 QQ 号</RouterLink>
+      <RouterLink to="/more" class="btn btn-sm btn-quiet">去设置里填 QQ 号</RouterLink>
     </EmptyState>
 
     <template v-else>
       <section class="block" aria-labelledby="facts-title">
         <div class="block-head">
-          <h2 id="facts-title" class="block-title">事实</h2>
-          <span class="block-sub">比如学号、导员电话、常用地址</span>
-        </div>
-
-        <form class="add" @submit.prevent="addFact">
-          <label class="add-field">
-            <span class="add-label">键</span>
-            <input v-model="draft.factKey" type="text" placeholder="学号" maxlength="64" />
-          </label>
-          <label class="add-field">
-            <span class="add-label">值</span>
-            <input v-model="draft.factValue" type="text" placeholder="2023001" maxlength="255" />
-          </label>
-          <button type="submit" class="btn" :disabled="adding">
-            <Plus :size="15" aria-hidden="true" />
+          <h2 id="facts-title" class="section-title">事实</h2>
+          <button type="button" class="add-btn" @click="openAdd">
+            <Plus :size="15" :stroke-width="2.2" aria-hidden="true" />
             添加
           </button>
-        </form>
+        </div>
 
         <p v-if="factsError" class="notice" role="alert">
           <span>{{ factsError }}</span>
-          <button type="button" class="btn btn-sm" @click="loadFacts">重试</button>
+          <button type="button" class="btn btn-sm btn-quiet" @click="loadFacts">重试</button>
         </p>
-        <p v-else-if="loadingFacts" class="faint loading">正在读取…</p>
-        <p v-else-if="!facts.length" class="faint none">
-          还没有记录任何事实。发 QQ 说「记一下我的学号是 2023001」也会自动进来。
-        </p>
+        <Skeleton v-else-if="loadingFacts" :rows="3" />
 
-        <ul v-else class="facts">
-          <li v-for="fact in facts" :key="fact.id" class="fact">
-            <template v-if="editingId === fact.id">
-              <input v-model="editDraft.factKey" type="text" aria-label="事实的键" maxlength="64" />
-              <input v-model="editDraft.factValue" type="text" aria-label="事实的值" maxlength="255" />
-              <div class="fact-actions">
-                <button type="button" class="icon-btn ok" aria-label="保存" @click="saveEdit(fact)">
-                  <Check :size="16" aria-hidden="true" />
-                </button>
-                <button type="button" class="icon-btn" aria-label="放弃修改" @click="editingId = null">
-                  <X :size="16" aria-hidden="true" />
-                </button>
-              </div>
-            </template>
-
-            <template v-else>
+        <ul v-else-if="facts.length" class="facts">
+          <li v-for="fact in facts" :key="fact.id">
+            <button type="button" class="fact" @click="openEdit(fact)">
               <span class="fact-key">{{ fact.factKey }}</span>
               <span class="fact-value">{{ fact.factValue }}</span>
               <span class="fact-meta num">{{ formatDateTime(fact.updatedAt) }}</span>
-              <div class="fact-actions">
-                <template v-if="confirmingId === fact.id">
-                  <button type="button" class="btn btn-sm btn-danger" @click="removeFact(fact)">
-                    确定删除
-                  </button>
-                  <button type="button" class="icon-btn" aria-label="取消删除" @click="confirmingId = null">
-                    <X :size="16" aria-hidden="true" />
-                  </button>
-                </template>
-                <template v-else>
-                  <button type="button" class="icon-btn" aria-label="编辑" @click="startEdit(fact)">
-                    <Pencil :size="15" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn danger"
-                    aria-label="删除"
-                    @click="confirmingId = fact.id"
-                  >
-                    <Trash2 :size="15" aria-hidden="true" />
-                  </button>
-                </template>
-              </div>
-            </template>
+              <Pencil :size="14" class="fact-icon" aria-hidden="true" />
+            </button>
           </li>
         </ul>
+
+        <EmptyState
+          v-else
+          title="还没有记录任何事实"
+          hint="在 QQ 里说「记一下我的学号是 2023001」，或者点上面的添加。"
+        />
       </section>
 
       <section class="block" aria-labelledby="profile-title">
         <div class="block-head">
-          <h2 id="profile-title" class="block-title">风格画像</h2>
-          <span class="block-sub">
+          <h2 id="profile-title" class="section-title">风格画像</h2>
+          <span class="block-note">
             {{
               profile?.lastSummarizedAt
-                ? `上次总结于 ${formatDateTime(profile.lastSummarizedAt)}`
-                : '还没有生成过画像'
+                ? `上次总结 ${formatDateTime(profile.lastSummarizedAt)}`
+                : '还没生成过'
             }}
           </span>
         </div>
 
-        <p class="profile-note">
-          这段提示词决定机器人模仿你说话的语气。改完点保存才会生效；聊天过程中它不会被自动改写。
-        </p>
-
-        <div class="field">
-          <label for="profile-text">画像提示词</label>
+        <div class="profile-card">
           <textarea
             id="profile-text"
             v-model="profileText"
-            rows="9"
+            class="profile-text"
+            rows="7"
             placeholder="例如：说话简短，常用「行」「好嘞」，少用感叹号……"
+            aria-label="画像提示词"
           />
+          <div class="profile-foot">
+            <span class="profile-hint">这段提示词决定机器人模仿你说话的语气，改完点保存才生效。</span>
+            <button type="button" class="btn btn-sm btn-primary" :disabled="savingProfile" @click="saveProfile">
+              {{ savingProfile ? '保存中…' : '保存' }}
+            </button>
+          </div>
         </div>
-
         <p v-if="profileError" class="notice" role="alert">{{ profileError }}</p>
+      </section>
 
-        <div class="profile-actions">
-          <button type="button" class="btn btn-primary" :disabled="savingProfile" @click="saveProfile">
-            {{ savingProfile ? '保存中…' : '保存画像' }}
-          </button>
+      <section class="block" aria-labelledby="freq-title">
+        <div class="block-head">
+          <h2 id="freq-title" class="section-title">总结频率</h2>
         </div>
+        <p class="block-hint">定时任务按这个频率读消息日志、重写风格画像。聊天过程中它不会被自动改写。</p>
+        <Segmented
+          :model-value="frequency"
+          :items="FREQUENCIES"
+          label="总结频率"
+          @update:model-value="changeFrequency"
+        />
+        <p v-if="savingFrequency" class="faint">正在保存…</p>
       </section>
     </template>
+
+    <Sheet
+      :open="sheetOpen"
+      :title="editing ? '修改事实' : '添加事实'"
+      description="比如学号、导员电话、常用地址。机器人下次对话就会用上。"
+      @close="sheetOpen = false"
+    >
+      <div class="form">
+        <div class="frow">
+          <label class="frow-label" for="fact-key">键</label>
+          <input
+            id="fact-key"
+            v-model="form.factKey"
+            class="frow-input"
+            type="text"
+            placeholder="学号"
+            maxlength="64"
+          />
+        </div>
+        <div class="frow">
+          <label class="frow-label" for="fact-value">值</label>
+          <input
+            id="fact-value"
+            v-model="form.factValue"
+            class="frow-input"
+            type="text"
+            placeholder="2023001"
+            maxlength="255"
+          />
+        </div>
+        <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
+
+        <div v-if="editing" class="delete-zone">
+          <button
+            v-if="!confirmingDelete"
+            type="button"
+            class="danger-link"
+            @click="confirmingDelete = true"
+          >
+            <Trash2 :size="13" aria-hidden="true" />
+            删除这条事实
+          </button>
+          <div v-else class="confirm">
+            <p>删除后，机器人下次对话就不会再用它。确定吗？</p>
+            <div class="confirm-actions">
+              <button type="button" class="btn btn-sm btn-ghost" @click="confirmingDelete = false">
+                算了
+              </button>
+              <button type="button" class="btn btn-sm btn-danger" :disabled="saving" @click="removeFact">
+                确定删除
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <button type="button" class="btn btn-ghost" @click="sheetOpen = false">取消</button>
+        <button type="button" class="btn btn-on-dark" :disabled="saving" @click="save">
+          {{ saving ? '保存中…' : '保存' }}
+        </button>
+      </template>
+    </Sheet>
   </div>
 </template>
 
 <style scoped>
-.head {
-  margin-bottom: 24px;
-}
-
-.page-title {
-  font-size: 34px;
-  line-height: 1.15;
-}
-
-.page-sub {
-  max-width: 62ch;
-  margin-top: 6px;
-  color: var(--ink-soft);
-  font-size: 13.5px;
-  line-height: 1.65;
-}
-
 .block + .block {
-  margin-top: 34px;
-  padding-top: 26px;
-  border-top: 1px solid var(--line);
+  margin-top: 30px;
 }
 
 .block-head {
   display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 14px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
-.block-title {
-  font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 400;
+.block-note {
+  color: var(--ink-3);
+  font-size: 11.5px;
 }
 
-.block-sub {
-  color: var(--ink-soft);
+.block-hint {
+  margin-bottom: 12px;
+  color: var(--ink-3);
   font-size: 12.5px;
+  line-height: 1.6;
 }
 
-.add {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 10px;
-  max-width: 900px;
-  margin-bottom: 16px;
-}
-
-.add-field {
-  display: grid;
+.add-btn {
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--card);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
 }
 
-.add-label {
-  color: var(--ink-soft);
-  font-size: 12px;
-}
-
-.add input,
-.fact input {
-  min-height: 44px;
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  background: var(--sheet);
-  font-size: 14.5px;
-}
-
-.add input:focus,
-.fact input:focus {
-  border-color: var(--signal);
-}
+/* ── 事实列表 ─────────────────────────────────────────────── */
 
 .facts {
-  max-width: 900px;
   margin: 0;
   padding: 0;
   list-style: none;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sheet);
-  background: var(--sheet);
+  border-radius: var(--r-lg);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.facts > li + li {
+  border-top: 1px solid var(--hairline);
 }
 
 .fact {
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 14px;
-  font-size: 14.5px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  width: 100%;
+  padding: 13px 15px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
 }
 
-.facts li + li {
-  border-top: 1px dashed var(--line-soft);
+.fact:active {
+  background: var(--surface);
 }
 
 .fact-key {
-  color: var(--ink-soft);
-  font-size: 13.5px;
+  grid-column: 1;
+  color: var(--ink-3);
+  font-size: 11.5px;
 }
 
 .fact-value {
+  grid-column: 1;
+  font-size: 15px;
   overflow-wrap: anywhere;
 }
 
 .fact-meta {
-  color: var(--ink-faint);
-  font-size: 12px;
-  white-space: nowrap;
+  grid-column: 1;
+  color: var(--ink-3);
+  font-size: 11px;
 }
 
-.fact-actions {
+.fact-icon {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  align-self: center;
+  color: var(--ink-3);
+}
+
+/* ── 风格画像 ─────────────────────────────────────────────── */
+
+.profile-card {
+  border-radius: var(--r-lg);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.profile-text {
+  width: 100%;
+  padding: 15px;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.65;
+  resize: none;
+  outline: none;
+}
+
+.profile-text::placeholder {
+  color: var(--ink-3);
+}
+
+.profile-foot {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 12px;
+  padding: 10px 12px 12px 15px;
+  border-top: 1px solid var(--hairline);
 }
 
-.icon-btn {
+.profile-hint {
+  flex: 1;
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ── 抽屉表单 ─────────────────────────────────────────────── */
+
+.form {
   display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border: 0;
-  border-radius: 2px;
-  background: transparent;
-  color: var(--ink-faint);
-  cursor: pointer;
-  transition: background-color 0.15s var(--ease), color 0.15s var(--ease);
+  gap: 10px;
 }
 
-.icon-btn:hover {
-  background: rgba(22, 35, 44, 0.06);
+.frow {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: #fff;
   color: var(--ink);
 }
 
-.icon-btn.ok:hover {
-  background: var(--u3-wash);
-  color: var(--u3);
+.frow-label {
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-weight: 500;
 }
 
-.icon-btn.danger:hover {
-  background: var(--danger-wash);
-  color: var(--danger);
+.frow-input {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 15.5px;
+  outline: none;
 }
 
-.none {
-  padding: 10px 0;
+.frow-input::placeholder {
+  color: var(--ink-3);
 }
 
-.loading {
-  padding: 10px 0;
+.form-error {
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: rgba(191, 58, 43, 0.18);
+  color: #ffb4ab;
+  font-size: 12.5px;
+}
+
+.delete-zone {
+  margin-top: 6px;
+}
+
+.danger-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 140, 128, 0.9);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.confirm {
+  padding: 14px;
+  border-radius: var(--r-md);
+  background: rgba(191, 58, 43, 0.16);
+  color: #ffc3ba;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .notice {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 12px;
   padding: 12px 14px;
-  border-left: 2px solid var(--danger);
-  border-radius: 0 2px 2px 0;
+  border-radius: var(--r-lg);
   background: var(--danger-wash);
   color: var(--danger);
-  font-size: 13.5px;
-}
-
-.profile-note {
-  max-width: 62ch;
-  margin-bottom: 12px;
-  color: var(--ink-soft);
   font-size: 13px;
-  line-height: 1.65;
-}
-
-.block .field {
-  max-width: 760px;
-}
-
-.profile-actions {
-  margin-top: 14px;
-}
-
-@media (max-width: 760px) {
-  .page-title {
-    font-size: 29px;
-  }
-
-  .add {
-    grid-template-columns: 1fr;
-  }
-
-  .fact {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 4px 12px;
-  }
-
-  .fact-key {
-    grid-column: 1;
-  }
-
-  .fact-value {
-    grid-column: 1;
-  }
-
-  .fact-meta {
-    grid-column: 1;
-  }
-
-  .fact-actions {
-    grid-column: 2;
-    grid-row: 1 / span 3;
-  }
 }
 </style>

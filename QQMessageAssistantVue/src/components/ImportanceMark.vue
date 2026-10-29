@@ -1,32 +1,32 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { importanceTone } from '@/utils/datetime'
+import { importanceLabel } from '@/utils/meta'
 
-const props = defineProps<{ importance: number }>()
+const props = defineProps<{ importance: number; inverse?: boolean }>()
 
-const tone = computed(() => importanceTone(props.importance))
+const label = computed(() => importanceLabel(props.importance))
 </script>
 
 <template>
   <span
-    class="importance"
-    :class="tone.cls"
-    :aria-label="`重要性 ${importance} 级：${tone.label}`"
+    class="imp"
+    :class="{ inverse }"
+    :aria-label="`重要性 ${importance} 级：${label}`"
   >
     <span class="bars" aria-hidden="true">
       <i v-for="n in 5" :key="n" :class="{ on: n <= importance }" />
     </span>
-    <span class="label">{{ tone.label }}</span>
+    <span class="label">{{ label }}</span>
   </span>
 </template>
 
 <style scoped>
-.importance {
+.imp {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  color: var(--u-low);
-  font-size: 12px;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: 11.5px;
   white-space: nowrap;
 }
 
@@ -34,40 +34,40 @@ const tone = computed(() => importanceTone(props.importance))
   display: inline-flex;
   align-items: flex-end;
   gap: 2px;
-  height: 11px;
+  height: 10px;
 }
 
 .bars i {
   display: block;
-  width: 3px;
-  height: 7px;
+  width: 2.5px;
+  height: 6px;
   border-radius: 1px;
-  background: var(--line);
+  background: var(--hairline);
+  transition: background-color var(--dur) var(--ease);
 }
 
 .bars i:nth-child(4),
 .bars i:nth-child(5) {
-  height: 11px;
+  height: 10px;
 }
 
 .bars i.on {
-  background: currentColor;
+  background: var(--ink);
 }
 
 .label {
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 
-.tone-u5 {
-  color: var(--u5);
+.imp.inverse {
+  color: var(--on-dark-2);
 }
-.tone-u4 {
-  color: var(--u4);
+
+.imp.inverse .bars i {
+  background: rgba(255, 255, 255, 0.22);
 }
-.tone-u3 {
-  color: var(--u3);
-}
-.tone-low {
-  color: var(--u-low);
+
+.imp.inverse .bars i.on {
+  background: #fff;
 }
 </style>

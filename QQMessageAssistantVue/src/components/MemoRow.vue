@@ -1,194 +1,206 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Check } from 'lucide-vue-next'
-import ImportanceMark from '@/components/ImportanceMark.vue'
-import StatusPill from '@/components/StatusPill.vue'
+import { categoryIcon, importanceLabel } from '@/utils/meta'
 import { formatMonthDay, formatTime, parseLocal, relativeUntil } from '@/utils/datetime'
 import type { Memo } from '@/api/types'
 
-const props = defineProps<{ memo: Memo; showDate?: boolean }>()
+const props = defineProps<{
+  memo: Memo
+  /** 用深色卡突出「接下来这一件」 */
+  featured?: boolean
+  showDate?: boolean
+}>()
 
 const emit = defineEmits<{ open: [memo: Memo]; done: [memo: Memo] }>()
 
 const due = computed(() => parseLocal(props.memo.dueTime))
-const timeText = computed(() => (due.value ? formatTime(due.value) : '未定'))
-const dateText = computed(() => (due.value ? formatMonthDay(due.value) : ''))
-const isClosed = computed(() => props.memo.status === 'DONE' || props.memo.status === 'CANCELLED')
+const timeText = computed(() => (due.value ? formatTime(due.value) : ''))
+const icon = computed(() => categoryIcon(props.memo.category))
+const isClosed = computed(
+  () => props.memo.status === 'DONE' || props.memo.status === 'CANCELLED',
+)
 const isLate = computed(() => props.memo.status === 'OVERDUE')
-const remaining = computed(() => (isClosed.value ? '' : relativeUntil(props.memo.dueTime)))
+
+const metaText = computed(() => {
+  const parts: string[] = []
+  if (props.showDate && due.value) parts.push(formatMonthDay(due.value))
+  if (props.memo.category) parts.push(props.memo.category)
+  if (isClosed.value) {
+    parts.push(props.memo.status === 'DONE' ? '已完成' : '已取消')
+  } else if (due.value) {
+    parts.push(relativeUntil(props.memo.dueTime))
+  } else {
+    parts.push('没有截止时间')
+  }
+  return parts.join(' · ')
+})
 </script>
 
 <template>
-  <li class="row" :class="{ 'is-closed': isClosed, 'is-late': isLate }">
-    <div class="gutter">
-      <span class="num time">{{ timeText }}</span>
-      <span v-if="showDate && due" class="date">{{ dateText }}</span>
-      <ImportanceMark :importance="memo.importance" />
-    </div>
-
-    <button type="button" class="entry" @click="emit('open', memo)">
-      <span class="title display">{{ memo.title }}</span>
-      <span class="meta">
-        <span v-if="memo.category" class="cat">{{ memo.category }}</span>
-        <span v-if="remaining" class="remain" :class="{ late: isLate }">{{ remaining }}</span>
-        <span v-else-if="!due && !isClosed" class="remain">没有截止时间</span>
-      </span>
+  <li class="tl-item">
+    <button
+      type="button"
+      class="tl-dot"
+      :class="{ done: isClosed }"
+      :aria-label="isClosed ? `「${memo.title}」已结束` : `标记完成：${memo.title}`"
+      :disabled="isClosed"
+      @click="emit('done', memo)"
+    >
+      <Check v-if="isClosed" :size="12" :stroke-width="3" aria-hidden="true" />
     </button>
 
-    <div class="trail">
-      <StatusPill :status="memo.status" />
-      <button
-        v-if="!isClosed"
-        type="button"
-        class="done"
-        aria-label="标记完成"
-        :title="`标记完成：${memo.title}`"
-        @click="emit('done', memo)"
-      >
-        <Check :size="17" aria-hidden="true" />
-      </button>
-    </div>
+    <button
+      type="button"
+      class="memo"
+      :class="{ featured, closed: isClosed }"
+      @click="emit('open', memo)"
+    >
+      <span class="memo-icon" aria-hidden="true">
+        <component :is="icon" :size="16" :stroke-width="1.8" />
+      </span>
+
+      <span class="memo-main">
+        <span class="memo-title">{{ memo.title }}</span>
+        <span class="memo-meta">
+          <span :class="{ late: isLate }">{{ metaText }}</span>
+          <span v-if="!isClosed" class="memo-imp">{{ importanceLabel(memo.importance) }}</span>
+        </span>
+      </span>
+
+      <span v-if="timeText" class="memo-time num">{{ timeText }}</span>
+    </button>
   </li>
 </template>
 
 <style scoped>
-.row {
+.tl-item {
   display: grid;
-  grid-template-columns: 78px minmax(0, 1fr) auto;
-  align-items: stretch;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
 }
 
-.gutter {
+.tl-dot {
   display: grid;
-  align-content: start;
-  gap: 3px;
-  padding: 16px 16px 12px 0;
-  border-right: 1px solid var(--line);
-  text-align: right;
-  position: relative;
-}
-
-.gutter::after {
-  content: '';
-  position: absolute;
-  top: 23px;
-  right: -3px;
-  width: 5px;
-  height: 5px;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1.5px solid var(--dot);
   border-radius: 50%;
-  background: var(--line);
+  background: var(--bg);
+  color: #fff;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
 
-.time {
-  font-size: 15px;
-  color: var(--ink);
+.tl-dot:active:not(:disabled) {
+  transform: scale(0.88);
 }
 
-.is-late .time {
-  color: var(--u5);
+.tl-dot.done {
+  border-color: var(--card-inverse);
+  background: var(--card-inverse);
+  cursor: default;
 }
 
-.date {
-  font-size: 11.5px;
-  color: var(--ink-faint);
-}
-
-.entry {
+.memo {
   display: grid;
-  gap: 5px;
-  min-width: 0;
-  padding: 14px 14px 12px 18px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 12px 14px;
   border: 0;
-  background: transparent;
+  border-radius: var(--r-lg);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.15s var(--ease);
+  transition: transform var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
 }
 
-.entry:hover {
-  background: rgba(22, 35, 44, 0.035);
+.memo:active {
+  transform: scale(0.985);
 }
 
-.title {
-  font-size: 17px;
+.memo.featured {
+  background: var(--card-inverse);
+  color: var(--on-dark);
+}
+
+.memo-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink-2);
+  flex: none;
+}
+
+.featured .memo-icon {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.memo-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.memo-title {
+  font-size: 15px;
+  font-weight: 500;
   line-height: 1.35;
-  color: var(--ink);
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 
-.is-closed .title {
-  color: var(--ink-soft);
-  text-decoration: line-through;
-  text-decoration-color: var(--line);
+.memo.closed .memo-title {
+  color: var(--ink-3);
 }
 
-.meta {
+.memo-meta {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-height: 18px;
-}
-
-.cat {
-  padding: 0 6px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  color: var(--ink-soft);
+  gap: 6px;
+  color: var(--ink-3);
   font-size: 11.5px;
-  line-height: 16px;
+  line-height: 1.4;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.remain {
+.memo-meta .late {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.memo-imp {
+  padding-left: 6px;
+  border-left: 1px solid var(--hairline);
+}
+
+.featured .memo-meta {
+  color: var(--on-dark-3);
+}
+
+.memo-time {
+  align-self: start;
+  padding-top: 1px;
+  color: var(--ink-3);
   font-size: 12.5px;
-  color: var(--ink-soft);
+  letter-spacing: 0;
 }
 
-.remain.late {
-  color: var(--u5);
-  font-weight: 600;
-}
-
-.trail {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 14px 6px 12px 0;
-}
-
-.done {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border: 0;
-  border-radius: 2px;
-  background: transparent;
-  color: var(--ink-faint);
-  cursor: pointer;
-  transition: background-color 0.15s var(--ease), color 0.15s var(--ease);
-}
-
-.done:hover {
-  background: var(--u3-wash);
-  color: var(--u3);
-}
-
-@media (max-width: 900px) {
-  .row {
-    grid-template-columns: 58px minmax(0, 1fr) auto;
-  }
-
-  .gutter {
-    padding-right: 12px;
-  }
-
-  .entry {
-    padding: 14px 8px 12px 12px;
-  }
-
-  .title {
-    font-size: 16px;
-  }
+.featured .memo-time {
+  color: var(--on-dark-2);
 }
 </style>

@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { BellOff, CalendarClock, Pencil } from 'lucide-vue-next'
-import Modal from '@/components/Modal.vue'
+import { BellOff } from 'lucide-vue-next'
+import Sheet from '@/components/Sheet.vue'
 import ImportanceMark from '@/components/ImportanceMark.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import { listReminders, patchMemo } from '@/api/memos'
 import type { Memo, MemoReminder } from '@/api/types'
 import { useToast } from '@/composables/useToast'
-import { formatDateTime, memoStatusMeta } from '@/utils/datetime'
+import { formatDateTime } from '@/utils/datetime'
+import { memoStatusMeta, reminderStatusMeta } from '@/utils/meta'
 
 const props = defineProps<{ open: boolean; memo: Memo | null }>()
 
@@ -35,20 +36,14 @@ const OFFSET_LABELS: Record<string, string> = {
 const isClosed = computed(
   () => props.memo?.status === 'DONE' || props.memo?.status === 'CANCELLED',
 )
-const pendingReminders = computed(() =>
-  reminders.value.filter((reminder) => reminder.status === 'PENDING'),
+
+const statusMeta = computed(() => memoStatusMeta(props.memo?.status ?? ''))
+const pendingCount = computed(
+  () => reminders.value.filter((reminder) => reminder.status === 'PENDING').length,
 )
 
 function offsetLabel(label: string) {
   return OFFSET_LABELS[label] ?? label
-}
-
-function reminderState(reminder: MemoReminder) {
-  if (reminder.status === 'SENT') {
-    return `已发送 ${formatDateTime(reminder.sentAt)}`
-  }
-  if (reminder.status === 'CANCELLED') return '已取消'
-  return '待发送'
 }
 
 watch(
@@ -74,7 +69,7 @@ async function markDone() {
   busy.value = true
   try {
     const updated = await patchMemo(memo.id, { status: 'DONE' })
-    toast.success('已标记完成，剩下的提醒一并取消')
+    toast.success('已完成，剩下的提醒一并取消')
     emit('changed', updated)
     emit('close')
   } catch (error) {
@@ -90,7 +85,7 @@ async function cancelMemo() {
   busy.value = true
   try {
     const updated = await patchMemo(memo.id, { status: 'CANCELLED' })
-    toast.success('已取消这条备忘')
+    toast.push('已取消这条备忘')
     emit('changed', updated)
     emit('close')
   } catch (error) {
@@ -102,101 +97,98 @@ async function cancelMemo() {
 </script>
 
 <template>
-  <Modal
+  <Sheet
     :open="open"
     :title="memo?.title ?? '备忘'"
-    width="600px"
+    :description="memo?.category ? `${memo.category} · 记录于 ${formatDateTime(memo.createdAt)}` : undefined"
     @close="emit('close')"
   >
     <template v-if="memo">
       <div class="chips">
-        <ImportanceMark :importance="memo.importance" />
-        <span v-if="memo.category" class="cat">{{ memo.category }}</span>
-        <StatusPill :status="memo.status" />
+        <ImportanceMark :importance="memo.importance" inverse />
+        <StatusPill :label="statusMeta.label" :tone="statusMeta.tone" />
       </div>
 
       <p v-if="memo.content" class="content">{{ memo.content }}</p>
 
-      <dl class="facts">
+      <div class="facts">
         <div class="fact">
-          <dt>截止时间</dt>
-          <dd>{{ memo.dueTime ? formatDateTime(memo.dueTime) : '未设置' }}</dd>
+          <span class="fact-label">截止时间</span>
+          <span class="fact-value">{{ memo.dueTime ? formatDateTime(memo.dueTime) : '未设置' }}</span>
         </div>
         <div class="fact">
-          <dt>记录于</dt>
-          <dd>{{ formatDateTime(memo.createdAt) }}</dd>
+          <span class="fact-label">状态</span>
+          <span class="fact-value">{{ statusMeta.label }}</span>
         </div>
         <div class="fact">
-          <dt>状态</dt>
-          <dd>{{ memoStatusMeta(memo.status).label }}</dd>
+          <span class="fact-label">记录于</span>
+          <span class="fact-value">{{ formatDateTime(memo.createdAt) }}</span>
         </div>
-      </dl>
+      </div>
 
       <section class="plan" aria-labelledby="plan-title">
         <h3 id="plan-title" class="plan-title">
-          <CalendarClock :size="16" aria-hidden="true" />
           <span>提醒计划</span>
-          <span v-if="pendingReminders.length" class="faint">
-            还剩 {{ pendingReminders.length }} 次
-          </span>
+          <span v-if="pendingCount" class="plan-count num">还剩 {{ pendingCount }} 次</span>
         </h3>
 
-        <p v-if="loadingReminders" class="faint">正在读取…</p>
-        <p v-else-if="!reminders.length" class="none">
-          <BellOff :size="15" aria-hidden="true" />
+        <p v-if="loadingReminders" class="plan-empty">正在读取…</p>
+        <p v-else-if="!reminders.length" class="plan-empty">
+          <BellOff :size="14" aria-hidden="true" />
           <span>没有提醒：未设置截止时间，或重要性为 1 级。</span>
         </p>
-        <ol v-else class="reminders">
+        <ul v-else class="reminders">
           <li
             v-for="reminder in reminders"
             :key="reminder.id"
             class="reminder"
             :class="{ off: reminder.status === 'CANCELLED' }"
           >
-            <span class="offset">{{ offsetLabel(reminder.offsetLabel) }}</span>
-            <span class="num at">{{ formatDateTime(reminder.remindAt) }}</span>
-            <span class="state">{{ reminderState(reminder) }}</span>
+            <span class="reminder-offset">{{ offsetLabel(reminder.offsetLabel) }}</span>
+            <span class="reminder-at num">{{ formatDateTime(reminder.remindAt) }}</span>
+            <span class="reminder-state">{{ reminderStatusMeta(reminder.status).label }}</span>
           </li>
-        </ol>
+        </ul>
       </section>
 
       <div v-if="confirmingCancel && !isClosed" class="confirm" role="alert">
-        <span>取消后不会再提醒，这条备忘会留档。</span>
+        <p>取消后不会再提醒，这条备忘会留档。</p>
         <div class="confirm-actions">
-          <button type="button" class="btn btn-sm" @click="confirmingCancel = false">算了</button>
+          <button type="button" class="btn btn-sm btn-ghost" @click="confirmingCancel = false">
+            算了
+          </button>
           <button type="button" class="btn btn-sm btn-danger" :disabled="busy" @click="cancelMemo">
             确定取消
           </button>
         </div>
       </div>
 
-      <div class="actions">
-        <button
-          v-if="!isClosed"
-          type="button"
-          class="btn btn-ghost link-danger"
-          @click="confirmingCancel = true"
-        >
-          取消备忘
-        </button>
-        <span class="spacer" />
-        <button type="button" class="btn" @click="emit('close')">关闭</button>
-        <button type="button" class="btn" :disabled="busy" @click="emit('edit', memo)">
-          <Pencil :size="15" aria-hidden="true" />
-          编辑
-        </button>
-        <button
-          v-if="!isClosed"
-          type="button"
-          class="btn btn-primary"
-          :disabled="busy"
-          @click="markDone"
-        >
-          标记完成
-        </button>
-      </div>
+      <button
+        v-else-if="!isClosed"
+        type="button"
+        class="danger-link"
+        @click="confirmingCancel = true"
+      >
+        取消这条备忘
+      </button>
     </template>
-  </Modal>
+
+    <template #footer>
+      <button type="button" class="btn btn-ghost" :disabled="busy" @click="memo && emit('edit', memo)">
+        编辑
+      </button>
+      <button
+        v-if="!isClosed"
+        type="button"
+        class="btn btn-on-dark"
+        :disabled="busy"
+        @click="markDone"
+      >
+        标记完成
+      </button>
+      <button v-else type="button" class="btn btn-on-dark" @click="emit('close')">关闭</button>
+    </template>
+  </Sheet>
 </template>
 
 <style scoped>
@@ -205,165 +197,154 @@ async function cancelMemo() {
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 16px;
-}
-
-.cat {
-  padding: 0 7px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  color: var(--ink-soft);
-  font-size: 12px;
-  line-height: 18px;
+  margin-bottom: 14px;
 }
 
 .content {
-  margin-bottom: 18px;
-  padding-left: 13px;
-  border-left: 2px solid var(--line);
-  color: var(--ink);
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--on-dark);
   font-size: 14.5px;
-  line-height: 1.7;
+  line-height: 1.65;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .facts {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: #fff;
+}
+
+.fact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 12px;
-  margin: 0 0 22px;
-  padding: 14px 0;
-  border-top: 1px solid var(--line-soft);
-  border-bottom: 1px solid var(--line-soft);
+  padding: 12px 14px;
+  color: var(--ink);
 }
 
-.fact dt {
-  color: var(--ink-faint);
-  font-size: 12px;
+.fact + .fact {
+  border-top: 1px solid var(--hairline);
 }
 
-.fact dd {
-  margin: 2px 0 0;
-  font-size: 14px;
+.fact-label {
+  color: var(--ink-3);
+  font-size: 12.5px;
+  flex: none;
+}
+
+.fact-value {
+  font-size: 13.5px;
+  text-align: right;
 }
 
 .plan {
-  margin-bottom: 20px;
+  margin-top: 18px;
 }
 
 .plan-title {
   display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 10px;
-  color: var(--ink-soft);
-  font-size: 13px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: var(--on-dark-2);
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
-.plan-title .faint {
-  margin-left: auto;
+.plan-count {
   font-weight: 400;
+  color: var(--on-dark-3);
 }
 
-.none {
+.plan-empty {
   display: flex;
   align-items: center;
-  gap: 7px;
-  color: var(--ink-soft);
-  font-size: 13.5px;
+  gap: 6px;
+  color: var(--on-dark-3);
+  font-size: 12.5px;
 }
 
 .reminders {
+  display: grid;
+  gap: 1px;
   margin: 0;
   padding: 0;
   list-style: none;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: #fff;
 }
 
 .reminder {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 14px;
-  align-items: baseline;
-  padding: 9px 0;
-  border-bottom: 1px dashed var(--line-soft);
-  font-size: 13.5px;
-}
-
-.reminder:last-child {
-  border-bottom: 0;
-}
-
-.reminder.off {
-  color: var(--ink-faint);
-  text-decoration: line-through;
-  text-decoration-color: var(--line);
-}
-
-.offset {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding: 10px 14px;
   color: var(--ink);
 }
 
-.reminder.off .offset {
-  color: var(--ink-faint);
+.reminder + .reminder {
+  border-top: 1px solid var(--hairline);
 }
 
-.at {
-  color: var(--ink-soft);
+.reminder-offset {
+  font-size: 13.5px;
 }
 
-.state {
-  color: var(--ink-faint);
+.reminder-at {
+  color: var(--ink-2);
   font-size: 12.5px;
+  text-align: right;
+}
+
+.reminder-state {
+  grid-column: 1 / -1;
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+
+.reminder.off {
+  color: var(--ink-3);
+}
+
+.reminder.off .reminder-offset,
+.reminder.off .reminder-at {
+  color: var(--ink-3);
+  text-decoration: line-through;
 }
 
 .confirm {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 14px;
-  padding: 12px 14px;
-  border-left: 2px solid var(--danger);
-  border-radius: 0 2px 2px 0;
-  background: var(--danger-wash);
-  font-size: 13.5px;
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: var(--r-md);
+  background: rgba(191, 58, 43, 0.16);
+  color: #ffc3ba;
+  font-size: 12.5px;
+  line-height: 1.55;
 }
 
 .confirm-actions {
   display: flex;
+  justify-content: flex-end;
   gap: 8px;
+  margin-top: 10px;
 }
 
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding-top: 4px;
-}
-
-.link-danger {
-  color: var(--danger);
-}
-
-.spacer {
-  flex: 1;
-}
-
-@media (max-width: 560px) {
-  .facts {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .reminder {
-    grid-template-columns: 1fr;
-    gap: 2px;
-  }
-
-  .actions {
-    flex-wrap: wrap;
-  }
+.danger-link {
+  margin-top: 18px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 140, 128, 0.9);
+  font-size: 12.5px;
+  cursor: pointer;
 }
 </style>
