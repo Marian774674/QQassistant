@@ -2,10 +2,12 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { ArrowLeft, ArrowDownLeft, ArrowUpRight } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import Segmented from '@/components/Segmented.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import { listMessageLogs } from '@/api/logs'
 import type { LogDirection, MessageLog } from '@/api/types'
+import { useRefresh } from '@/composables/useRefresh'
 import { dayKey, formatHeadDate, formatTime, parseLocal } from '@/utils/datetime'
 
 type Filter = 'ALL' | 'IN' | 'OUT'
@@ -49,6 +51,8 @@ function loadMore() {
   limit.value = next
   void load(true)
 }
+
+useRefresh(() => load())
 
 const canLoadMore = computed(() => logs.value.length >= limit.value && limit.value < 500)
 
@@ -109,12 +113,9 @@ const tabs = computed(() => [
     <Segmented v-model="filter" :items="tabs" label="按方向筛选" />
 
     <div class="body">
-      <p v-if="error" class="notice" role="alert">
-        <span>{{ error }}</span>
-        <button type="button" class="btn btn-sm btn-quiet" @click="load()">重试</button>
-      </p>
+      <ErrorState v-if="error" :message="error" hint="也可以下拉重试。" @retry="load()" />
 
-      <Skeleton v-else-if="loading" :rows="5" />
+      <Skeleton v-else-if="loading" :rows="5" variant="log" />
 
       <template v-else-if="groups.length">
         <section v-for="group in groups" :key="group.key" class="group">
@@ -293,15 +294,4 @@ const tabs = computed(() => [
   text-align: center;
 }
 
-.notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: var(--r-lg);
-  background: var(--danger-wash);
-  color: var(--danger);
-  font-size: 13px;
-}
 </style>

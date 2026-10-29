@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ArrowLeft, Check } from 'lucide-vue-next'
+import ErrorState from '@/components/ErrorState.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import { getSettings } from '@/api/settings'
 import { loadOwner, saveOwner, useOwner } from '@/composables/useOwner'
+import { useRefresh } from '@/composables/useRefresh'
 import { useToast } from '@/composables/useToast'
 
 const owner = useOwner()
@@ -45,6 +47,8 @@ onMounted(async () => {
   if (!owner.loaded) await loadOwner()
   await loadSettings()
 })
+
+useRefresh(loadSettings)
 
 async function saveMine() {
   const raw = qqInput.value.trim()
@@ -145,10 +149,12 @@ const otherSettings = computed(() =>
       <h2 class="block-title">后端配置</h2>
       <p class="block-hint">只读，改动请走后端配置。</p>
 
-      <p v-if="settingsError" class="notice" role="alert">
-        <span>{{ settingsError }}</span>
-        <button type="button" class="btn btn-sm btn-quiet" @click="loadSettings">重试</button>
-      </p>
+      <ErrorState
+        v-if="settingsError"
+        :message="settingsError"
+        hint="也可以下拉重试。"
+        @retry="loadSettings"
+      />
       <Skeleton v-else-if="loadingSettings" :rows="2" />
       <p v-else-if="!otherSettings.length" class="faint">没有其他设置项。</p>
 
@@ -230,15 +236,4 @@ const otherSettings = computed(() =>
   text-align: center;
 }
 
-.notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: var(--r-lg);
-  background: var(--danger-wash);
-  color: var(--danger);
-  font-size: 13px;
-}
 </style>

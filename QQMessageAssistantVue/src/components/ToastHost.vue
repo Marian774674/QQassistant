@@ -85,7 +85,7 @@ const toast = useToast()
 
 .toast-enter-active,
 .toast-leave-active {
-  transition: opacity 0.22s var(--ease), transform 0.22s var(--ease);
+  transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
 }
 
 .toast-enter-from,
