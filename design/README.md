@@ -8,7 +8,7 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 | [`prompt_init.md`](./prompt_init.md) | 项目原始纲领：组件、5 大功能、规则、5 阶段工作流 | 想了解项目缘起与总目标 |
 | [`architecture.md`](./architecture.md) | 分层架构、**职责红线**、**三个贯穿全局的抽象** | 写任何代码前先看边界 |
 | [`optimization_schemes.md`](./optimization_schemes.md) | 五大优化方案定稿（分工/数据流/状态机/决策记录） | 实现某个功能时的设计出处 |
-| [`database_schema.md`](./database_schema.md) | 11 张表的字段级结构 + 可执行 DDL | 建表、写实体/Mapper 时 |
+| [`database_schema.md`](./database_schema.md) | 12 张表的字段级结构 + 可执行 DDL | 建表、写实体/Mapper 时 |
 | [`api_contract.md`](./api_contract.md) | 全部对外接口契约（请求/响应/错误） | 写 Controller / 对接时 |
 | [`agent_contract.md`](./agent_contract.md) | **Dify ↔ LangBot 契约**：事件输入、决策 envelope、动作语义、降级规则 | 改 Dify Chatflow / 插件分发前必读 |
 | [`dify_chatflow.md`](./dify_chatflow.md) | Dify Chatflow 节点图、会话变量、提示词、手工验收清单 | 搭建/调整 Dify 应用时 |
@@ -30,7 +30,7 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 
 | 阶段 | 内容 | 状态 | 文档 |
 |---|---|---|---|
-| ① 架构 + 表结构 | 分层、红线、三个抽象、11 张表 DDL | ✅ 完成 | `architecture.md` / `optimization_schemes.md` / `database_schema.md` |
+| ① 架构 + 表结构 | 分层、红线、三个抽象、12 张表 DDL | ✅ 完成 | `architecture.md` / `optimization_schemes.md` / `database_schema.md` |
 | ② Spring Boot API | 27 个对外端点 + 调度 + LangBot 客户端 | ✅ 代码完成（30/30 测试绿）；5 项加固待做 | `api_contract.md` + `plans/2026-10-18-phase2-hardening.md` |
 | ③ LangBot 插件 | 收发 / 拦截 / 拟人延迟 / 文件 I/O / 主动发送 | ✅ 3-1/3-2 已落地；0.2.23 Dify-Centric 执行器重构；0.2.24 文件镜像补齐会话/缺口 + 草稿目标；3-3 发送桥已实现（待真机联调） | `plans/2026-10-18-phase3-*.md` |
 | ④ Dify 工作流 | 意图识别 / 对话状态 / 文件决策 / 风格总结 | 🟡 Chatflow + 文件 Workflow 已搭好；待真机联调 | `agent_contract.md` / `dify_chatflow.md` |

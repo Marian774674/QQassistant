@@ -95,6 +95,11 @@ class SpringClient:
             params["status"] = status
         return await self._request("GET", "/api/memos", params=params)
 
+    async def list_open_memos(self, sender_id, limit=20):
+        """未终结备忘的紧凑摘要，喂给 Dify 让它能指认「改哪一条」。"""
+        return await self._request("GET", "/api/memos/open",
+                                   params={"senderId": sender_id, "limit": limit})
+
     async def upsert_fact(self, sender_id, fact_key, fact_value, confidence):
         return await self._request("PUT", "/api/profile/facts",
                                    json={

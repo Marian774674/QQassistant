@@ -4,11 +4,11 @@ import { BellOff } from 'lucide-vue-next'
 import Sheet from '@/components/Sheet.vue'
 import ImportanceMark from '@/components/ImportanceMark.vue'
 import StatusPill from '@/components/StatusPill.vue'
-import { listReminders, patchMemo } from '@/api/memos'
-import type { Memo, MemoReminder } from '@/api/types'
+import { listMemoHistory, listReminders, patchMemo } from '@/api/memos'
+import type { Memo, MemoChangeLog, MemoReminder } from '@/api/types'
 import { useToast } from '@/composables/useToast'
 import { formatDateTime } from '@/utils/datetime'
-import { memoStatusMeta, reminderStatusMeta } from '@/utils/meta'
+import { importanceLabel, memoStatusMeta, reminderStatusMeta } from '@/utils/meta'
 
 const props = defineProps<{
   open: boolean
@@ -27,6 +27,8 @@ const toast = useToast()
 
 const reminders = ref<MemoReminder[]>([])
 const loadingReminders = ref(false)
+const history = ref<MemoChangeLog[]>([])
+const loadingHistory = ref(false)
 const busy = ref(false)
 const confirmingCancel = ref(false)
 
@@ -51,19 +53,96 @@ function offsetLabel(label: string) {
   return OFFSET_LABELS[label] ?? label
 }
 
+/* ── 变更记录 ───────────────────────────────────────────────
+ * 后端存的是备忘快照 JSON（beforeJson / afterJson），差异在这里算，
+ * 界面只说「改了什么」，不把原始 JSON 摆给用户看。 */
+
+interface MemoSnapshot {
+  title?: unknown
+  content?: unknown
+  importance?: unknown
+  category?: unknown
+  dueTime?: unknown
+  status?: unknown
+}
+
+function snapshot(json: string | null): MemoSnapshot {
+  if (!json) return {}
+  try {
+    const parsed: unknown = JSON.parse(json)
+    return parsed && typeof parsed === 'object' ? (parsed as MemoSnapshot) : {}
+  } catch {
+    return {}
+  }
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function same(a: unknown, b: unknown) {
+  return text(a) === text(b)
+}
+
+function dueLabel(value: unknown) {
+  const iso = text(value)
+  return iso ? formatDateTime(iso) : '未设置'
+}
+
+function changeText(entry: MemoChangeLog): string {
+  const after = snapshot(entry.afterJson)
+  if (entry.op === 'CREATE') return '记下了这条备忘'
+  if (entry.op === 'CLOSE') {
+    if (after.status === 'DONE') return '标记为已完成'
+    if (after.status === 'CANCELLED') return '取消了这条备忘'
+    return '关闭了这条备忘'
+  }
+
+  const before = snapshot(entry.beforeJson)
+  const parts: string[] = []
+  if (!same(before.dueTime, after.dueTime)) {
+    parts.push(`截止时间 ${dueLabel(before.dueTime)} → ${dueLabel(after.dueTime)}`)
+  }
+  if (!same(before.status, after.status)) {
+    parts.push(
+      `状态 ${memoStatusMeta(text(before.status)).label} → ${memoStatusMeta(text(after.status)).label}`,
+    )
+  }
+  if (!same(before.importance, after.importance)) {
+    parts.push(
+      `重要性 ${importanceLabel(Number(before.importance ?? 0))} → ${importanceLabel(
+        Number(after.importance ?? 0),
+      )}`,
+    )
+  }
+  if (!same(before.title, after.title)) parts.push('改了标题')
+  if (!same(before.category, after.category)) parts.push('改了分类')
+  if (!same(before.content, after.content)) parts.push('改了正文')
+  return parts.length ? parts.join('，') : '存了一次，内容没变'
+}
+
 watch(
   () => [props.open, props.memo?.id] as const,
   async ([open, id]) => {
     confirmingCancel.value = false
     if (!open || !id) return
     reminders.value = []
+    history.value = []
     loadingReminders.value = true
+    loadingHistory.value = true
     try {
       reminders.value = await listReminders(id)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '提醒计划读取失败')
     } finally {
       loadingReminders.value = false
+    }
+    try {
+      history.value = await listMemoHistory(id)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '变更记录读取失败')
+    } finally {
+      loadingHistory.value = false
     }
   },
 )
@@ -154,6 +233,27 @@ async function cancelMemo() {
             <span class="reminder-offset">{{ offsetLabel(reminder.offsetLabel) }}</span>
             <span class="reminder-at num">{{ formatDateTime(reminder.remindAt) }}</span>
             <span class="reminder-state">{{ reminderStatusMeta(reminder.status).label }}</span>
+          </li>
+        </ul>
+      </section>
+
+      <section class="plan" aria-labelledby="history-title">
+        <h3 id="history-title" class="plan-title">
+          <span>变更记录</span>
+          <span v-if="history.length" class="plan-count num">{{ history.length }} 次</span>
+        </h3>
+
+        <p v-if="loadingHistory" class="plan-empty">正在读取…</p>
+        <p v-else-if="!history.length" class="plan-empty">
+          <span>还没改过。</span>
+        </p>
+        <ul v-else class="changes">
+          <li v-for="entry in history" :key="entry.id" class="change">
+            <span class="change-source" :class="entry.source === 'AGENT' ? 'from-ai' : ''">
+              {{ entry.source === 'AGENT' ? 'QQ 里改的' : '手动改的' }}
+            </span>
+            <span class="change-text">{{ changeText(entry) }}</span>
+            <span class="change-at num">{{ formatDateTime(entry.createdAt) }}</span>
           </li>
         </ul>
       </section>
@@ -326,6 +426,56 @@ async function cancelMemo() {
 .reminder.off .reminder-at {
   color: var(--ink-3);
   text-decoration: line-through;
+}
+
+.changes {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: #fff;
+}
+
+.change {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 2px 8px;
+  padding: 10px 14px;
+  color: var(--ink);
+}
+
+.change + .change {
+  border-top: 1px solid var(--hairline);
+}
+
+.change-source {
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: #f0f0f1;
+  color: var(--ink-2);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.change-source.from-ai {
+  background: rgba(229, 56, 127, 0.12);
+  color: #a82457;
+}
+
+.change-text {
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+
+.change-at {
+  grid-column: 1 / -1;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  text-align: right;
 }
 
 .confirm {

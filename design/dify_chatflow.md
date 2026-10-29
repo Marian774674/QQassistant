@@ -42,8 +42,19 @@
 | `structure` | 文件结构 JSON 字符串 | `{"kind":"xlsx",...}` |
 | `pending_request_hint` | 插件侧备份的待填要求 | `把姓名和学号填上` |
 | `last_task_ref` | 上一轮文件任务 | `ft_ab12cd34` |
+| `open_memos` | 未终结备忘 JSON 数组（`max_length` 20000） | `[{"id":12,"title":"班会",...}]` |
+| `event_id` | 写操作幂等键（`max_length` 64） | `m3f9a0…` |
 
-> 插件发送未声明的变量会被 Dify 判 400。**先把这 14 个变量建全，再升级插件。**
+> 插件发送未声明的变量会被 Dify 判 400。**先把这 16 个变量建全，再升级插件。**
+
+### 1.3 环境变量（Environment Variables）
+
+控制台 →「环境变量」页签，两个都要建（`OP_HTTP` 节点引用它们，见 §12）：
+
+| 变量名 | 类型 | 值 | 说明 |
+|---|---|---|---|
+| `SPRING_BASE_URL` | 字符串 | `http://host.docker.internal:8080` | Dify 在 Docker 里时用 host.docker.internal；同机直跑用 `http://localhost:8080` |
+| `AGENT_OPS_TOKEN` | **Secret** | 与 Spring 的 `AGENT_OPS_TOKEN` 环境变量一致 | 不随 DSL 导出：**导入后必须在 UI 里重填**，否则 `/api/agent/*` 一律 503 |
 
 ### 1.2 会话变量（Conversation Variables）
 
@@ -94,9 +105,13 @@
 | 24 | `WAIT_FILE_REPLY` | 代码执行 | 1280 | 880 | 生成 WAIT_FILE |
 | 25 | `SET_FILE_REQUEST` | 变量赋值 | 1520 | 880 | 存 pending 要求 |
 | 26 | `CHAT_DECISION` | LLM | 1280 | 1040 | 聊天/备忘/事实 |
-| 27 | `CLEAN_DECISION` | 代码执行 | 1520 | 1040 | 清围栏、兜底 SILENT |
-| 28 | `MERGE_DECISION` | 变量聚合器 | 2240 | 540 | 合并所有分支 |
-| 29 | `ANSWER` | 直接回复 | 2480 | 540 | 输出最终 JSON |
+| 27 | `CLEAN_DECISION` | 代码执行 | 1520 | 1040 | 清围栏、兜底 SILENT、产出 `decision/is_op/op_body` |
+| 28 | `IS_OP` | 条件分支 | 1800 | 1040 | 这条消息是不是写操作 |
+| 29 | `OP_HTTP` | HTTP 请求 | 2080 | 960 | 调 Spring `/api/agent/ops`（见 §12） |
+| 30 | `READ_OP_RESULT` | 代码执行 | 2360 | 900 | 把 Result 信封翻成 SEND |
+| 31 | `OP_FAILED` | 代码执行 | 2360 | 1180 | 失败分支的固定道歉 |
+| 32 | `MERGE_DECISION` | 变量聚合器 | 2760 | 540 | 合并所有分支（顺序有语义，见 §12.4） |
+| 33 | `ANSWER` | 直接回复 | 3000 | 540 | 输出最终 JSON |
 
 > 如果画布放不下，把 X 方向拉长即可；关键是**列顺序**和**连线**不要错。
 
@@ -139,7 +154,13 @@
 | `KEEP_FILE_INPUT_TEXT` | 默认 | `MERGE_DECISION` |
 | `CLEAR_AFTER_FILL_TEXT` | 默认 | `MERGE_DECISION` |
 | `SET_FILE_REQUEST` | 默认 | `MERGE_DECISION` |
-| `CLEAN_DECISION` | 默认 | `MERGE_DECISION` |
+| `CLEAN_DECISION` | 默认 | `IS_OP` |
+| `IS_OP` | `IF`（is_op = true） | `OP_HTTP` |
+| `IS_OP` | `ELSE` | `MERGE_DECISION` |
+| `OP_HTTP` | 成功 | `READ_OP_RESULT` |
+| `OP_HTTP` | 失败分支 | `OP_FAILED` |
+| `READ_OP_RESULT` | 默认 | `MERGE_DECISION` |
+| `OP_FAILED` | 默认 | `MERGE_DECISION` |
 | `MERGE_DECISION` | 默认 | `ANSWER` |
 
 > 如果 Dify 版本没有「变量聚合器」：删掉 `MERGE_DECISION`，在每个分支末端各放一个「直接回复」，内容引用该分支的 `decision`。其余不变。
@@ -188,6 +209,12 @@
 4. `Start / query` `包含` `不用了`
 
 - `IF` → `CANCEL_REPLY`；`ELSE` → `BUILD_REQUEST`
+
+### 4.6 `IS_OP`
+
+- 变量：`CLEAN_DECISION / is_op`
+- 操作符：`是`，值 `true`（字符串，不是布尔——代码节点输出的是 `"true"` / `"false"`）
+- `IF` → `OP_HTTP`；`ELSE` → `MERGE_DECISION`
 
 ---
 
@@ -877,9 +904,11 @@ def main(text: str) -> dict:
 | 6 | 补学号 | 直接 `FILE_FILL`，不再问姓名 |
 | 7 | `query=算了，不填了` | `SEND`“不填了”，状态清空 |
 | 8 | 普通聊天 | `SEND`，不破坏 pending |
-| 9 | `query=记一下明天交报告` | `MEMO` |
+| 9 | `query=记一下明天交报告` | `MEMO_OP` + `op=memo.create` → `OP_HTTP` 建备忘 |
 | 10 | `query=我叫张三` | `FACT` |
-| 11 | `query=那个做完了` | `MEMO_CLOSE` |
+| 11 | `query=那个做完了`（`open_memos` 里有 1 条） | `MEMO_OP` + `op=memo.close`，`memoId` 取自列表 |
+| 11b | `query=班会改到明天下午四点`（`open_memos` 里有「班会」） | `MEMO_OP` + `op=memo.update`，同一条备忘被改，旧提醒 `CANCELLED` |
+| 11c | `query=那个会改一下`（`open_memos` 里有 3 条都像） | `SEND` 反问，**库里没有任何写入** |
 | 12 | 文件 + 同条文本 `query=姓名张三`，无 pending | `CHECK_REQUEST.request` 非空 → 直接 `FILE_FILL` |
 
 ---
@@ -898,3 +927,125 @@ def main(text: str) -> dict:
 | Answer 输出带 ```json | LLM 没听话 | `CLEAN_DECISION` 已兜底；仍建议提示词明确“不要代码块” |
 | 多分支接不进一个 Answer | 没用变量聚合器 | 用 `MERGE_DECISION`，或每分支各接一个 Answer |
 | 文件先到后文本补充，Tool 收到空 structure | 插件没在后续文本轮带 structure | 插件 0.2.23+ 已修：文本轮会从本地 `task.json` 带 `structure`；若仍为空，看 `_debug.log` 里 `event=text file=-` 是否指向任务丢失 |
+
+---
+
+## 13. 备忘写操作分支（`MEMO_OP` → `OP_HTTP`）
+
+> 本节是 Phase 6 引入的：Dify 不再只“提建议”，而是**自己调后端接口**去改/取消备忘。
+> 边界不变：Dify 决定「改哪条、改什么」，校验/归属/状态机/提醒重算/审计/幂等仍在 Spring。
+> 契约见 `agent_contract.md` §3。
+
+### 13.1 为什么必须走 HTTP 节点
+
+旧路径下 `MEMO` 永远 `POST /api/memos`：早上「明天下午 2 点 S109 开班会」建一条，下午
+「班会取消 / 改到 S111 / 改到后天 4 点」**只会再建一条**，旧的那条到点照样提醒。
+原因是 Dify 的输出里没有「改哪一条」的表达，输入里也没有「你还挂着哪些备忘」。
+
+现在两样都补上了：`open_memos`（§1.1）给模型认路的依据，`memo.update` / `memo.close`
+给它表达的手段。
+
+### 13.2 `OP_HTTP` 节点怎么填
+
+| 字段 | 值 |
+|---|---|
+| 方法 | `POST` |
+| 授权 | **无**（`no-auth`）。token 走下面的 Headers，不填在授权里 |
+| URL | `{{#env.SPRING_BASE_URL#}}/api/agent/ops` |
+| Headers | `X-Agent-Token: {{#env.AGENT_OPS_TOKEN#}}`（自由文本一行，**别写成字面量 token**） |
+| Body 类型 | `JSON` |
+| Body | 只允许 **一个** 条目，值为 `{{#clean_decision.op_body#}}` |
+| 超时 | 连接 5s / 读 20s / 写 20s |
+| 错误策略 | **失败时走失败分支**（`fail-branch`） |
+| 重试 | **关**（去重路径实测通过前不要开） |
+
+> Dify 的 JSON body 硬限制只能有一个条目，且不能逐字段绑变量——所以整包 body 由
+> `CLEAN_DECISION` 用 `json.dumps` 序列化成 `op_body` 一个字符串塞进去，
+> 顺带避免用户文本里的引号/换行把 JSON 炸开。
+
+> **授权字段是必填的**（踩过）：`HttpRequestNodeData` 是严格 pydantic 模型，DSL 里少了
+> `authorization` 不会在导入时报错，而是**每次请求**都 400——
+> `{"code":"invalid_param","message":"1 validation error for HttpRequestNodeData\n authorization\n Field required"}`，
+> 表现为 QQ 里完全没回复。UI 上把该节点的「授权」选成「无」即可；写入 DSL 时是
+> `authorization: {type: no-auth, config: null}`。`tests/test_chatflow_dsl.py` 有断言守着。
+
+### 13.3 三个代码节点的契约
+
+**`CLEAN_DECISION`**（唯一解析器）：输入 `text / sender_id / chat_id / event_id`，输出
+`decision / is_op / op_body`。
+
+- `action == MEMO_OP` → 校验 `op ∈ {memo.create, memo.update, memo.close}`，
+  拼出扁平字符串 body（`senderId`/`chatId`/`eventId` **只从 Start 取**），
+  返回 `is_op="true"`、`decision=""`。
+- `event_id` 为空 → 不写，返回一句「刚才没办成，麻烦再说一遍？」的 `SEND`
+  （没有幂等键就写，重试会把改期执行两遍，用户察觉不到）。
+- 非法 `op` → `SILENT`，不转发。
+- 其他 action → 沿用原逻辑，`is_op="false"`。
+
+**`READ_OP_RESULT`**（成功分支）：输入 `status_code / body`，输出 `decision`。
+
+- 必须是**全函数**：任何输入都返回一条 `SEND`，绝不抛异常（抛了工作流断，用户收不到任何回复）。
+- 非 2xx / body 不是 JSON → 「刚才没办成，后台没连上，等会儿再说一次？」。
+- `code != 0` → **把 Spring 给的 `message` 原样转达**（“备忘录不存在”“没有要修改的内容”）。
+  不要改写成“没连上”，否则用户会以为重试就能好。
+- `code == 0` → `message`（“改好了：班会 · 10-31 16:00 · 教学楼 S111”）；
+  `replayed=true` 时追加「（没有重复执行）」。
+- 不回显 `body`：后端细节不该出现在 QQ 里。
+
+**`OP_FAILED`**（失败分支）：**故意不接 `error_message`**，输出固定道歉。
+代理/内网的原始报错既看不懂也不该外泄；排查线索在 Dify 运行日志的 `OP_HTTP` 节点里。
+
+### 13.4 `MERGE_DECISION` 的顺序是有语义的
+
+`CLEAN_DECISION` 在 `IS_OP` 之前执行，op 分支时它输出的是**空串**。
+变量聚合器取「第一个非空值」，所以顺序必须是：
+
+```
+… wait_file_reply → READ_OP_RESULT → OP_FAILED → CLEAN_DECISION
+```
+
+顺序写错的表现特别隐蔽：**写库成功了，QQ 却回 SILENT**。
+
+### 13.5 上线前必须做的两件事
+
+1. **SSRF 预检**：`OP_HTTP` 走 Dify 的 `ssrf_proxy`，默认拦私网地址，**不配就一定失败**。
+   先在 Dify 容器里 `curl -s -o /dev/null -w '%{http_code}' http://host.docker.internal:8080/api/agent/ops`
+   （应为 401/503，不是连接失败）。被拦时的报错长这样：
+
+   ```
+   Access to 'http://host.docker.internal:8080/api/agent/ops' was blocked by SSRF protection
+   (e.g. SSRF_PROXY_ALLOW_PRIVATE_IPS=172.21.0.0/16 to allow 172.21.0.0/16)
+   ```
+
+   修法：Dify 的 `docker/.env` 里把** Spring 解析到的私网网段**加进允许列表（是 CIDR，不是 `true`）：
+
+   ```bash
+   # 先问 api 容器：host.docker.internal 解析成什么
+   docker compose -f docker/docker-compose.yaml exec api \
+     python -c "import socket;print(socket.gethostbyname('host.docker.internal'))"
+   # 再把这个地址（或它所在 /16）写进 .env
+   SSRF_PROXY_ALLOW_PRIVATE_IPS=172.21.0.0/16
+   docker compose -f docker/docker-compose.yaml up -d ssrf_proxy api worker
+   ```
+
+   允许私网等于给 Dify 的 HTTP 节点开了内网出口，只在家用/实验环境这么做；
+   公网部署请改走一个只暴露 `/api/agent/ops` 的反向代理域名。
+   同时确认 Windows 防火墙放行 8080。
+2. **重填 `AGENT_OPS_TOKEN`**：secret 类型不随 DSL 导出，导入后值一定是空的。
+   留空 ⇒ `/api/agent/*` 返回 503（fail closed，不会误开无鉴权写入口）。
+
+### 13.6 验收（每条都要留证据）
+
+| # | 操作 | 期望 |
+|---|---|---|
+| 1 | 「明天下午 2 点 S109 开班会」 | 备忘生成，`open_memos` 能看到它 |
+| 2 | 「班会地点改成 S111」 | **同一条**备忘 content 更新；`GET /api/memos/{id}/history` 有 `AGENT/UPDATE`；旧值可查 |
+| 3 | 「班会改到后天下午 4 点」 | 旧 `memo_reminder` 变 `CANCELLED`，新提醒按策略重建 |
+| 4 | 「班会取消了」 | `status=CANCELLED`，PENDING 提醒全取消，不再推 QQ |
+| 5 | 「那个会改一下」（多条候选） | 机器人反问，**库里没有任何写入** |
+| 6 | 停掉后端再改期 | 回“没办成”，不新增重复备忘；Dify 运行日志里 `OP_HTTP` 是失败分支 |
+| 7 | 同一条消息被重投 | `memo_change_log` 只有一行、`replayed=true`，不产生第二条备忘 |
+
+离线可跑的部分（聚合器顺序、三个代码节点的兜底）已由
+`QQMessageAssistantPython/qq_assistant_plugin/tests/test_chatflow_dsl.py` 覆盖，
+改图后必须先过它。

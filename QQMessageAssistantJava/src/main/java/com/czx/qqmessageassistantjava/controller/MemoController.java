@@ -5,8 +5,11 @@ import com.czx.qqmessageassistantjava.dto.MemoCreateRequest;
 import com.czx.qqmessageassistantjava.dto.MemoPatchRequest;
 import com.czx.qqmessageassistantjava.common.BusinessException;
 import com.czx.qqmessageassistantjava.entity.Memo;
+import com.czx.qqmessageassistantjava.entity.MemoChangeLog;
 import com.czx.qqmessageassistantjava.entity.MemoReminder;
+import com.czx.qqmessageassistantjava.service.AgentOpService;
 import com.czx.qqmessageassistantjava.service.MemoService;
+import com.czx.qqmessageassistantjava.vo.MemoOpenItem;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +25,9 @@ public class MemoController {
     @Autowired
     private MemoService memoService;
 
+    @Autowired
+    private AgentOpService agentOpService;
+
 
     @Operation(summary = "创建备忘", description = "按 importance 展开提醒计划")
     @PostMapping
@@ -34,6 +40,19 @@ public class MemoController {
                                    @RequestParam(required = false) Long senderId) {
         return Result.ok(memoService.list(status, senderId));
     }
+    @Operation(summary = "未完成备忘摘要", description = "给 Dify 指认「改哪一条」用；按到期时间升序")
+    @GetMapping("/open")
+    public Result<List<MemoOpenItem>> open(@RequestParam Long senderId,
+                                           @RequestParam(defaultValue = "20") int limit) {
+        return Result.ok(memoService.openMemos(senderId, limit));
+    }
+
+    @Operation(summary = "变更记录", description = "AI 与人工的每次修改留痕，新的在前")
+    @GetMapping("/{id}/history")
+    public Result<List<MemoChangeLog>> history(@PathVariable Long id) {
+        return Result.ok(agentOpService.history(id));
+    }
+
     @Operation(summary = "备忘详情")
     @GetMapping("/{id}")
     public Result<Memo> detail(@PathVariable Long id) {

@@ -95,7 +95,7 @@ Spring Boot ──► 发送桥 send_bridge ──► LangBot / NapCat（主动�
 
 | 编号 | 约束 | 判定方式 |
 |---|---|---|
-| **C-1** | 业务逻辑不得写进 Dify Prompt。状态机、持久化、定时调度归 Spring Boot；文件 I/O 归 LangBot 插件 | PR 评审：Dify 侧只出现语义判断与 JSON 决策 |
+| **C-1** | 业务逻辑不得写进 Dify Prompt。状态机、持久化、定时调度归 Spring Boot；文件 I/O 归 LangBot 插件。Dify 侧只允许出现**语义判断、JSON 决策，以及对 `POST /api/agent/ops` 的调用**；提示词里不得出现提醒策略、状态迁移规则、阈值 | PR 评审：Dify 的提示词/代码节点里搜不到阈值与状态机；业务规则改动只改 Spring 服务层 |
 | **C-2** | Dify 不得接触文件流。只接收插件结构化后的文本，只返回 `fills` / `missing` | 插件代码中不存在 Dify 传文件的路径 |
 | **C-3** | 风格记忆不得实时修改 System Prompt，只能由定期总结更新；事实记忆可实时写 | 无单条消息触发的 prompt 写接口 |
 | **C-4** | Spring Boot 不得直连 NapCat。一切 QQ 动作经 LangBot / 发送桥 | 后端配置里只有 `langbot.base-url` |
@@ -107,7 +107,7 @@ Spring Boot ──► 发送桥 send_bridge ──► LangBot / NapCat（主动�
 | **NapCat** | QQ 协议、收发消息与文件、HTTP/WS 接口 | 任何业务判断 |
 | **LangBot + 插件** | 事件归一化、群聊触发判定、正则前置拦截、拟人延迟、文件下载/解析/回写/回传、动作执行、幂等 | 长期业务状态、定时任务 |
 | **Dify** | 意图识别、对话状态（本轮是否在等文件）、语义生成、决策 envelope | 持久化、文件二进制、定时 |
-| **Spring Boot** | 11 张表的持久化、提醒调度、草稿确认分发、画像存取 | 文件流、直连 QQ |
+| **Spring Boot** | 12 张表的持久化、提醒调度、草稿确认分发、画像存取 | 文件流、直连 QQ |
 | **Vue** | 展示、人工确认、手动编辑与配置 | 业务判定逻辑 |
 
 ---
@@ -250,7 +250,7 @@ Spring Boot ──► 发送桥 send_bridge ──► LangBot / NapCat（主动�
 
 ## 5. 数据需求
 
-共 11 张表，字段级定义与 DDL 见 [`database_schema.md`](./database_schema.md)。
+共 12 张表，字段级定义与 DDL 见 [`database_schema.md`](./database_schema.md)。
 
 | # | 表 | 用途 | 保留要求 |
 |---|---|---|---|
@@ -400,13 +400,21 @@ Dify Chatflow 的 Start 节点共 **14 个变量**，且必须与插件发送的
 
 ## 10. 范围外与演进方向
 
-**本期不做**：多用户；公网部署；PDF 回写；群聊共享上下文；Dify 直接写业务表；WebSocket 实时推送前端。
+**本期不做**：多用户；公网部署；PDF 回写；群聊共享上下文；WebSocket 实时推送前端。
+
+> **修订（Phase 6）**：「Dify 直接写业务表」不再一律禁止。Dify 通过 `POST /api/agent/ops`
+> 发起**窄写操作**（备忘的新建/修改/完成/取消），业务规则仍由 Spring 执行，**不视为直接写业务表**。
+> 理由见 `agent_contract.md` §3：不让 Dify 表达「改哪一条」，同类 bug（改期/取消变成新增）
+> 会在备忘、事实、约会上反复出现。旧口径已被「未来的演进方向：把写操作暴露成 Tool」取代——
+> 该项已落地。
 
 **可选演进**（按需，不阻塞主线）：
 
 - `recent_context`：从 `message_log` 取最近 N 条作为群聊上下文（保持每人独立会话不变）。
 - 用 Dify `Question Classifier` 替代部分 LLM 意图判断，降 token 与不确定性。
-- 把 Spring 的 draft/memo/fact 写操作暴露成 Dify Tool，缩短链路。
+- ~~把 Spring 的 draft/memo/fact 写操作暴露成 Dify Tool，缩短链路~~ → **已完成备忘部分**
+  （`POST /api/agent/ops`，Phase 6）；`fact.upsert` 与 draft 仍未开放，需先把
+  `fact_auto_threshold` 与 FACT 草稿降级一起搬进 Spring。
 - 风格画像历史版本与 diff 视图。
 
 ---

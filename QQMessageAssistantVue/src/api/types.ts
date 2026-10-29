@@ -44,6 +44,24 @@ export interface MemoReminder {
   createdAt: string
 }
 
+export type MemoChangeSource = 'AGENT' | 'VUE'
+export type MemoChangeOp = 'CREATE' | 'UPDATE' | 'CLOSE'
+
+/** 一次改动的留痕；beforeJson/afterJson 是备忘快照的 JSON 字符串 */
+export interface MemoChangeLog {
+  id: number
+  memoId: number
+  senderId: number
+  source: MemoChangeSource
+  op: MemoChangeOp
+  eventId: string | null
+  beforeJson: string | null
+  afterJson: string | null
+  resultJson: string | null
+  conversationId: string | null
+  createdAt: string
+}
+
 export interface MemoDraftPayload {
   title?: string
   content?: string
