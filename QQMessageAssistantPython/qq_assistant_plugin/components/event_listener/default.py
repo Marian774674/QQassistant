@@ -12,7 +12,7 @@ from langbot_plugin.api.entities import context, events
 
 from core import conversation_store, file_store
 from core.dispatch import parse_answer
-from core.event import build_inputs
+from core.event import build_inputs, event_id_of
 from core.reply import reply_text
 from core.rules import task_key
 from core.text import extract_text, has_file, human_delay_seconds, is_at_bot
@@ -49,15 +49,33 @@ async def _respond(deps, ctx, is_group, sender_id, chat_id, text,
         settings.bot_uuid, chat_type, chat_id, sender_id)
 
     try:
-        profile = await deps.spring.profile(sender_id) or {}
+        # 画像与未终结备忘都是「有则更好」：任一失败都不能中断整轮，
+        # 否则 Dify 的 fail 分支根本没机会跑，用户连一句「没办成」都收不到。
+        profile = {}
+        try:
+            profile = await deps.spring.profile(sender_id) or {}
+        except Exception as e:
+            file_store.debug(f"profile failed, continue without it: {e!r}")
+        open_memos = []
+        try:
+            open_memos = await deps.spring.list_open_memos(sender_id) or []
+        except Exception as e:
+            file_store.debug(f"open memos failed, continue with []: {e!r}")
+
         pending = await file_store.load_pending(deps, key) or {}
+        # 幂等键在此生成一次：下面「会话丢失重试」必须复用同一个值，
+        # 否则后端会把同一条改期/取消执行两遍
+        event_id = event_id_of(getattr(ctx, "event", None))
         inputs = build_inputs(
             profile, event_type, chat_type, chat_id, sender_id,
             file_task=file_ctx,
             pending_request_hint=pending.get("request", ""),
-            last_task_ref=pending.get("taskRef", ""))
+            last_task_ref=pending.get("taskRef", ""),
+            open_memos=open_memos,
+            event_id=event_id)
         file_store.debug(
             f"profile ok facts={len(profile.get('facts') or {})} "
+            f"open_memos={len(open_memos)} event_id={event_id[:12]} "
             f"event={event_type} file={inputs['file_task_ref'] or '-'}")
 
         # 带上 conversation_id，Dify 才能看到这段对话的前文；

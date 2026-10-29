@@ -37,6 +37,7 @@
 | 9 | `app_setting` | 全局配置（总结频率 / 窗口等） | 方案⑤ |
 | 10 | `file_task` | 文件任务状态镜像（Vue 只读） | 方案④ |
 | 11 | `conversation_session` | QQ 会话 ↔ Dify `conversation_id` 映射 | Dify-Centric 整改（`design/agent_contract.md`） |
+| 12 | `memo_change_log` | 备忘变更留痕 + Agent 写操作幂等台账 | `design/agent_contract.md` §3 |
 
 ---
 
@@ -134,6 +135,37 @@ CREATE TABLE `memo_reminder` (
 
 > 创建 `memo` 时按其 `importance` 依策略表**展开**成多行（如 5 级 → 24h/2h/30min 三行）；改/取消 memo 时同步本表。Quartz 按 `status='PENDING' AND remind_at <= NOW()` 扫描。
 > **不建外键**（与全项目一致），`memo_id` 由应用层维护。
+
+### 4.1 `memo_change_log` — 备忘变更留痕 + Agent 幂等台账
+
+```sql
+CREATE TABLE IF NOT EXISTS `memo_change_log` (
+  `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `memo_id`         BIGINT UNSIGNED NOT NULL,
+  `sender_id`       BIGINT UNSIGNED NOT NULL,
+  `source`          VARCHAR(16)     NOT NULL COMMENT 'AGENT|VUE',
+  `op`              VARCHAR(16)     NOT NULL COMMENT 'CREATE|UPDATE|CLOSE',
+  `event_id`        VARCHAR(64)     NULL COMMENT '幂等键；人工改动为 NULL',
+  `before_json`     TEXT            NULL,
+  `after_json`      TEXT            NULL,
+  `result_json`     TEXT            NULL,
+  `conversation_id` VARCHAR(64)     NULL,
+  `created_at`      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_event` (`event_id`),
+  KEY `idx_memo` (`memo_id`),
+  KEY `idx_sender_created` (`sender_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='备忘变更留痕 + Agent 幂等台账';
+```
+
+> 一行承担两件事：
+> 1. **审计**：前端「变更记录」读它，因为新路径下正文会被重写成「改动后的完整状态」，旧值只能留在这里。
+> 2. **幂等**：Dify 的写操作带 `event_id`，服务端在同一事务里先 `INSERT IGNORE` 占位，
+>    影响行数为 0 就是重放，直接返回 `result_json` 里存的上次结果（`replayed=true`）。
+>    `event_id` 可空 + 唯一索引：MySQL 允许多个 NULL，因此 Vue 手改的行不干扰去重。
+>
+> 它**不是** `message_log` 的替代品：`message_log` 记「说了什么」，本表记「改了什么」。
+> 业务写入不进 `message_log`（否则风格总结会把“改好了：班会”当成用户语气样本）。
 
 ### 5. `collection_task` — 统一回复防重状态
 
@@ -290,6 +322,7 @@ CREATE TABLE `conversation_session` (
 
 ```
 memo 1 ── N memo_reminder
+memo 1 ── N memo_change_log
 （其余表相互独立；表间不建外键，跨表语义由应用层维护）
 ```
 
@@ -299,6 +332,9 @@ memo 1 ── N memo_reminder
 | 草稿列表（按类型） | Vue 草稿中心分组 | `draft.idx_type_status` |
 | 风格总结按时间窗口拉日志 | 定时任务 | `message_log.idx_created` / `idx_sender_created` |
 | 到期提醒扫描 | Quartz | `memo_reminder.idx_status_remind` |
+| Agent 写操作去重 | `POST /api/agent/ops` | `memo_change_log.uk_event` |
+| 备忘变更记录（前端 + 审计） | `GET /api/memos/{id}/history` | `memo_change_log.idx_memo` |
+| 未终结备忘摘要（喂 Dify） | `GET /api/memos/open` | `memo.idx_sender_status` |
 | 防重 check/mark | `POST /api/collection-tasks/*` | `collection_task.uk_chat_task` |
 | 拦截规则拉取 | LangBot 定时 | `intercept_rule.idx_enabled_priority` |
 | 会话注入事实记忆 | `GET /api/profile/{sender_id}` | `profile_fact.uk_sender_key`（前缀 `sender_id`） |

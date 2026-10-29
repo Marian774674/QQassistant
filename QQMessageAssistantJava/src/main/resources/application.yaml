@@ -27,6 +27,10 @@ langbot:
   read-timeout-ms: 35000
 
 app:
+  agent:
+    # Dify HTTP 节点调用 /api/agent/* 时携带的 X-Agent-Token。
+    # 留空 = 该入口整体关闭（503），所以必须从环境变量注入，别把值写进仓库。
+    token: ${AGENT_OPS_TOKEN:}
   reminder:
     # 提醒调度：到点扫描 memo_reminder 并经发送桥推 QQ。
     # 关掉后备忘仍可创建、提醒仍会入库，只是不会推送。

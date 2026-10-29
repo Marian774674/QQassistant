@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "langbot")
 public class LangBotProperties {
 
-    private String baseUrl= "http://localhost:5300";
+    private String baseUrl= "http://192.168.100.128:5300";
 
     private int connectTimeoutMs = 3000;
 

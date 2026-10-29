@@ -3,6 +3,7 @@ package com.czx.qqmessageassistantjava.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.czx.qqmessageassistantjava.common.BusinessException;
@@ -16,6 +17,7 @@ import com.czx.qqmessageassistantjava.entity.MemoReminder;
 import com.czx.qqmessageassistantjava.mapper.MemoMapper;
 import com.czx.qqmessageassistantjava.mapper.MemoReminderMapper;
 import com.czx.qqmessageassistantjava.service.MemoService;
+import com.czx.qqmessageassistantjava.vo.MemoOpenItem;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -162,6 +164,45 @@ public class MemoServiceImpl extends ServiceImpl<MemoMapper, Memo> implements Me
             case "当天" -> dueTime.toLocalDate().atTime(9, 0);
             default -> throw new BusinessException("非法的提醒时间 " + label);
         };
+    }
+
+    private static final String[] OPEN_STATUSES =
+            {"ACTIVE", "REMINDED", "AWAITING_REPLY", "OVERDUE"};
+
+    @Override
+    public List<MemoOpenItem> openMemos(Long senderId, int limit) {
+        if (senderId == null) {
+            throw new BusinessException("senderId 不能为空");
+        }
+        int size = Math.max(1, Math.min(limit, 50));
+        QueryWrapper<Memo> wrapper = new QueryWrapper<Memo>()
+                .eq("sender_id", senderId)
+                .in("status", (Object[]) OPEN_STATUSES)
+                // MySQL 里 NULL 排最前，先按 IS NULL 分档，再按时间升序
+                .orderByAsc("due_time IS NULL")
+                .orderByAsc("due_time")
+                .orderByDesc("updated_at")
+                .last("LIMIT " + size);
+        return list(wrapper).stream().map(this::toOpenItem).toList();
+    }
+
+    private MemoOpenItem toOpenItem(Memo memo) {
+        MemoOpenItem item = new MemoOpenItem();
+        item.setId(memo.getId());
+        item.setTitle(memo.getTitle());
+        item.setContent(cut(memo.getContent(), 60));
+        item.setDueTime(memo.getDueTime());
+        item.setStatus(memo.getStatus());
+        item.setImportance(memo.getImportance());
+        item.setCategory(memo.getCategory());
+        return item;
+    }
+
+    private static String cut(String value, int max) {
+        if (value == null || value.length() <= max) {
+            return value;
+        }
+        return value.substring(0, max);
     }
 
     @Override

@@ -39,6 +39,7 @@ def deps(tmp_path, monkeypatch):
                                  bot_uuid="bot-1", fact_auto_threshold=0.85),
         spring=SimpleNamespace(
             profile=AsyncMock(return_value={"facts": {}, "stylePrompt": ""}),
+            list_open_memos=AsyncMock(return_value=[]),
             sync_file_task=AsyncMock()),
         dify=SimpleNamespace(chat=AsyncMock(return_value={
             "answer": '{"action":"SILENT"}', "conversation_id": "conv-1"})),
@@ -210,3 +211,56 @@ async def test_missing_conversation_resets_and_retries(deps):
     assert deps.dify.chat.await_count == 2
     assert "conversation_id" not in deps.dify.chat.await_args_list[1].kwargs
     bind.assert_awaited_once_with(deps, "bot-1", "private", None, 1001, "conv-new")
+
+
+@pytest.mark.asyncio
+async def test_open_memos_and_event_id_are_forwarded(deps):
+    """未终结备忘要喂给 Dify：它只能从这里取 memoId 去改/取消。"""
+    deps.spring.list_open_memos.return_value = [
+        {"id": 12, "title": "班会", "content": "明天下午2点 S109",
+         "dueTime": "2026-10-30T14:00", "status": "ACTIVE"}]
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="班会地点改成 S111")]))
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    inputs = deps.dify.chat.await_args.kwargs["inputs"]
+    memos = json.loads(inputs["open_memos"])
+    assert memos[0]["id"] == 12
+    assert inputs["event_id"]
+
+
+@pytest.mark.asyncio
+async def test_spring_hiccup_does_not_block_the_reply(deps):
+    """画像/备忘列表取不到时仍要进 Chatflow，否则用户一句回复都收不到。"""
+    deps.spring.profile = AsyncMock(side_effect=RuntimeError("spring down"))
+    deps.spring.list_open_memos = AsyncMock(side_effect=RuntimeError("spring down"))
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="明天下午两点开班会")]))
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    inputs = deps.dify.chat.await_args.kwargs["inputs"]
+    assert inputs["open_memos"] == "[]"
+    assert inputs["facts"] == "{}"
+    deps.dispatcher.handle.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_retry_reuses_the_same_event_id(deps):
+    """会话丢失重试必须复用幂等键，否则同一条改期会被执行两遍。"""
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="班会取消了")]))
+    deps.dify.chat = AsyncMock(side_effect=[
+        RuntimeError('Dify /chat-messages HTTP 400: '
+                     '{"message":"Conversation Not Exists."}'),
+        {"answer": '{"action":"SILENT"}', "conversation_id": "conv-new"},
+    ])
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)), \
+            patch("core.conversation_store.resolve", AsyncMock(return_value="conv-old")), \
+            patch("core.conversation_store.reset", AsyncMock()), \
+            patch("core.conversation_store.bind", AsyncMock()):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    first, second = deps.dify.chat.await_args_list
+    assert first.kwargs["inputs"]["event_id"] == second.kwargs["inputs"]["event_id"]

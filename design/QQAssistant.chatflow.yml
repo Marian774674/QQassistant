@@ -59,7 +59,25 @@ workflow:
         - last_task_ref
       value: ''
       value_type: string
-  environment_variables: []
+  environment_variables:
+    - description: Spring Boot 基地址：Docker 里的 Dify 用 http://host.docker.internal:8080，
+        同机直跑用 http://localhost:8080
+      id: a0000000-0000-4000-8000-000000000101
+      name: SPRING_BASE_URL
+      selector:
+        - env
+        - SPRING_BASE_URL
+      value: http://host.docker.internal:8080
+      value_type: string
+    - description: /api/agent/* 的 X-Agent-Token。secret 不随 DSL 导出，导入后必须在
+        Dify 控制台重新填写，否则接口一律 503。
+      id: a0000000-0000-4000-8000-000000000102
+      name: AGENT_OPS_TOKEN
+      selector:
+        - env
+        - AGENT_OPS_TOKEN
+      value: ''
+      value_type: secret
   features:
     file_upload:
       allowed_file_extensions: []
@@ -438,9 +456,69 @@ workflow:
           isInIteration: false
           isInLoop: false
           sourceType: code
-          targetType: variable-aggregator
+          targetType: if-else
         id: e0000000-0000-4000-8000-000000000036
         source: clean_decision
+        sourceHandle: source
+        target: is_op
+        targetHandle: target
+      - data:
+          isInIteration: false
+          isInLoop: false
+          sourceType: if-else
+          targetType: http-request
+        id: e0000000-0000-4000-8000-000000000038
+        source: is_op
+        sourceHandle: 'true'
+        target: op_http
+        targetHandle: target
+      - data:
+          isInIteration: false
+          isInLoop: false
+          sourceType: if-else
+          targetType: variable-aggregator
+        id: e0000000-0000-4000-8000-000000000039
+        source: is_op
+        sourceHandle: 'false'
+        target: merge_decision
+        targetHandle: target
+      - data:
+          isInIteration: false
+          isInLoop: false
+          sourceType: http-request
+          targetType: code
+        id: e0000000-0000-4000-8000-000000000040
+        source: op_http
+        sourceHandle: source
+        target: read_op_result
+        targetHandle: target
+      - data:
+          isInIteration: false
+          isInLoop: false
+          sourceType: http-request
+          targetType: code
+        id: e0000000-0000-4000-8000-000000000041
+        source: op_http
+        sourceHandle: fail-branch
+        target: op_failed
+        targetHandle: target
+      - data:
+          isInIteration: false
+          isInLoop: false
+          sourceType: code
+          targetType: variable-aggregator
+        id: e0000000-0000-4000-8000-000000000042
+        source: read_op_result
+        sourceHandle: source
+        target: merge_decision
+        targetHandle: target
+      - data:
+          isInIteration: false
+          isInLoop: false
+          sourceType: code
+          targetType: variable-aggregator
+        id: e0000000-0000-4000-8000-000000000043
+        source: op_failed
         sourceHandle: source
         target: merge_decision
         targetHandle: target
@@ -545,6 +623,18 @@ workflow:
               required: false
               type: text-input
               variable: last_task_ref
+            - label: open_memos
+              max_length: 20000
+              options: []
+              required: false
+              type: text-input
+              variable: open_memos
+            - label: event_id
+              max_length: 64
+              options: []
+              required: false
+              type: text-input
+              variable: event_id
         height: 520
         id: start
         position:
@@ -1914,12 +2004,19 @@ workflow:
                 - SEND：直接回复用户
                 - DRAFT：生成需要人工确认后才能发出的回复草稿
                 - SILENT：不需要回复（群聊闲聊、误触发、纯表情）
-                - MEMO：创建备忘录
+                - MEMO_OP：新建 / 修改 / 完成 / 取消一条备忘（写操作由后台执行，你只负责决定做什么）
                 - FACT：记录用户稳定事实
-                - MEMO_CLOSE：用户表示某件备忘已完成/已取消
 
                 输出格式：
-                {"version":1,"action":"...","content":"...","draft":{...},"memo":{...},"fact":{...},"close":{...}}
+                {"version":1,"action":"...","content":"...","draft":{...},"fact":{...},
+                 "op":"memo.create|memo.update|memo.close","memoId":"","title":"","content":"",
+                 "importance":"","category":"","dueTime":"","clearDueTime":"","status":""}
+
+                **第一步永远先问自己**：这条消息是在动一件**已经记下的事**吗？
+                （改时间 / 改地点 / 补细节 / 取消 / 做完了 / “错了”“不是…是…”“改一下”“重新说”）
+                是 → MEMO_OP + "op":"memo.update"（或 "memo.close"），memoId 从「未关闭的备忘」里选，
+                     **绝对不要用 memo.create** —— 那会多出一条和旧的互相矛盾的备忘，是最严重的错误。
+                只有在“这不是在动已有的事”时，才允许走下面的 create。
 
                 规则：
                 1. 普通聊天 → SEND，content 像真人在 QQ 上说话：简短、自然、1–3 句。
@@ -1927,10 +2024,11 @@ workflow:
                 2. 正式回复（给老师/领导/客户）→ DRAFT：
                    {"type":"REPLY","title":"...","payload":{"content":"..."}}
                    content 可以留空，让用户去草稿中心确认。
-                3. 需要记住的事 → MEMO。不只是“提醒我”：凡是带时间/截止/邀约/需要后续行动的通知，
-                   用户自己说的事、别人转达的事都算，例如“周五交实验报告”“明天下午开班会”“下周三面试”。
+                3. 要新记一件事 → MEMO_OP + "op":"memo.create"，字段：
                    {"title":"...","content":"...","importance":1-5,
                     "category":"学业|社交|健康|财务|日常|其他","dueTime":"YYYY-MM-DDTHH:mm:ss"}
+                   - 不只是“提醒我”：凡是带时间/截止/邀约/需要后续行动的通知，用户自己说的事、
+                     别人转达的事都算，例如“周五交实验报告”“明天下午开班会”“下周三面试”。
                    - importance 必须按下面标准打分，不要一律给 3：
                      5=有明确时间且不做后果严重（考试/面试/答辩/截止缴费）
                      4=有明确时间且重要但可调整（重要邀约、班委通知）
@@ -1941,24 +2039,52 @@ workflow:
                    - dueTime 必须结合「当前时间」把“明天下午三点”这类相对时间换算成
                      YYYY-MM-DDTHH:mm:ss；**确实没有时间就省略整个 dueTime 字段**，
                      不要编造日期。没有 dueTime 就不会产生提醒。
-                   - content 只写一句确认语，例如“记下了，周五前提醒你。”
-                   - 纯闲聊、没有时间也没有后续行动的话，不要输出 MEMO。
+                   - content 写这件事的完整信息（时间/地点/要做的事），它是**备忘本身**，
+                     不是你对用户说的话：不许出现“好的/收到/明白了/已更正/已经帮你”这类应答语，
+                     也不许写“提醒你……”。MEMO_OP 的回复文案由后台按真实写入结果生成，
+                     你说什么都不算数。
+                     反例（错）：content = "好的，已更正为明晚九点。"
+                     正例（对）：content = "明晚21:00 青云楼S109开班会"
+                   - 纯闲聊、没有时间也没有后续行动的话，不要输出 MEMO_OP。
                 4. 用户陈述稳定个人信息（姓名、学号、专业、常用地址、偏好）→ FACT：
                    {"factKey":"学号","factValue":"2023001","confidence":0.0-1.0}
                    只有用户明确说出的才记；推断的 confidence < 0.85。
-                5. 用户说“那个做完了/取消了” → MEMO_CLOSE：
-                   {"memo_id":123,"status":"DONE"} 或 {"status":"CANCELLED"}
-                   不知道 memo_id 就省略。
-                6. 文件填写由专门流程处理，你不要输出 WAIT_FILE/ASK/FILE_FILL。
-                7. 不确定用户是否在跟你说话 → SILENT。
-                8. 不要编造事实、日期、承诺；不知道就说不知道。
-                9. 没有的字段直接省略，不要输出 null。
+                5. 要改 / 完成 / 取消一件**已经记下**的事 → 仍然是 MEMO_OP，绝对不要新建一条：
+                   - 改时间、改地点、改要求、补充细节 → "op":"memo.update"，只填真正变化的字段。
+                     content 请重写成**改动后的完整状态**（例如“明天下午2点 教学楼 S111”），
+                     旧值后台有记录，不要靠正文保留历史。
+                   - 做完了 → "op":"memo.close" + "status":"DONE"；不办了/取消了 → "status":"CANCELLED"。
+                   - memoId **只能取自下方「未关闭的备忘」列表里的 id**，不许编造、不许猜。
+                   - 拿不准指的是哪一条（0 条像，或 2 条以上都像）→ 输出 SEND 反问一句“你说的是哪个？”，
+                     不要猜 memoId，也不要退化成新建。列表为空时同样不要编 id。
+                   - 用户明显在**更正**（“错了错了”“不是…是…”“改一下”“重新说一下”），
+                     而列表为空或对不上时 → SEND 反问，**绝不新建一条**：那会变成两条互相矛盾的备忘。
+                6. 用户说“时间不定了/暂时取消提醒”这类含糊说法，按改动处理：
+                   不确定要改什么就先 SEND 问一句，不要凭感觉写。
+                7. 文件填写由专门流程处理，你不要输出 WAIT_FILE/ASK/FILE_FILL。
+                8. 不确定用户是否在跟你说话 → SILENT。
+                9. 不要编造事实、日期、承诺；不知道就说不知道。
+                10. 没有的字段直接省略，不要输出 null；不要输出 Markdown 代码块。
 
                 示例：
                 用户：明天下午三点提醒我交实验报告
-                → {"version":1,"action":"MEMO","content":"记下了，明天下午三点提醒你。",
-                   "memo":{"title":"交实验报告","content":"明天下午三点前提交",
-                           "importance":4,"category":"学业","dueTime":"2026-10-27T15:00:00"}}
+                → {"version":1,"action":"MEMO_OP","op":"memo.create","title":"交实验报告",
+                   "content":"明天下午三点前提交","importance":4,"category":"学业",
+                   "dueTime":"2026-10-27T15:00:00"}
+
+                用户：班会地点改成 S111（未关闭的备忘里有 id 12「班会」）
+                → {"version":1,"action":"MEMO_OP","op":"memo.update","memoId":"12",
+                   "content":"明天下午2点 教学楼 S111"}
+
+                用户：错了错了，是明天晚上9点开班会（未关闭的备忘里有 id 11「青云楼S109开班会」19:00）
+                → {"version":1,"action":"MEMO_OP","op":"memo.update","memoId":"11",
+                   "dueTime":"2026-10-30T21:00:00","content":"明晚21:00 青云楼S109开班会"}
+
+                用户：明天不开班会了，取消吧（未关闭的备忘里有 id 12「班会」）
+                → {"version":1,"action":"MEMO_OP","op":"memo.close","memoId":"12","status":"CANCELLED"}
+
+                用户：那个会改一下（未关闭的备忘里有 3 条都像“会”）
+                → {"version":1,"action":"SEND","content":"你说的是哪个会？班会、面试还是组会？"}
 
                 用户：我叫张三，学号2023001
                 → {"version":1,"action":"FACT","content":"",
@@ -1977,6 +2103,7 @@ workflow:
                 会话类型：{{#start.chat_type#}}
                 用户画像事实：{{#start.facts#}}
                 风格要求：{{#start.style_prompt#}}
+                未关闭的备忘（memoId 只能取自这里）：{{#start.open_memos#}}
                 用户消息：{{#start.query#}}
           selected: false
           title: CHAT_DECISION
@@ -2001,8 +2128,13 @@ workflow:
           code: |
             import json
 
-            ALLOWED = {"SEND", "DRAFT", "SILENT", "MEMO", "FACT", "MEMO_CLOSE"}
+            # MEMO / MEMO_CLOSE 是回滚路径（提示词已切到 MEMO_OP），保留解析但不再产出
+            ALLOWED = {"SEND", "DRAFT", "SILENT", "MEMO", "FACT", "MEMO_CLOSE", "MEMO_OP"}
             CATEGORIES = {"学业", "社交", "健康", "财务", "日常", "其他"}
+            OPS = {"memo.create", "memo.update", "memo.close"}
+            OP_FIELDS = ("memoId", "title", "content", "importance", "category",
+                         "dueTime", "clearDueTime", "status")
+            SILENT = {"version": 1, "action": "SILENT"}
 
 
             def _clean_memo(memo):
@@ -2028,7 +2160,34 @@ workflow:
                 return out
 
 
-            def main(text: str) -> dict:
+            def _clean(value):
+                return "" if value is None else str(value).strip()
+
+
+            def _dump(value):
+                return json.dumps(value, ensure_ascii=False)
+
+
+            def _op_body(data, sender_id, chat_id, event_id):
+                """把模型的 op 压成扁平字符串 body。
+
+                身份字段（senderId / chatId / eventId）只从 Start 取：
+                模型可以决定「做什么」，但绝不能决定「替谁做」，也不能决定幂等键。
+                """
+                if _clean(data.get("op")) not in OPS:
+                    return None
+                body = {
+                    "eventId": _clean(event_id),
+                    "op": _clean(data.get("op")),
+                    "senderId": _clean(sender_id),
+                    "chatId": _clean(chat_id),
+                }
+                for key in OP_FIELDS:
+                    body[key] = _clean(data.get(key))
+                return _dump(body)
+
+
+            def main(text: str, sender_id: str, chat_id: str, event_id: str) -> dict:
                 raw = (text or "").strip()
                 if raw.startswith("```"):
                     raw = raw.strip("`")
@@ -2041,18 +2200,34 @@ workflow:
                     data = None
 
                 if not isinstance(data, dict) or data.get("action") not in ALLOWED:
-                    decision = {"version": 1, "action": "SILENT"}
-                else:
-                    data.setdefault("version", 1)
-                    if data.get("action") == "MEMO":
-                        data["memo"] = _clean_memo(data.get("memo"))
-                    decision = data
+                    return {"decision": _dump(SILENT), "is_op": "false", "op_body": ""}
 
-                return {"decision": json.dumps(decision, ensure_ascii=False)}
+                if data.get("action") == "MEMO_OP":
+                    body = _op_body(data, sender_id, chat_id, event_id)
+                    if body is None:
+                        # 模型给了非法的 op：宁可不写，也不猜
+                        return {"decision": _dump(SILENT), "is_op": "false", "op_body": ""}
+                    if not _clean(event_id):
+                        # 没有幂等键就不写：重复执行一次改期/取消，用户是察觉不到的
+                        return {"decision": _dump({"version": 1, "action": "SEND",
+                                                   "text": "刚才没办成，麻烦再说一遍？"}),
+                                "is_op": "false", "op_body": ""}
+                    return {"decision": "", "is_op": "true", "op_body": body}
+
+                data.setdefault("version", 1)
+                if data.get("action") == "MEMO":
+                    data["memo"] = _clean_memo(data.get("memo"))
+                return {"decision": _dump(data), "is_op": "false", "op_body": ""}
           code_language: python3
           desc: ''
           outputs:
             decision:
+              children: null
+              type: string
+            is_op:
+              children: null
+              type: string
+            op_body:
               children: null
               type: string
           selected: false
@@ -2063,6 +2238,18 @@ workflow:
                 - chat_decision
                 - text
               variable: text
+            - value_selector:
+                - start
+                - sender_id
+              variable: sender_id
+            - value_selector:
+                - start
+                - chat_id
+              variable: chat_id
+            - value_selector:
+                - start
+                - event_id
+              variable: event_id
         height: 180
         id: clean_decision
         position:
@@ -2071,6 +2258,187 @@ workflow:
         positionAbsolute:
           x: 1520
           y: 1040
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+      - data:
+          cases:
+            - case_id: 'true'
+              conditions:
+                - comparison_operator: is
+                  id: c0000000-0000-4000-8000-000000000002
+                  value: 'true'
+                  varType: string
+                  variable_selector:
+                    - clean_decision
+                    - is_op
+              id: 'true'
+              logical_operator: and
+          desc: 这条消息是不是一次备忘写操作
+          selected: false
+          title: IS_OP
+          type: if-else
+        height: 150
+        id: is_op
+        position:
+          x: 1800
+          y: 1040
+        positionAbsolute:
+          x: 1800
+          y: 1040
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+      - data:
+          authorization:
+            config: null
+            type: no-auth
+          body:
+            data:
+              - type: text
+                value: '{{#clean_decision.op_body#}}'
+            type: json
+          desc: 备忘写操作。Dify 只决定做什么，校验/归属/状态机/提醒重算全在 Spring
+          error_strategy: fail-branch
+          headers: |
+            X-Agent-Token: {{#env.AGENT_OPS_TOKEN#}}
+          method: post
+          params: ''
+          selected: false
+          timeout:
+            max_connect_timeout: 5
+            max_read_timeout: 20
+            max_write_timeout: 20
+          title: OP_HTTP
+          type: http-request
+          url: '{{#env.SPRING_BASE_URL#}}/api/agent/ops'
+          variables: []
+        height: 180
+        id: op_http
+        position:
+          x: 2080
+          y: 960
+        positionAbsolute:
+          x: 2080
+          y: 960
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+      - data:
+          code: |
+            import json
+
+            MAX_TEXT = 200
+
+
+            def _send(text):
+                return json.dumps({"version": 1, "action": "SEND",
+                                   "text": text[:MAX_TEXT]}, ensure_ascii=False)
+
+
+            def _payload(body):
+                if isinstance(body, dict):
+                    return body
+                try:
+                    return json.loads(body or "")
+                except Exception:
+                    return None
+
+
+            def main(status_code: int, body: str) -> dict:
+                """把 HTTP 结果翻成决策信封（前后端唯一约定）。
+
+                全函数：任何输入都返回 SEND，绝不抛异常——抛了整条工作流会中断，
+                用户连「没办成」都收不到。也不回显 body：后端细节不该出现在 QQ 里。
+                """
+                try:
+                    code = int(status_code or 0)
+                except (TypeError, ValueError):
+                    code = 0
+                payload = _payload(body)
+                if payload is None or not 200 <= code < 300:
+                    return {"decision": _send("刚才没办成，后台没连上，等会儿再说一次？")}
+
+                message = str(payload.get("message") or "").strip()
+                if payload.get("code") != 0:
+                    # 业务拒绝（校验/归属/找不到）走这条：把 Spring 给的中文原因原样转达，
+                    # 别改写成「没连上」，用户会以为重试就能好。
+                    return {"decision": _send(message or "这次没改成，换个说法再试试？")}
+
+                data = payload.get("data") or {}
+                if data.get("replayed"):
+                    message = (message or "这件事已经办过了") + "（没有重复执行）"
+                return {"decision": _send(message or "办好了")}
+          code_language: python3
+          desc: 成功分支：把 Result 信封翻成 SEND
+          outputs:
+            decision:
+              children: null
+              type: string
+          selected: false
+          title: READ_OP_RESULT
+          type: code
+          variables:
+            - value_selector:
+                - op_http
+                - status_code
+              variable: status_code
+            - value_selector:
+                - op_http
+                - body
+              variable: body
+        height: 180
+        id: read_op_result
+        position:
+          x: 2360
+          y: 900
+        positionAbsolute:
+          x: 2360
+          y: 900
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+      - data:
+          code: |
+            import json
+
+
+            def main() -> dict:
+                """失败分支：只说人话。
+
+                故意不接 error_message：代理/内网的原始报错既看不懂也不该外泄，
+                真正的排查线索在 Dify 运行日志的 OP_HTTP 节点里。
+                """
+                return {"decision": json.dumps(
+                    {"version": 1, "action": "SEND",
+                     "text": "刚才没办成，后台没连上，等会儿再说一次？"},
+                    ensure_ascii=False)}
+          code_language: python3
+          desc: 失败分支：固定道歉，不回显原始报错
+          outputs:
+            decision:
+              children: null
+              type: string
+          selected: false
+          title: OP_FAILED
+          type: code
+          variables: []
+        height: 180
+        id: op_failed
+        position:
+          x: 2360
+          y: 1180
+        positionAbsolute:
+          x: 2360
+          y: 1180
         selected: false
         sourcePosition: right
         targetPosition: left
@@ -2092,6 +2460,12 @@ workflow:
             - - check_missing_text
               - decision
             - - wait_file_reply
+              - decision
+            # op 结果必须排在 clean_decision 前面：op 分支时 clean_decision
+            # 输出的是空串，聚合器取「第一个非空」，顺序错了就会回 SILENT
+            - - read_op_result
+              - decision
+            - - op_failed
               - decision
             - - clean_decision
               - decision

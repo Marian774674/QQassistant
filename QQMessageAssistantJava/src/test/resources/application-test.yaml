@@ -23,6 +23,8 @@ langbot:
   base-url: http://localhost:5300
 
 app:
+  agent:
+    token: test-token
   reminder:
     scan-interval-ms: 3600000
     batch-size: 50

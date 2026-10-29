@@ -136,6 +136,7 @@ docker compose exec langbot_plugin_runtime tail -n 60 /app/data/qq_assistant/dat
 | 插件日志 `httpx.ConnectError: All connection attempts failed` | 插件跑在 `langbot_plugin_runtime` 容器里，`localhost` / `127.0.0.1` 指的是**容器自己**。`spring_base_url`、`dify_base_url` 必须填容器可达的地址（Windows 的局域网 IP）；同时 Windows 防火墙放行 8080 与 Dify 端口 |
 | LangBot 显示处理成功但 QQ 无回复、Dify 无日志、MySQL 无记录 | 插件在调 Dify/Spring 之前就抛异常了（先弹 profile 请求）。看 `docker compose logs qq-langbot-runtime` 里第一条 `ConnectError` 指向哪个地址 |
 | Dify 返回 400 `{"code":"invalid_param","message":"not supported value type integer"}`，**任何消息都失败且秒回** | 会话变量 `pending_file_expires_at` 默认值写成了 `0`，DSL 里存成 `value_type: integer`；Dify 加载变量池时不认这个类型，节点一个都没跑 | Dify 里把该变量默认值改成 `0.1`（保存后导出 DSL 应显示 `value_type: number`）；UI 改不动就改 DSL 重新导入，并同步插件里的 `dify_api_key`。见 `design/dify_chatflow.md` §6.1 |
+| Dify 返回 400 `1 validation error for HttpRequestNodeData` / `authorization Field required`，**每条消息都 400** | 工作流里 HTTP 请求节点（`OP_HTTP`）的「授权」没选。在节点里把授权选成「无」（token 是填在 Headers 里的），保存即可；重新导入 `design/QQAssistant.chatflow.yml` 也行，但 secret 要重填 |
 | 插件报 502 / 下载失败 | 插件 `napcat_api_url` 是否 `http://napcat:3000`、Token 是否一致 |
 | VM / 容器访问 Windows 上的 Spring 返回 `http_code=000` | Windows 防火墙或监听地址问题：`netstat -ano \| findstr :8080` 要看到 `0.0.0.0:8080`；再加显式规则 `New-NetFirewallRule -DisplayName "SpringBoot 8080" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Any`（虚拟机网卡常被判为「公用」profile） |
 | 桥返回 400「fileRef 指向的文件不存在」 | 第 5 节两条路径是否一致；插件 `data_dir` 是否被改过 |
@@ -148,7 +149,44 @@ docker compose exec langbot_plugin_runtime tail -n 60 /app/data/qq_assistant/dat
 
 > 本目录的 compose 已通过 `docker compose config` 校验；镜像构建与真机联调需在虚拟机（或能访问镜像仓库的机器）上执行。
 
-## 9. 安全与运维
+## 9. Dify → Spring 的写入口（`AGENT_OPS_TOKEN`）
+
+Phase 6 起，Dify 的 `OP_HTTP` 节点会直连 Spring 的 `POST /api/agent/ops` 去改/取消备忘。
+这条链路需要一个共享口令，**两边必须一致**：
+
+| 位置 | 怎么配 |
+|---|---|
+| Spring Boot（Windows） | 启动前设环境变量 `AGENT_OPS_TOKEN=<32 位随机串>`；也可以直接 `setx` 或写进 IDE 的 Run Configuration。**不要**写进 `application.yaml` |
+| Dify 控制台 | 「环境变量」里建 `AGENT_OPS_TOKEN`，类型选 **Secret**，值同上；另建 `SPRING_BASE_URL` = Dify 容器能访问到的 Spring 地址（见地址对照表） |
+
+```bash
+# 生成口令（任选其一）
+openssl rand -hex 16
+python -c "import secrets;print(secrets.token_hex(16))"
+```
+
+- **留空 = 功能关闭**：Spring 未配置 token 时 `/api/agent/*` 一律 503（fail closed），
+  不会意外开一个无鉴权的写入口。
+- secret 类型**不随 DSL 导出**：重新导入 `design/QQAssistant.chatflow.yml` 后，值一定是空的，
+  必须在 UI 里重填——忘了填的表现就是 QQ 上一句“刚才没办成，后台没连上”。
+- Dify 走 `ssrf_proxy`，默认拦私网。VM/容器里的 Dify 访问 Windows 上的 8080 前先验：
+  `docker compose exec -T dify-api curl -s -o /dev/null -w '%{http_code}\n' http://<WIN_IP>:8080/api/agent/ops`
+  返回 `401`/`503` 就说明通了（这两个都是“鉴权没过”，不是“连不上”）。
+- 若 Dify 日志里出现 `blocked by SSRF protection`，要在 **Dify 自己的** `docker/.env` 里放行 Spring 地址所在的网段
+  （值是 CIDR，不是 `true`），然后重启 `ssrf_proxy api worker`：
+
+  ```bash
+  # 1) 先看 host.docker.internal（或你的 SPRING_BASE_URL 主机）解析成哪个 IP
+  docker compose -f docker/docker-compose.yaml exec api \
+    python -c "import socket;print(socket.gethostbyname('host.docker.internal'))"
+  # 2) 写进 docker/.env
+  SSRF_PROXY_ALLOW_PRIVATE_IPS=172.21.0.0/16
+  docker compose -f docker/docker-compose.yaml up -d ssrf_proxy api worker
+  ```
+
+  放行私网等于给 Dify 的 HTTP 节点开了内网出口，只适合自家/实验室环境。
+
+## 10. 安全与运维
 
 - **不要**把 `5401` 映射到宿主机（插件运行器调试口，官方安全通告指出空密钥可被劫持）
 - `5300` / `6098` 默认只绑 `127.0.0.1`，用 SSH 隧道访问；确需局域网访问时改 `.env` 的 `*_BIND` 并加防火墙白名单
@@ -157,7 +195,7 @@ docker compose exec langbot_plugin_runtime tail -n 60 /app/data/qq_assistant/dat
 - 备份：`./data`（LangBot 配置与数据库、插件、任务文件）、`./napcat/qq`（QQ 登录态）、`./bridge-data`（幂等状态）
 - 升级：改 `LANGBOT_IMAGE` 到固定版本 → `docker compose pull && docker compose up -d`；`./data` 不要删
 
-## 10. 地址对照表
+## 11. 地址对照表
 
 | 调用方 | 目标 | 地址 |
 |---|---|---|

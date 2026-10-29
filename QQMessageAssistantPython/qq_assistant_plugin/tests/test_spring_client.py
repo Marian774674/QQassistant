@@ -51,3 +51,20 @@ async def test_bind_conversation_payload_keeps_group_chat_id():
         "botUuid": "bot", "chatType": "group", "chatId": 555,
         "senderId": 1001, "conversationId": "conv-1",
     }
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_list_open_memos_passes_sender_and_limit():
+    route = respx.get("http://sb/api/memos/open").mock(
+        return_value=httpx.Response(200, json={
+            "code": 0, "message": "ok",
+            "data": [{"id": 12, "title": "班会", "status": "ACTIVE"}]}))
+    client = SpringClient("http://sb")
+
+    data = await client.list_open_memos(1001)
+
+    assert data[0]["id"] == 12
+    params = route.calls[0].request.url.params
+    assert params["senderId"] == "1001"
+    assert params["limit"] == "20"

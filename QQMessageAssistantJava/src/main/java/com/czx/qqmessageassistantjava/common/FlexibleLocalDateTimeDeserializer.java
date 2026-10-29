@@ -17,6 +17,9 @@ import java.time.format.DateTimeParseException;
  * 背景：dueTime 主要来自 Dify LLM，模型经常输出 "2026-10-29 19:00" 这类非 ISO 文本。
  * Jackson 默认只认 "2026-10-29T19:00:00"，一个空格就会让整条备忘 500 且丢失信息。
  * 这里按常见写法逐个尝试，仍然失败才抛错（错误信息里带原值，便于排查 Prompt）。
+ *
+ * 解析逻辑同时被 {@code AgentOpService} 复用（那边收到的是字符串），所以抽成静态方法，
+ * 不要在两处各写一套格式表。
  */
 public class FlexibleLocalDateTimeDeserializer extends JsonDeserializer<LocalDateTime> {
 
@@ -33,9 +36,13 @@ public class FlexibleLocalDateTimeDeserializer extends JsonDeserializer<LocalDat
             DateTimeFormatter.ofPattern("yyyy/MM/dd"),
     };
 
-    @Override
-    public LocalDateTime deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
-        String text = p.getValueAsString();
+    /**
+     * 解析模型给的时间文本，支持 ISO、空格分隔、斜杠、带偏移、只有日期。
+     *
+     * @return null 表示没给时间
+     * @throws IllegalArgumentException 格式不认识（消息里带原值）
+     */
+    public static LocalDateTime parseFlexible(String text) {
         if (text == null || text.isBlank()) {
             return null;
         }
@@ -62,6 +69,15 @@ public class FlexibleLocalDateTimeDeserializer extends JsonDeserializer<LocalDat
                 // 继续
             }
         }
-        throw new IOException("无法解析时间：" + value + "（需要形如 2026-10-29T19:00:00）");
+        throw new IllegalArgumentException("无法解析时间：" + value + "（需要形如 2026-10-29T19:00:00）");
+    }
+
+    @Override
+    public LocalDateTime deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
+        try {
+            return parseFlexible(p.getValueAsString());
+        } catch (IllegalArgumentException e) {
+            throw new IOException(e.getMessage());
+        }
     }
 }

@@ -23,6 +23,11 @@ public class Result<T> {
         return new Result<>(0,"ok",data);
     }
 
+    /** 需要把「人话确认语」带出去时用（例如 Agent 写操作的 "改好了：…"）。 */
+    public static <T> Result<T> ok(String message,T data){
+        return new Result<>(0,message,data);
+    }
+
     public static <T> Result<T> fail(int code,String message){
         return new Result<>(code,message,null);
     }

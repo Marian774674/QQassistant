@@ -45,6 +45,9 @@
 | | GET | `/api/memos/{id}` | Vue | 是 | 备忘详情 |
 | | GET | `/api/memos/{id}/reminders` | Vue | 是 | 提醒计划 |
 | | PATCH | `/api/memos/{id}` | Vue / LangBot | 否 | 编辑 / 完成 / 取消 |
+| | GET | `/api/memos/open` | LangBot（→Dify） | 是 | 未终结备忘摘要，供模型指认「改哪条」 |
+| | GET | `/api/memos/{id}/history` | Vue | 是 | 变更记录（AI / 手动） |
+| Agent 写入口 | POST | `/api/agent/ops` | Dify HTTP 节点 | **是（`eventId`）** | 备忘新建/修改/完成/取消 |
 | 防重 | POST | `/api/collection-tasks/check` | Dify / LangBot | **是** | 查是否已回复 |
 | | POST | `/api/collection-tasks/mark` | Dify / LangBot | 否 | 标记已回复 |
 | | GET | `/api/collection-tasks/rules` | LangBot | 是 | 拉取前置拦截规则 |
@@ -264,6 +267,85 @@
 **QQ 闭环**：用户在 QQ 回「完成/取消」时，LangBot 识别后也调本接口（LangBot 维护「当前激活提醒 `memo_id` → 用户」映射，才能路由到正确 memo）。
 
 **行为**：改 `status` 为 `DONE`/`CANCELLED` 时，同步把该 memo 未发的 `memo_reminder` 置 `CANCELLED`。
+
+---
+
+### 5.6 `GET /api/memos/open` — 未终结备忘摘要
+
+**Query**：`senderId`（必填）、`limit`（默认 20，clamp 1–50）
+
+**响应** `data` = `MemoOpenItem[]`：
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 备忘 id —— **模型唯一可以引用的 id** |
+| `title` | 标题 |
+| `content` | 正文，截 60 字 |
+| `dueTime` | 可空 |
+| `status` | `ACTIVE` / `REMINDED` / `AWAITING_REPLY` / `OVERDUE` |
+| `importance` | 1–5 |
+| `category` | 分类 |
+
+只含未终结状态（`DONE` / `CANCELLED` 不出现）；有 `dueTime` 的按时间升序在前，
+没有的按 `updated_at` 倒序在后。插件把它 `json.dumps` 后作为 `open_memos` 喂给 Dify（见 `agent_contract.md` §1.4）。
+
+---
+
+### 5.7 `GET /api/memos/{id}/history` — 变更记录
+
+**响应** `data` = `MemoChangeLog[]`，新的在前：
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 记录 id |
+| `memoId` / `senderId` | 归属 |
+| `source` | `AGENT`（Dify 调用）/ `VUE`（人工） |
+| `op` | `CREATE` / `UPDATE` / `CLOSE` |
+| `eventId` | 幂等键（人工改动为 null） |
+| `beforeJson` / `afterJson` | 变更前后快照（整条 memo） |
+| `resultJson` | 当时返回给 Dify 的确认信封（重放时直接返回它） |
+| `createdAt` | 时间 |
+
+前端只用它展示「时间 / 来源 / 改前改后摘要」；**它是备忘正文之外唯一的历史留存**，
+所以提示词要求模型把 `content` 重写成「改动后的完整状态」，而不是在正文里堆历史。
+
+---
+
+### 5.8 `POST /api/agent/ops` — Agent 窄写入口（备忘）
+
+Dify 的 `OP_HTTP` 节点直接调用本接口。**鉴权**：请求头 `X-Agent-Token` 必须等于
+`app.agent.token`（环境变量 `AGENT_OPS_TOKEN`）；未配置时整组接口 503（fail closed），
+配置了但头不对/缺失返回 401。
+
+**请求体**：全部字段为字符串，空串 = 未提供（见 `agent_contract.md` §3.1）。
+
+| 字段 | 说明 |
+|---|---|
+| `eventId` | 必填，幂等键 |
+| `op` | `memo.create` / `memo.update` / `memo.close` |
+| `senderId` | 必填；归属与幂等只认它 |
+| `chatId` / `conversationId` / `query` | 审计用，可空 |
+| `memoId` | `update`/`close` 用；`close` 为空时取该用户最新未终结备忘 |
+| `title` / `content` / `importance` / `category` / `dueTime` / `clearDueTime` / `status` | 同 `MemoPatchRequest` 语义 |
+
+**响应**：`Result<AgentOpsResult>`，`data` = `{op, memoId, status, message, replayed, reminders[]}`。
+
+**错误语义（对 Dify 而言很关键）**：
+
+| 情况 | HTTP | `code` |
+|---|---|---|
+| 成功 / 重放 | 200 | 0 |
+| 业务拒绝（校验、归属、找不到、参数冲突） | **200** | **400** |
+| token 缺失/错误 | 401 | 401 |
+| 未配置 token | 503 | 503 |
+| 未捕获异常 | 500 | 500 |
+
+业务拒绝走 200 是为了让 Dify 的成功分支把 `message`（中文原因）转达给用户；
+只有基础设施问题才走非 2xx，由 `OP_FAILED` 给通用道歉。
+
+**幂等**：同一 `eventId` 只执行一次，第二次直接返回上次的 `result_json`（`replayed=true`）。
+
+**归属**：`memoId` 不属于 `senderId` 时一律返回「备忘录不存在」，不区分“不存在”和“不是你的”。
 
 ---
 

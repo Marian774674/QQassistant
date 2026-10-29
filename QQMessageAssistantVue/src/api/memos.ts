@@ -1,6 +1,7 @@
 import { http } from './http'
 import type {
   Memo,
+  MemoChangeLog,
   MemoCreateBody,
   MemoPatchBody,
   MemoReminder,
@@ -17,6 +18,10 @@ export function getMemo(id: number) {
 
 export function listReminders(id: number) {
   return http.get<MemoReminder[]>(`/api/memos/${id}/reminders`)
+}
+
+export function listMemoHistory(id: number) {
+  return http.get<MemoChangeLog[]>(`/api/memos/${id}/history`)
 }
 
 export function createMemo(body: MemoCreateBody) {
