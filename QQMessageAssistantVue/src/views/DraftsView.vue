@@ -2,11 +2,13 @@
 import { computed, onMounted, ref } from 'vue'
 import DraftItem from '@/components/DraftItem.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import Segmented from '@/components/Segmented.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import { listDrafts } from '@/api/drafts'
 import type { Draft } from '@/api/types'
 import { useDraftStore } from '@/composables/useDraftStore'
+import { useRefresh } from '@/composables/useRefresh'
 
 type Filter = 'pending' | 'handled'
 
@@ -49,6 +51,8 @@ async function onResolved(id: number) {
   draftStore.dropPendingDraft(id)
   await load()
 }
+
+useRefresh(load)
 </script>
 
 <template>
@@ -62,18 +66,15 @@ async function onResolved(id: number) {
     <Segmented v-model="filter" :items="tabs" label="按处理状态筛选" />
 
     <div class="body">
-      <p v-if="error" class="notice" role="alert">
-        <span>{{ error }}</span>
-        <button type="button" class="btn btn-sm btn-quiet" @click="load">重试</button>
-      </p>
+      <ErrorState v-if="error" :message="error" hint="也可以下拉重试。" @retry="load" />
 
       <Skeleton v-else-if="loading" :rows="3" />
 
-      <ul v-else-if="shown.length" class="list">
-        <li v-for="draft in shown" :key="draft.id" class="rise">
+      <TransitionGroup v-else-if="shown.length" name="list" tag="ul" class="list" appear>
+        <li v-for="draft in shown" :key="draft.id">
           <DraftItem :draft="draft" @resolved="onResolved" />
         </li>
-      </ul>
+      </TransitionGroup>
 
       <EmptyState
         v-else-if="filter === 'pending'"
@@ -96,17 +97,5 @@ async function onResolved(id: number) {
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-.notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: var(--r-lg);
-  background: var(--danger-wash);
-  color: var(--danger);
-  font-size: 13px;
 }
 </style>

@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import Segmented from '@/components/Segmented.vue'
 import Sheet from '@/components/Sheet.vue'
 import Skeleton from '@/components/Skeleton.vue'
@@ -16,6 +17,7 @@ import {
 import { getSettings, putSettings } from '@/api/settings'
 import type { ProfileFact, StyleProfile } from '@/api/types'
 import { useOwner } from '@/composables/useOwner'
+import { useRefresh } from '@/composables/useRefresh'
 import { useToast } from '@/composables/useToast'
 import { formatDateTime } from '@/utils/datetime'
 
@@ -100,6 +102,8 @@ async function loadAll() {
 
 onMounted(loadAll)
 watch(senderId, loadAll)
+
+useRefresh(loadAll)
 
 function openAdd() {
   editing.value = null
@@ -229,10 +233,7 @@ async function changeFrequency(value: Frequency) {
           </button>
         </div>
 
-        <p v-if="factsError" class="notice" role="alert">
-          <span>{{ factsError }}</span>
-          <button type="button" class="btn btn-sm btn-quiet" @click="loadFacts">重试</button>
-        </p>
+        <ErrorState v-if="factsError" :message="factsError" @retry="loadFacts" />
         <Skeleton v-else-if="loadingFacts" :rows="3" />
 
         <ul v-else-if="facts.length" class="facts">
@@ -281,7 +282,7 @@ async function changeFrequency(value: Frequency) {
             </button>
           </div>
         </div>
-        <p v-if="profileError" class="notice" role="alert">{{ profileError }}</p>
+        <p v-if="profileError" class="inline-error" role="alert">{{ profileError }}</p>
       </section>
 
       <section class="block" aria-labelledby="freq-title">
@@ -544,6 +545,15 @@ async function changeFrequency(value: Frequency) {
   font-size: 12.5px;
 }
 
+.inline-error {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: var(--danger-wash);
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
 .delete-zone {
   margin-top: 6px;
 }
@@ -576,15 +586,4 @@ async function changeFrequency(value: Frequency) {
   margin-top: 10px;
 }
 
-.notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: var(--r-lg);
-  background: var(--danger-wash);
-  color: var(--danger);
-  font-size: 13px;
-}
 </style>

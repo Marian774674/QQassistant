@@ -2,10 +2,12 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ArrowLeft, Plus, ShieldCheck, Trash2 } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import Sheet from '@/components/Sheet.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import { createRule, deleteRule, listRules, updateRule } from '@/api/rules'
 import type { InterceptRule, InterceptRuleBody } from '@/api/types'
+import { tapFeedback, useRefresh } from '@/composables/useRefresh'
 import { useToast } from '@/composables/useToast'
 
 const toast = useToast()
@@ -44,6 +46,8 @@ async function load() {
 }
 
 onMounted(load)
+
+useRefresh(load)
 
 const sorted = computed(() =>
   [...rules.value].sort((a, b) => a.priority - b.priority || a.id - b.id),
@@ -148,6 +152,7 @@ async function save() {
 
 async function toggle(rule: InterceptRule) {
   togglingId.value = rule.id
+  tapFeedback()
   const next = !rule.enabled
   rules.value = rules.value.map((item) =>
     item.id === rule.id ? { ...item, enabled: next } : item,
@@ -200,10 +205,7 @@ async function remove() {
       </div>
     </header>
 
-    <p v-if="error" class="notice" role="alert">
-      <span>{{ error }}</span>
-      <button type="button" class="btn btn-sm btn-quiet" @click="load">重试</button>
-    </p>
+    <ErrorState v-if="error" :message="error" hint="也可以下拉重试。" @retry="load" />
 
     <Skeleton v-else-if="loading" :rows="3" />
 
@@ -634,15 +636,4 @@ async function remove() {
   margin-top: 10px;
 }
 
-.notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: var(--r-lg);
-  background: var(--danger-wash);
-  color: var(--danger);
-  font-size: 13px;
-}
 </style>

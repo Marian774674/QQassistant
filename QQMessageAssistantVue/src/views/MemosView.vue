@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import DraftBanner from '@/components/DraftBanner.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import MemoDetail from '@/components/MemoDetail.vue'
 import MemoEditor from '@/components/MemoEditor.vue'
 import MemoRow from '@/components/MemoRow.vue'
 import Segmented from '@/components/Segmented.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import { listMemos, patchMemo } from '@/api/memos'
-import type { Memo } from '@/api/types'
+import type { Memo, MemoStatus } from '@/api/types'
 import { useFab } from '@/composables/useFab'
+import { tapFeedback, useRefresh } from '@/composables/useRefresh'
 import { useToast } from '@/composables/useToast'
 import {
   dayKey,
@@ -174,9 +176,42 @@ function openEdit(memo: Memo) {
   detailOpen.value = false
 }
 
-function openDetail(memo: Memo) {
-  detail.value = memo
-  detailOpen.value = true
+/* ── 卡片 → 抽屉的共享元素过渡 ────────────────────────────── */
+
+type VtDocument = Document & {
+  startViewTransition?: (callback: () => Promise<void>) => { finished: Promise<void> }
+}
+
+const VT_NAME = 'memo-morph'
+const vtCardId = ref<number | null>(null)
+const vtOpening = ref(false)
+
+async function openDetail(memo: Memo) {
+  const doc = document as VtDocument
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  // 不支持或用户要求减少动效时，退回普通的抽屉滑入
+  if (typeof doc.startViewTransition !== 'function' || reduceMotion) {
+    detail.value = memo
+    detailOpen.value = true
+    return
+  }
+
+  // 先把名字挂到被点的那张卡上，让旧快照能定位到它
+  vtCardId.value = memo.id
+  await nextTick()
+
+  const transition = doc.startViewTransition(async () => {
+    vtCardId.value = null
+    vtOpening.value = true
+    detail.value = memo
+    detailOpen.value = true
+    await nextTick()
+  })
+
+  void transition.finished.finally(() => {
+    vtOpening.value = false
+  })
 }
 
 function replaceLocal(updated: Memo) {
@@ -185,11 +220,19 @@ function replaceLocal(updated: Memo) {
 }
 
 async function complete(memo: Memo) {
+  // 先落界面再发请求：勾下去就该立刻有反应，失败了再滚回来
+  const snapshot = memos.value
+  memos.value = memos.value.map((item) =>
+    item.id === memo.id ? { ...item, status: 'DONE' as MemoStatus } : item,
+  )
+  tapFeedback()
+
   try {
     const updated = await patchMemo(memo.id, { status: 'DONE' })
     replaceLocal(updated)
     toast.success(`「${memo.title}」已完成`)
   } catch (e) {
+    memos.value = snapshot
     toast.error(e instanceof Error ? e.message : '操作失败')
   }
 }
@@ -199,6 +242,7 @@ function onChanged(updated: Memo) {
 }
 
 useFab('新建备忘', openCreate)
+useRefresh(load)
 </script>
 
 <template>
@@ -213,40 +257,44 @@ useFab('新建备忘', openCreate)
     <Segmented v-model="tab" :items="tabs" label="按状态筛选" />
 
     <div class="body">
-      <p v-if="error" class="notice" role="alert">
-        <span>{{ error }}</span>
-        <button type="button" class="btn btn-sm btn-quiet" @click="load">重试</button>
-      </p>
+      <ErrorState
+        v-if="error"
+        :message="error"
+        hint="确认后端已在 8080 运行，也可以下拉重试。"
+        @retry="load"
+      />
 
-      <Skeleton v-else-if="loading" :rows="4" />
+      <Skeleton v-else-if="loading" :rows="4" variant="timeline" />
 
       <template v-else-if="tab === 'today'">
         <section v-if="overdueMemos.length" class="group">
           <h2 class="group-title">早该处理 <span class="num">{{ overdueMemos.length }}</span></h2>
-          <ul class="timeline">
+          <TransitionGroup name="list" tag="ul" class="timeline" appear>
             <MemoRow
               v-for="memo in overdueMemos"
               :key="memo.id"
               :memo="memo"
+              :vt-name="vtCardId === memo.id ? VT_NAME : null"
               show-date
               @open="openDetail"
               @done="complete"
             />
-          </ul>
+          </TransitionGroup>
         </section>
 
         <section class="group">
           <h2 class="group-title">今天</h2>
-          <ul class="timeline">
+          <TransitionGroup name="list" tag="ul" class="timeline" appear>
             <MemoRow
               v-for="memo in todayPast"
               :key="memo.id"
               :memo="memo"
+              :vt-name="vtCardId === memo.id ? VT_NAME : null"
               @open="openDetail"
               @done="complete"
             />
 
-            <li class="now" aria-label="当前时间">
+            <li key="now" class="now" aria-label="当前时间">
               <span class="now-time num">{{ formatTime(now) }}</span>
               <span class="now-rule" aria-hidden="true" />
               <span class="now-label">现在</span>
@@ -256,26 +304,28 @@ useFab('新建备忘', openCreate)
               v-for="memo in todayUpcoming"
               :key="memo.id"
               :memo="memo"
+              :vt-name="vtCardId === memo.id ? VT_NAME : null"
               :featured="memo.id === featuredId"
               @open="openDetail"
               @done="complete"
             />
 
-            <li v-if="!todayMemos.length" class="day-empty">今天没有安排</li>
-          </ul>
+            <li v-if="!todayMemos.length" key="empty" class="day-empty">今天没有安排</li>
+          </TransitionGroup>
         </section>
 
         <section v-if="undatedMemos.length" class="group">
           <h2 class="group-title">没有截止时间 <span class="num">{{ undatedMemos.length }}</span></h2>
-          <ul class="timeline">
+          <TransitionGroup name="list" tag="ul" class="timeline" appear>
             <MemoRow
               v-for="memo in undatedMemos"
               :key="memo.id"
               :memo="memo"
+              :vt-name="vtCardId === memo.id ? VT_NAME : null"
               @open="openDetail"
               @done="complete"
             />
-          </ul>
+          </TransitionGroup>
         </section>
 
         <EmptyState
@@ -292,15 +342,16 @@ useFab('新建备忘', openCreate)
           <h2 class="group-title">
             {{ group.title }} <span class="num">{{ group.memos.length }}</span>
           </h2>
-          <ul class="timeline">
+          <TransitionGroup name="list" tag="ul" class="timeline" appear>
             <MemoRow
               v-for="memo in group.memos"
               :key="memo.id"
               :memo="memo"
+              :vt-name="vtCardId === memo.id ? VT_NAME : null"
               @open="openDetail"
               @done="complete"
             />
-          </ul>
+          </TransitionGroup>
         </section>
 
         <EmptyState v-if="!allGroups.length" title="没有待办" hint="新建一条，或者等 QQ 里提到的事自动进来。">
@@ -309,16 +360,17 @@ useFab('新建备忘', openCreate)
       </template>
 
       <template v-else>
-        <ul v-if="doneSorted.length" class="timeline">
+        <TransitionGroup v-if="doneSorted.length" name="list" tag="ul" class="timeline" appear>
           <MemoRow
             v-for="memo in doneSorted"
             :key="memo.id"
             :memo="memo"
+            :vt-name="vtCardId === memo.id ? VT_NAME : null"
             show-date
             @open="openDetail"
             @done="complete"
           />
-        </ul>
+        </TransitionGroup>
         <EmptyState v-else title="还没有完成的备忘" hint="处理完的事会归档到这里，随时能翻回来看。" />
       </template>
     </div>
@@ -328,6 +380,8 @@ useFab('新建备忘', openCreate)
     <MemoDetail
       :open="detailOpen"
       :memo="detail"
+      :vt-name="vtOpening ? VT_NAME : undefined"
+      :instant="vtOpening"
       @close="detailOpen = false"
       @edit="openEdit"
       @changed="onChanged"
@@ -345,11 +399,15 @@ useFab('新建备忘', openCreate)
 }
 
 .group-title {
+  position: sticky;
+  top: calc(44px + env(safe-area-inset-top, 0px));
+  z-index: 10;
   display: flex;
   align-items: baseline;
   gap: 6px;
-  margin-bottom: 10px;
-  padding-left: 34px;
+  margin-bottom: 2px;
+  padding: 8px 0 8px 34px;
+  background: var(--bg);
   color: var(--ink-3);
   font-size: 12px;
   font-weight: 600;
@@ -416,20 +474,6 @@ useFab('新建备忘', openCreate)
 .day-empty {
   padding: 18px 0 18px 34px;
   color: var(--ink-3);
-  font-size: 13px;
-}
-
-/* ── 状态 ─────────────────────────────────────────────────── */
-
-.notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: var(--r-lg);
-  background: var(--danger-wash);
-  color: var(--danger);
   font-size: 13px;
 }
 </style>

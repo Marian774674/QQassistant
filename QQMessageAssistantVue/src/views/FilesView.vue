@@ -2,11 +2,13 @@
 import { computed, onMounted, ref } from 'vue'
 import { ArrowLeft, FileSpreadsheet } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import Sheet from '@/components/Sheet.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import { listFileTasks } from '@/api/files'
 import type { FileTask } from '@/api/types'
+import { useRefresh } from '@/composables/useRefresh'
 import { formatDateTime } from '@/utils/datetime'
 import { FILE_GROUPS, fileStatusMeta } from '@/utils/meta'
 
@@ -30,6 +32,8 @@ async function load() {
 }
 
 onMounted(load)
+
+useRefresh(load)
 
 const groups = computed(() =>
   FILE_GROUPS.map((group) => ({
@@ -71,10 +75,7 @@ const selectedMeta = computed(() => fileStatusMeta(selected.value?.status ?? '')
       <p class="page-sub">LangBot 那边每处理一份表格都会镜像到这里，只读。</p>
     </header>
 
-    <p v-if="error" class="notice" role="alert">
-      <span>{{ error }}</span>
-      <button type="button" class="btn btn-sm btn-quiet" @click="load">重试</button>
-    </p>
+    <ErrorState v-if="error" :message="error" hint="也可以下拉重试。" @retry="load" />
 
     <Skeleton v-else-if="loading" :rows="3" />
 
@@ -294,15 +295,4 @@ const selectedMeta = computed(() => fileStatusMeta(selected.value?.status ?? '')
   overflow-wrap: anywhere;
 }
 
-.notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: var(--r-lg);
-  background: var(--danger-wash);
-  color: var(--danger);
-  font-size: 13px;
-}
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { X } from 'lucide-vue-next'
 
 const props = withDefaults(
@@ -10,8 +10,12 @@ const props = withDefaults(
     tone?: 'dark' | 'light'
     /** 占屏高度上限，默认 88% */
     height?: string
+    /** View Transitions 的共享元素名 */
+    vtName?: string
+    /** 共享元素接管动画时，跳过自己的进出场 */
+    instant?: boolean
   }>(),
-  { description: '', tone: 'dark', height: '88%' },
+  { description: '', tone: 'dark', height: '88%', vtName: '', instant: false },
 )
 
 const emit = defineEmits<{ close: [] }>()
@@ -19,6 +23,69 @@ const emit = defineEmits<{ close: [] }>()
 const panel = ref<HTMLElement | null>(null)
 let lastFocused: HTMLElement | null = null
 let scroller: HTMLElement | null = null
+let appRoot: HTMLElement | null = null
+
+/* ── 下拉关闭 ─────────────────────────────────────────────── */
+
+const dragY = ref(0)
+const dragging = ref(false)
+let startY = 0
+let lastY = 0
+let lastTime = 0
+let velocity = 0
+
+function onDragStart(event: PointerEvent) {
+  if (event.pointerType === 'mouse' && event.button !== 0) return
+  dragging.value = true
+  startY = event.clientY
+  lastY = event.clientY
+  lastTime = performance.now()
+  velocity = 0
+  ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
+}
+
+function onDragMove(event: PointerEvent) {
+  if (!dragging.value) return
+  const now = performance.now()
+  const dt = now - lastTime || 16
+  velocity = (event.clientY - lastY) / dt
+  lastY = event.clientY
+  lastTime = now
+  dragY.value = Math.max(0, event.clientY - startY)
+}
+
+function onDragEnd() {
+  if (!dragging.value) return
+  dragging.value = false
+  // 位移够远，或者甩得够快，就关掉
+  if (dragY.value > 120 || velocity > 0.55) {
+    dragY.value = 0
+    close()
+  } else {
+    dragY.value = 0
+  }
+}
+
+const panelStyle = computed(() => ({
+  transform: dragY.value ? `translateY(${dragY.value}px)` : undefined,
+  viewTransitionName: props.vtName || undefined,
+}))
+
+const scrimStyle = computed(() => ({
+  opacity: dragY.value ? Math.max(0.2, 1 - dragY.value / 420) : 1,
+}))
+
+/* ── 键盘避让 ─────────────────────────────────────────────── */
+
+const kbInset = ref(0)
+
+function onViewportResize() {
+  const vv = window.visualViewport
+  if (!vv) return
+  kbInset.value = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+}
+
+/* ── 打开 / 关闭 ──────────────────────────────────────────── */
 
 function close() {
   emit('close')
@@ -52,9 +119,12 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-function lockScroll(lock: boolean) {
+function lockBackground(lock: boolean) {
   if (!scroller) scroller = document.querySelector<HTMLElement>('.screen')
+  if (!appRoot) appRoot = document.querySelector<HTMLElement>('#app > .app')
   if (scroller) scroller.style.overflowY = lock ? 'hidden' : ''
+  // 让读屏和 Tab 都进不到背景
+  if (appRoot) (appRoot as HTMLElement & { inert?: boolean }).inert = lock
 }
 
 watch(
@@ -62,8 +132,11 @@ watch(
   async (open) => {
     if (open) {
       lastFocused = document.activeElement as HTMLElement | null
-      lockScroll(true)
+      dragY.value = 0
+      kbInset.value = 0
+      lockBackground(true)
       window.addEventListener('keydown', onKeydown)
+      window.visualViewport?.addEventListener('resize', onViewportResize)
       await nextTick()
       panel.value
         ?.querySelector<HTMLElement>('input, textarea, select, button')
@@ -75,8 +148,9 @@ watch(
 )
 
 function cleanup() {
-  lockScroll(false)
+  lockBackground(false)
   window.removeEventListener('keydown', onKeydown)
+  window.visualViewport?.removeEventListener('resize', onViewportResize)
   lastFocused?.focus?.({ preventScroll: true })
   lastFocused = null
 }
@@ -86,26 +160,35 @@ onBeforeUnmount(cleanup)
 
 <template>
   <Teleport to="#app">
-    <Transition name="sheet">
-      <div v-if="open" class="layer">
-        <div class="scrim" @click="close" />
+    <Transition name="sheet" :css="!instant">
+      <div v-if="open" class="layer" :style="{ paddingBottom: `${kbInset}px` }">
+        <div class="scrim" :style="scrimStyle" @click="close" />
+
         <section
           ref="panel"
           class="panel"
-          :class="tone"
+          :class="[tone, { dragging }]"
           role="dialog"
           aria-modal="true"
           :aria-label="title"
-          :style="{ maxHeight: height }"
+          :style="[{ maxHeight: height }, panelStyle]"
         >
           <button type="button" class="grip-close" aria-label="关闭" @click="close">
             <X :size="17" :stroke-width="2.2" aria-hidden="true" />
           </button>
 
-          <header class="head">
-            <h2 class="title">{{ title }}</h2>
-            <p v-if="description" class="desc">{{ description }}</p>
-          </header>
+          <div
+            class="drag-zone"
+            @pointerdown="onDragStart"
+            @pointermove="onDragMove"
+            @pointerup="onDragEnd"
+            @pointercancel="onDragEnd"
+          >
+            <header class="head">
+              <h2 class="title">{{ title }}</h2>
+              <p v-if="description" class="desc">{{ description }}</p>
+            </header>
+          </div>
 
           <div class="body">
             <slot />
@@ -128,6 +211,7 @@ onBeforeUnmount(cleanup)
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+  transition: padding-bottom 240ms var(--ease-out);
 }
 
 .scrim {
@@ -136,6 +220,7 @@ onBeforeUnmount(cleanup)
   background: rgba(10, 10, 11, 0.42);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
+  transition: opacity 220ms var(--ease-out);
 }
 
 .panel {
@@ -145,7 +230,11 @@ onBeforeUnmount(cleanup)
   width: 100%;
   border-radius: var(--r-sheet) var(--r-sheet) 0 0;
   box-shadow: 0 -18px 60px -30px rgba(0, 0, 0, 0.6);
-  animation: sheet-up 0.3s var(--ease) both;
+  transition: transform var(--dur-3) var(--ease-spring);
+}
+
+.panel.dragging {
+  transition: none;
 }
 
 .panel.dark {
@@ -173,6 +262,7 @@ onBeforeUnmount(cleanup)
   color: #fff;
   box-shadow: 0 6px 20px -8px rgba(0, 0, 0, 0.6);
   cursor: pointer;
+  z-index: 2;
 }
 
 .panel.light .grip-close {
@@ -180,8 +270,18 @@ onBeforeUnmount(cleanup)
   color: #111214;
 }
 
+.drag-zone {
+  padding: 22px 22px 0;
+  touch-action: none;
+  cursor: grab;
+}
+
+.drag-zone:active {
+  cursor: grabbing;
+}
+
 .head {
-  padding: 30px 22px 14px;
+  padding: 6px 0 14px;
 }
 
 .title {
@@ -227,12 +327,15 @@ onBeforeUnmount(cleanup)
 
 .sheet-enter-active,
 .sheet-leave-active {
-  transition: opacity 0.24s var(--ease);
+  transition: opacity 0.3s var(--ease-out);
 }
 
-.sheet-enter-active .panel,
+.sheet-enter-active .panel {
+  transition: transform var(--dur-3) var(--ease-spring);
+}
+
 .sheet-leave-active .panel {
-  transition: transform 0.3s var(--ease);
+  transition: transform 300ms var(--ease-out);
 }
 
 .sheet-enter-from,

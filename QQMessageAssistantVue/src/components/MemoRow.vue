@@ -10,6 +10,8 @@ const props = defineProps<{
   /** 用深色卡突出「接下来这一件」 */
   featured?: boolean
   showDate?: boolean
+  /** View Transitions 的共享元素名，只在点开的那一帧挂上 */
+  vtName?: string | null
 }>()
 
 const emit = defineEmits<{ open: [memo: Memo]; done: [memo: Memo] }>()
@@ -54,6 +56,7 @@ const metaText = computed(() => {
       type="button"
       class="memo"
       :class="{ featured, closed: isClosed }"
+      :style="vtName ? { viewTransitionName: vtName } : undefined"
       @click="emit('open', memo)"
     >
       <span class="memo-icon" aria-hidden="true">
@@ -93,17 +96,31 @@ const metaText = computed(() => {
   color: #fff;
   cursor: pointer;
   transition: border-color var(--dur) var(--ease),
-    background-color var(--dur) var(--ease), transform var(--dur) var(--ease);
+    background-color var(--dur) var(--ease),
+    transform var(--dur-1) var(--ease-spring);
 }
 
 .tl-dot:active:not(:disabled) {
-  transform: scale(0.88);
+  transform: scale(0.84);
 }
 
 .tl-dot.done {
   border-color: var(--card-inverse);
   background: var(--card-inverse);
   cursor: default;
+}
+
+/* 打勾是「画」出来的，不是突然出现 */
+.tl-dot.done svg path {
+  stroke-dasharray: 22;
+  stroke-dashoffset: 22;
+  animation: draw-check 340ms var(--ease-out) forwards;
+}
+
+@keyframes draw-check {
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 .memo {

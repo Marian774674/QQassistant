@@ -10,7 +10,12 @@ import { useToast } from '@/composables/useToast'
 import { formatDateTime } from '@/utils/datetime'
 import { memoStatusMeta, reminderStatusMeta } from '@/utils/meta'
 
-const props = defineProps<{ open: boolean; memo: Memo | null }>()
+const props = defineProps<{
+  open: boolean
+  memo: Memo | null
+  vtName?: string
+  instant?: boolean
+}>()
 
 const emit = defineEmits<{
   close: []
@@ -101,6 +106,8 @@ async function cancelMemo() {
     :open="open"
     :title="memo?.title ?? '备忘'"
     :description="memo?.category ? `${memo.category} · 记录于 ${formatDateTime(memo.createdAt)}` : undefined"
+    :vt-name="vtName"
+    :instant="instant"
     @close="emit('close')"
   >
     <template v-if="memo">

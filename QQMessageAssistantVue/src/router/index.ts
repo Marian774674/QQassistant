@@ -54,8 +54,9 @@ const router = createRouter({
     },
     { path: '/:pathMatch(.*)*', redirect: '/memos' },
   ],
-  scrollBehavior(_to, _from, saved) {
-    return saved ?? { top: 0 }
+  scrollBehavior() {
+    // 滚动容器是 .screen 而不是 window，位置由 AppShell 自己记
+    return false
   },
 })
 

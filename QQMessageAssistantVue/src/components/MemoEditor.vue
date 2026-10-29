@@ -45,8 +45,21 @@ const form = reactive({
 
 const errors = reactive({ title: '', form: '' })
 const saving = ref(false)
+const shaking = ref(false)
+const titleInput = ref<HTMLInputElement | null>(null)
 
 const isEdit = computed(() => Boolean(props.memo))
+
+/** 校验失败时抖一下并把焦点送回出错的地方，别让人自己找 */
+function rejectField(message: string) {
+  errors.title = message
+  shaking.value = false
+  requestAnimationFrame(() => {
+    shaking.value = true
+    window.setTimeout(() => (shaking.value = false), 340)
+  })
+  titleInput.value?.focus({ preventScroll: true })
+}
 
 const planText = computed(() => {
   if (!form.due) return '没填截止时间：只存档，不会创建提醒。'
@@ -71,7 +84,7 @@ watch(
 async function save() {
   errors.form = ''
   if (!form.title.trim()) {
-    errors.title = '写个标题，方便以后找'
+    rejectField('写个标题，方便以后找')
     return
   }
   errors.title = ''
@@ -125,10 +138,11 @@ async function save() {
     @close="emit('close')"
   >
     <form class="form" @submit.prevent="save">
-      <div class="frow">
+      <div class="frow" :class="{ shake: shaking }">
         <label class="frow-label" for="memo-title">要做的事</label>
         <input
           id="memo-title"
+          ref="titleInput"
           v-model="form.title"
           class="frow-input"
           type="text"
@@ -203,7 +217,8 @@ async function save() {
         :disabled="saving || !owner.senderId"
         @click="save"
       >
-        {{ saving ? '保存中…' : isEdit ? '保存修改' : '记下来' }}
+        <span v-if="saving" class="spinner" aria-hidden="true" />
+        {{ saving ? '保存中' : isEdit ? '保存修改' : '记下来' }}
       </button>
     </template>
   </Sheet>
