@@ -13,6 +13,10 @@ def apply_xlsx(src, out, fills) -> list[str]:
         if name not in wb.sheetnames:
             errors.append(f"sheet not found: {name}")
             continue
-        wb[name][ref] = fill.get("value")
+        try:
+            wb[name][ref] = fill.get("value")
+        except Exception as e:
+            # 一个填错坐标不应让整份文件处理失败；记录后继续填其它格子
+            errors.append(f"bad ref {name}!{ref}: {e}")
     wb.save(out)
     return errors

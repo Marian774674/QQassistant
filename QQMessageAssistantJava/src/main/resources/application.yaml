@@ -19,12 +19,17 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 langbot:
-  base-url: http://localhost:5300
-  connect-timeout-ms: 3000
-  read-timeout-ms: 8000
+  # 指向主动发送桥（QQMessageAssistantPython/send_bridge），不是 LangBot 官方端口
+  base-url: http://192.168.100.128:5301
+  connect-timeout-ms: 2000
+  # 桥内最坏耗时 = DELAY_MAX_MS(15000) + HTTP_TIMEOUT(10000) = 25s；
+  # 读超时必须大于它，否则 Java 先超时回滚、桥随后仍发出 → 用户重试就会重复发送
+  read-timeout-ms: 35000
 
 app:
   reminder:
-    enabled: false
+    # 提醒调度：到点扫描 memo_reminder 并经发送桥推 QQ。
+    # 关掉后备忘仍可创建、提醒仍会入库，只是不会推送。
+    enabled: true
     scan-interval-ms: 60000
     batch-size: 50

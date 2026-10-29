@@ -5,6 +5,7 @@ import com.czx.qqmessageassistantjava.dto.MemoCreateRequest;
 import com.czx.qqmessageassistantjava.dto.MemoPatchRequest;
 import com.czx.qqmessageassistantjava.entity.Draft;
 import com.czx.qqmessageassistantjava.entity.Memo;
+import com.czx.qqmessageassistantjava.entity.MemoReminder;
 
 import java.util.List;
 
@@ -17,5 +18,8 @@ public interface MemoService extends IService<Memo> {
     Memo patch(Long id, MemoPatchRequest request);
 
     Memo createFromDraft(Draft draft);
+
+    /** 某条备忘的提醒计划（按提醒时间升序），供前端展示"什么时候会提醒我"。 */
+    List<MemoReminder> reminders(Long memoId);
 
 }

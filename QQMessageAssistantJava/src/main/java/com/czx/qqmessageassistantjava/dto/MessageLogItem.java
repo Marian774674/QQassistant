@@ -11,6 +11,12 @@ public class MessageLogItem {
     private Long senderId;
     @Schema(description = "聊天ID")
     private Long chatId;
+    @Schema(description = "Dify conversation_id")
+    private String conversationId;
+    @Schema(description = "平台消息 id")
+    private String messageId;
+    @Schema(description = "幂等键；相同值重复写入被忽略")
+    private String dedupeKey;
     @Schema(description = "内容")
     private String content;
     @Schema(description = "方向",allowableValues = {"IN","OUT"})

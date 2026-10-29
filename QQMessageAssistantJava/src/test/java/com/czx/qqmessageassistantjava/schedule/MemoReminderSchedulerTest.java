@@ -72,13 +72,34 @@ class MemoReminderSchedulerTest {
         ArgumentCaptor<SendMessageRequest> captor = ArgumentCaptor.forClass(SendMessageRequest.class);
         verify(langBotClient).sendMessage(captor.capture());
         assertThat(captor.getValue().getContent()).contains("班会");
-        assertThat(captor.getValue().getBizRef()).isEqualTo("memo:" + memo.getId());
+        assertThat(captor.getValue().getBizRef()).startsWith("memo:" + memo.getId() + ":");
         assertThat(captor.getValue().getTarget().getId()).isEqualTo(1401L);
 
         assertThat(memoReminderMapper.selectById(reminder.getId()).getStatus()).isEqualTo("SENT");
         assertThat(memoReminderMapper.selectById(reminder.getId()).getSentAt()).isNotNull();
         // 没有剩余待发提醒 → AWAITING_REPLY
         assertThat(memoService.getById(memo.getId()).getStatus()).isEqualTo("AWAITING_REPLY");
+    }
+
+    @Test
+    void eachReminderGetsOwnBizRefAndSkipsHumanDelay() {
+        when(langBotClient.sendMessage(any())).thenReturn(new SendResult());
+        Memo memo = activeMemo(5);
+        dueReminder(memo.getId());
+        dueReminder(memo.getId());
+
+        int sent = scheduler.scanOnce();
+
+        assertThat(sent).isEqualTo(2);
+        ArgumentCaptor<SendMessageRequest> captor = ArgumentCaptor.forClass(SendMessageRequest.class);
+        verify(langBotClient, times(2)).sendMessage(captor.capture());
+        // 同一备忘的多档提醒共用 bizRef 会被发送桥 24h 幂等吞掉，只发第一条
+        assertThat(captor.getAllValues()).extracting(SendMessageRequest::getBizRef)
+                .doesNotHaveDuplicates()
+                .allMatch(ref -> ref.startsWith("memo:" + memo.getId() + ":"));
+        // 提醒有明确时间点，不能为了拟人延迟把整批推送拖成几分钟
+        assertThat(captor.getAllValues()).extracting(SendMessageRequest::getDelayMs)
+                .containsOnly(0);
     }
 
     @Test

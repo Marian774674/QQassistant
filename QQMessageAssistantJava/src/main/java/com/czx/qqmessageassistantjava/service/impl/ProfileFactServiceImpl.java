@@ -28,6 +28,9 @@ public class ProfileFactServiceImpl extends ServiceImpl<ProfileFactMapper, Profi
         require(factKey, factValue, senderId);
         BigDecimal confidence = request.getConfidence() == null
                 ? BigDecimal.ONE : request.getConfidence();
+        if (confidence.signum() < 0 || confidence.compareTo(BigDecimal.ONE) > 0) {
+            throw new BusinessException("confidence 必须在 0-1 之间");
+        }
         return upsert(senderId, factKey, factValue, request.getConfidence(), "AUTO");
     }
 
@@ -129,10 +132,10 @@ public class ProfileFactServiceImpl extends ServiceImpl<ProfileFactMapper, Profi
     }
 
     private void require(String factKey, String factValue, Long senderId) {
-        if (factKey == null) {
+        if (factKey == null || factKey.isBlank()) {
             throw new BusinessException("factKey 不能为空");
         }
-        if (factValue == null) {
+        if (factValue == null || factValue.isBlank()) {
             throw new BusinessException("factValue 不能为空");
         }
         if (senderId == null) {

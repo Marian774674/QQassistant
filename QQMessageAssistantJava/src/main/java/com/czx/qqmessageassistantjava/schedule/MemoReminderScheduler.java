@@ -39,7 +39,7 @@ public class MemoReminderScheduler {
     @Value("${app.reminder.enabled:true}")
     private boolean enabled;
 
-    @Scheduled(fixedDelayString = "${app.reminder.delay:60000}")
+    @Scheduled(fixedDelayString = "${app.reminder.scan-interval-ms:60000}")
     public void scan() {
         if (!enabled) return;
         try {
@@ -68,7 +68,7 @@ public class MemoReminderScheduler {
                 continue;
             }
             try {
-                langBotClient.sendMessage(buildRequest(memo));
+                langBotClient.sendMessage(buildRequest(memo, reminder));
             } catch (Exception e) {
                 log.warn("提醒推送失败 reminderId={} memoId={}", reminder.getId(), memo.getId(), e);
                 continue;
@@ -83,11 +83,15 @@ public class MemoReminderScheduler {
         return sent;
     }
 
-    private SendMessageRequest buildRequest(Memo memo) {
+    private SendMessageRequest buildRequest(Memo memo, MemoReminder reminder) {
         SendMessageRequest request = new SendMessageRequest();
         request.setTarget(new SendTarget("private", memo.getSenderId()));
         request.setContent(composeText(memo));
-        request.setBizRef("memo:" + memo.getId());
+        // 一档提醒一个 bizRef：同一备忘 24h/2h/30min 多档推送若共用键，
+        // 发送桥会按 bizRef 幂等，只发第一条、其余被静默吞掉。
+        request.setBizRef("memo:" + memo.getId() + ":" + reminder.getId());
+        // 提醒是到点推送，不是闲聊天：不做拟人延迟，否则整批提醒会串行拖成几分钟
+        request.setDelayMs(0);
         return request;
     }
 

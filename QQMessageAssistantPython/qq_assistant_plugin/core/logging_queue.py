@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 import logging
 from collections import deque
 
@@ -18,6 +19,8 @@ class MessageLogQueue:
         if len(self._q) >= self._maxlen:
             self._q.popleft()
             log.warning("Message log queue is full, dropping the oldest item")
+        # 重试会重发同一批：带上稳定去重键，服务端唯一索引负责吞掉重复行
+        item.setdefault("dedupeKey", "log:" + uuid.uuid4().hex)
         self._q.append(item)
 
     def start(self):

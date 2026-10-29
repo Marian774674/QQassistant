@@ -45,6 +45,34 @@ class SpringClient:
     async def profile(self, sender_id):
         return await self._request("GET", f"/api/profile/{sender_id}")
 
+    async def resolve_conversation(self, bot_uuid, chat_type, chat_id, sender_id):
+        params = {
+            "botUuid": bot_uuid,
+            "chatType": chat_type,
+            "senderId": sender_id,
+        }
+        if chat_id:
+            params["chatId"] = chat_id
+        data = await self._request("GET", "/api/conversations/resolve", params=params)
+        return (data or {}).get("conversationId")
+
+    async def bind_conversation(self, bot_uuid, chat_type, chat_id, sender_id, conversation_id):
+        return await self._request("POST", "/api/conversations/bind", json={
+            "botUuid": bot_uuid,
+            "chatType": chat_type,
+            "chatId": chat_id or 0,
+            "senderId": sender_id,
+            "conversationId": conversation_id,
+        })
+
+    async def reset_conversation(self, bot_uuid, chat_type, chat_id, sender_id):
+        return await self._request("POST", "/api/conversations/reset", json={
+            "botUuid": bot_uuid,
+            "chatType": chat_type,
+            "chatId": chat_id or 0,
+            "senderId": sender_id,
+        })
+
     async def create_draft(self, type_, sender_id, chat_id, title, payload):
         return await self._request("POST", "/api/drafts",
                                    json={

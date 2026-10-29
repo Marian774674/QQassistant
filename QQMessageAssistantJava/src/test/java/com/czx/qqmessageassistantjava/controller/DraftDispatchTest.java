@@ -1,12 +1,16 @@
 package com.czx.qqmessageassistantjava.controller;
 
 import com.czx.qqmessageassistantjava.client.LangBotClient;
+import com.czx.qqmessageassistantjava.common.BusinessException;
+import com.czx.qqmessageassistantjava.dto.FileTaskSyncRequest;
 import com.czx.qqmessageassistantjava.dto.SendFileRequest;
 import com.czx.qqmessageassistantjava.dto.SendMessageRequest;
 import com.czx.qqmessageassistantjava.dto.SendResult;
 import com.czx.qqmessageassistantjava.entity.Draft;
+import com.czx.qqmessageassistantjava.entity.FileTask;
 import com.czx.qqmessageassistantjava.entity.Memo;
 import com.czx.qqmessageassistantjava.service.DraftService;
+import com.czx.qqmessageassistantjava.service.FileTaskService;
 import com.czx.qqmessageassistantjava.service.MemoService;
 import com.czx.qqmessageassistantjava.service.ProfileFactService;
 import org.junit.jupiter.api.Test;
@@ -21,6 +25,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -37,6 +42,9 @@ class DraftDispatchTest {
 
     @Autowired
     private ProfileFactService profileFactService;
+
+    @Autowired
+    private FileTaskService fileTaskService;
 
     @MockitoBean
     private LangBotClient langBotClient;
@@ -74,7 +82,7 @@ class DraftDispatchTest {
     }
 
     @Test
-    void replyDispatchDefaultsTargetToSenderWhenAbsent() {
+    void replyDispatchDefaultsToGroupWhenChatIdPresent() {
         when(langBotClient.sendMessage(any())).thenReturn(new SendResult());
 
         Map<String, Object> payload = new HashMap<>();
@@ -85,9 +93,9 @@ class DraftDispatchTest {
 
         ArgumentCaptor<SendMessageRequest> captor = ArgumentCaptor.forClass(SendMessageRequest.class);
         verify(langBotClient).sendMessage(captor.capture());
-        // 草稿 chatId=2002 优先于 senderId
+        // 草稿 chatId=2002 是群号，必须按 group 发回群里，不能当私聊发给 2002
         assertThat(captor.getValue().getTarget().getId()).isEqualTo(2002L);
-        assertThat(captor.getValue().getTarget().getType()).isEqualTo("private");
+        assertThat(captor.getValue().getTarget().getType()).isEqualTo("group");
     }
 
     @Test
@@ -107,6 +115,75 @@ class DraftDispatchTest {
         assertThat(captor.getValue().getFileRef()).isEqualTo("local://out/ft_0001.xlsx");
         assertThat(captor.getValue().getFileName()).isEqualTo("表单.xlsx");
         verify(langBotClient, never()).sendMessage(any());
+    }
+
+    @Test
+    void fileConfirmMarksFileTaskSent() {
+        when(langBotClient.sendFile(any())).thenReturn(new SendResult());
+
+        FileTaskSyncRequest sync = new FileTaskSyncRequest();
+        sync.setTaskRef("ft_sent");
+        sync.setSenderId(1001L);
+        sync.setStatus("AWAITING_CONFIRM");
+        fileTaskService.sync(sync);
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("taskRef", "ft_sent");
+        payload.put("fileName", "表单_filled.xlsx");
+        payload.put("fileRef", "local:///tmp/表单_filled.xlsx");
+        Draft draft = newDraft("FILE", payload);
+
+        draftService.confirmDraft(draft.getId());
+
+        assertThat(fileTaskService.lambdaQuery()
+                .eq(FileTask::getTaskRef, "ft_sent").one().getStatus()).isEqualTo("SENT");
+    }
+
+    @Test
+    void fileConfirmKeepsTaskWhenSendFails() {
+        when(langBotClient.sendFile(any())).thenThrow(new BusinessException("桥挂了"));
+
+        FileTaskSyncRequest sync = new FileTaskSyncRequest();
+        sync.setTaskRef("ft_fail");
+        sync.setSenderId(1001L);
+        sync.setStatus("AWAITING_CONFIRM");
+        fileTaskService.sync(sync);
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("taskRef", "ft_fail");
+        payload.put("fileName", "表单.xlsx");
+        payload.put("fileRef", "local:///tmp/表单.xlsx");
+        Draft draft = newDraft("FILE", payload);
+
+        assertThatThrownBy(() -> draftService.confirmDraft(draft.getId()))
+                .isInstanceOf(BusinessException.class);
+        assertThat(fileTaskService.lambdaQuery()
+                .eq(FileTask::getTaskRef, "ft_fail").one().getStatus())
+                .isEqualTo("AWAITING_CONFIRM");
+    }
+
+    @Test
+    void fileDraftRequiresTaskRefAndFileRef() {
+        Map<String, Object> noRef = new HashMap<>();
+        noRef.put("taskRef", "ft_x");
+        assertThatThrownBy(() -> draftService.createDraft(fileDraft(noRef)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("fileRef");
+
+        Map<String, Object> noTask = new HashMap<>();
+        noTask.put("fileRef", "local:///tmp/x.xlsx");
+        assertThatThrownBy(() -> draftService.createDraft(fileDraft(noTask)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("taskRef");
+    }
+
+    private com.czx.qqmessageassistantjava.dto.DraftCreateRequest fileDraft(Map<String, Object> payload) {
+        var req = new com.czx.qqmessageassistantjava.dto.DraftCreateRequest();
+        req.setType("FILE");
+        req.setSenderId(1001L);
+        req.setTitle("t");
+        req.setPayload(payload);
+        return req;
     }
 
     @Test

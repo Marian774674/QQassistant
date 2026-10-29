@@ -1,10 +1,11 @@
-"""文件任务状态机测试：真实 xlsx + respx 假下载/假 Dify 工作流。
+"""文件任务测试：下载/抽取与回写分离，语义决策已全部交给 Chatflow。
 
-钉三件事（计划 Task 4 Step 3）：
-1. 产出文件真的被写入且内容正确
-2. 状态流转序列精确为 PENDING→PROCESSING→SENT
-3. 每次流转都 sync 到 Spring（次数与状态数一致）
+钉三件事：
+1. ingest 只做 PENDING→PROCESSING，产出带 structure 的任务上下文
+2. apply_fill 只按 Dify 的 fills 机械回写，高置信回传 / 低置信进草稿
+3. 下载失败、空 fills、不可写格式都有明确兜底，不发空文件
 """
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -16,29 +17,21 @@ from openpyxl import Workbook, load_workbook
 
 from core import file_store
 from core.config import Settings
-from core.file_task import handle, provide_input
-from core.dify_client import DifyClient
+from core.file_task import apply_fill, ingest
 
 FILE_URL = "http://files.test/in.xlsx"
-WORKFLOW_URL = "http://dify/v1/workflows/run"
 
 
 class FakePlugin:
-    """插件替身：内存版 storage + 记录 send_message，属性对齐真 deps。"""
+    """插件替身：记录 send_message，属性对齐真 deps。"""
 
     def __init__(self, settings):
-        self.store = {}
         self.sent = []
+        self.logs = []
         self.settings = settings
         self.spring = AsyncMock()
         self.spring.profile = AsyncMock(return_value={"facts": {"姓名": "张三"}})
-        self.dify = DifyClient("http://dify/v1", "chat-key", 10)
-
-    async def set_plugin_storage(self, key, value):
-        self.store[key] = value
-
-    async def get_plugin_storage(self, key):
-        return self.store.get(key, b"")
+        self.log_queue = SimpleNamespace(enqueue=self.logs.append)
 
     async def send_message(self, bot_uuid, target_type, target_id, chain):
         self.sent.append((target_type, target_id, chain))
@@ -58,12 +51,11 @@ class FakeCtx:
 
 @pytest.fixture
 def settings(tmp_path, monkeypatch):
-    # 把工作目录挪到 tmp_path，测试不污染 data/files
     monkeypatch.setattr(file_store, "BASE", tmp_path / "files")
     return Settings(
         spring_base_url="http://sb", spring_timeout=5,
         dify_base_url="http://dify/v1", dify_api_key="k", dify_timeout=10,
-        dify_file_workflow_key="wf-key", file_confirm_threshold=0.85,
+        dify_file_workflow_key="", file_confirm_threshold=0.85,
         bot_uuid="u", bot_qq=12345, group_prefix="!",
         fact_auto_threshold=0.85,
         delay_base_ms=0, delay_per_char_ms=0, delay_jitter_ms=0, delay_max_ms=0,
@@ -93,82 +85,285 @@ def file_chain():
     ])
 
 
-def workflow_response(outputs):
-    return httpx.Response(200, json={"data": {"outputs": outputs}})
+def fill_payload(**overrides):
+    payload = {"task_ref": "", "fills": [{"sheet": "Sheet1", "ref": "B1", "value": "张三"}],
+               "missing": [], "confidence": 0.95, "needs_confirm": False}
+    payload.update(overrides)
+    return payload
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_happy_path_pending_processing_sent(plugin, tmp_path):
+async def test_ingest_extracts_structure(plugin, tmp_path):
     respx.get(FILE_URL).mock(return_value=httpx.Response(200, content=make_xlsx(tmp_path)))
-    respx.post(WORKFLOW_URL).mock(return_value=workflow_response({
-        "fills": '[{"sheet":"Sheet1","ref":"B1","value":"张三"}]',  # 字符串形态！
-        "missing": "[]",
-        "confidence": 0.95,
-    }))
     ctx = FakeCtx(file_chain())
 
     with patch("core.file_task.reply_text", new=AsyncMock()):
-        await handle(ctx, ctx.event, is_group=False, deps=plugin)
+        task = await ingest(ctx, ctx.event, is_group=False, deps=plugin)
 
-    # 状态序列精确
+    assert task is not None
+    assert task["status"] == "PROCESSING"
+    assert task["originalName"] == "名单.xlsx"
+    assert task["structure"]["kind"] == "xlsx"
+    # 任务落盘，文本补充时可直接 load_task
+    assert (file_store.task_dir(task["taskRef"]) / "task.json").exists()
     statuses = [c.args[0]["status"] for c in plugin.spring.sync_file_task.await_args_list]
-    assert statuses == ["PENDING", "PROCESSING", "SENT"]
+    assert statuses == ["PENDING", "PROCESSING"]
+    # 下载阶段不再擅自回复“收到”，话术由 Chatflow 统一决定
+    assert not plugin.sent
 
-    # 产物文件真的写了、内容对
-    task_ref = plugin.spring.sync_file_task.await_args_list[0].args[0]["taskRef"]
-    out = file_store.task_dir(task_ref) / "input_filled.xlsx"
+
+@pytest.mark.asyncio
+async def test_apply_fill_writes_and_sends(plugin, tmp_path, settings):
+    # 造一个已就绪的任务
+    src = tmp_path / "files" / "ft_1" / "input.xlsx"
+    src.parent.mkdir(parents=True)
+    wb = Workbook()
+    wb.active.title = "Sheet1"
+    wb.active["A1"] = "姓名"
+    wb.save(src)
+    task = {"taskRef": "ft_1", "senderId": 1001, "chatId": None,
+            "status": "PROCESSING", "input": {"path": str(src)},
+            "originalName": "名单.xlsx", "structure": {"kind": "xlsx"}}
+    ctx = FakeCtx(pm.MessageChain([]))
+    payload = fill_payload(task_ref="ft_1",
+                           fills='[{"sheet":"Sheet1","ref":"B1","value":"张三"}]')
+
+    with patch("core.file_task.reply_text", new=AsyncMock()):
+        result = await apply_fill(task, payload, plugin, ctx)
+
+    assert result == "SENT"
+    out = file_store.task_dir("ft_1") / "名单_filled.xlsx"
     assert out.exists()
     assert load_workbook(out)["Sheet1"]["B1"].value == "张三"
+    assert plugin.sent
+    plugin.spring.create_draft.assert_not_awaited()
+    # 文件是插件直接发的，必须自己补 OUT 日志（否则 message_log 只有文本）
+    assert plugin.logs[-1]["msgType"] == "file"
+    assert plugin.logs[-1]["direction"] == "OUT"
+    assert plugin.logs[-1]["content"] == "名单_filled.xlsx"
 
-    # 高置信走 send_message 回传，没进草稿
-    assert len(plugin.sent) == 1
+
+@pytest.mark.asyncio
+async def test_apply_fill_low_confidence_creates_draft(plugin, tmp_path):
+    src = tmp_path / "files" / "ft_2" / "input.xlsx"
+    src.parent.mkdir(parents=True)
+    wb = Workbook()
+    wb.active.title = "Sheet1"
+    wb.active["A1"] = "姓名"
+    wb.save(src)
+    task = {"taskRef": "ft_2", "senderId": 1001, "chatId": None,
+            "status": "PROCESSING", "input": {"path": str(src)},
+            "originalName": "名单.xlsx", "structure": {"kind": "xlsx"}}
+    ctx = FakeCtx(pm.MessageChain([]))
+
+    with patch("core.file_task.reply_text", new=AsyncMock()):
+        result = await apply_fill(task, fill_payload(confidence=0.4), plugin, ctx)
+
+    assert result == "AWAITING_CONFIRM"
+    plugin.spring.create_draft.assert_awaited_once()
+    payload = plugin.spring.create_draft.await_args.args[4]
+    assert payload["taskRef"] == "ft_2"
+    assert payload["fileRef"].startswith("local://")
+    # 草稿必须自带目标：否则 Spring 会在群/私聊之间猜错
+    assert payload["targetType"] == "private"
+    assert payload["targetId"] == 1001
+    assert not plugin.sent
+
+
+@pytest.mark.asyncio
+async def test_group_task_draft_targets_group(plugin, tmp_path):
+    src = tmp_path / "files" / "ft_g" / "input.xlsx"
+    src.parent.mkdir(parents=True)
+    wb = Workbook()
+    wb.active.title = "Sheet1"
+    wb.active["A1"] = "姓名"
+    wb.save(src)
+    task = {"taskRef": "ft_g", "senderId": 1001, "chatId": 2002,
+            "status": "PROCESSING", "input": {"path": str(src)},
+            "originalName": "名单.xlsx", "structure": {"kind": "xlsx"}}
+    ctx = FakeCtx(pm.MessageChain([]))
+
+    with patch("core.file_task.reply_text", new=AsyncMock()):
+        await apply_fill(task, fill_payload(confidence=0.4), plugin, ctx)
+
+    payload = plugin.spring.create_draft.await_args.args[4]
+    assert payload["targetType"] == "group"
+    assert payload["targetId"] == 2002
+
+
+@pytest.mark.asyncio
+async def test_sync_carries_phase3_fields(plugin, tmp_path):
+    """Spring 的 file_task 要能看到会话、要求、缺口、产物引用。"""
+    task = {
+        "taskRef": "ft_9", "senderId": 1001, "chatId": None,
+        "status": "AWAITING_CONFIRM",
+        "input": {"path": str(tmp_path / "in.xlsx")},
+        "output": {"path": str(tmp_path / "out.xlsx")},
+        "request": "把姓名填上", "conversationId": "conv-9",
+        "missing": ["学号"], "confidence": 0.6, "needs_confirm": True,
+    }
+
+    from core.file_task import sync
+
+    await sync(plugin, task)
+
+    body = plugin.spring.sync_file_task.await_args.args[0]
+    assert body["conversationId"] == "conv-9"
+    assert body["request"] == "把姓名填上"
+    assert body["missing"] == ["学号"]
+    assert body["confidence"] == 0.6
+    assert body["needsConfirm"] is True
+    assert body["fileRef"].startswith("local://")
+    assert body["outputRef"].startswith("local://")
+
+
+@pytest.mark.asyncio
+async def test_apply_fill_string_false_is_false(plugin, tmp_path):
+    """Dify 把布尔值输出成字符串 "false" 时，不能 bool("false") 误判成需要确认。"""
+    src = tmp_path / "files" / "ft_3" / "input.xlsx"
+    src.parent.mkdir(parents=True)
+    wb = Workbook()
+    wb.active.title = "Sheet1"
+    wb.active["A1"] = "姓名"
+    wb.save(src)
+    task = {"taskRef": "ft_3", "senderId": 1001, "chatId": None,
+            "status": "PROCESSING", "input": {"path": str(src)},
+            "originalName": "名单.xlsx", "structure": {"kind": "xlsx"}}
+    ctx = FakeCtx(pm.MessageChain([]))
+
+    with patch("core.file_task.reply_text", new=AsyncMock()):
+        result = await apply_fill(
+            task, fill_payload(needs_confirm="false"), plugin, ctx)
+
+    assert result == "SENT"
     plugin.spring.create_draft.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_need_input_then_provide_completes(plugin, tmp_path):
-    respx.get(FILE_URL).mock(return_value=httpx.Response(200, content=make_xlsx(tmp_path)))
-    # 两次工作流调用：第一次缺学号，第二次补全后给 fills
-    respx.post(WORKFLOW_URL).mock(side_effect=[
-        workflow_response({"fills": "[]", "missing": '["学号"]', "confidence": 0.9}),
-        workflow_response({"fills": '[{"sheet":"Sheet1","ref":"B2","value":"2023001"}]',
-                           "missing": [], "confidence": 0.95}),
-    ])
-    ctx = FakeCtx(file_chain())
+async def test_apply_fill_empty_fills_reports_structure(plugin, tmp_path):
+    src = tmp_path / "files" / "ft_4" / "input.xlsx"
+    src.parent.mkdir(parents=True)
+    wb = Workbook()
+    wb.active.title = "Sheet1"
+    wb.active["A1"] = "姓名"
+    wb.save(src)
+    task = {"taskRef": "ft_4", "senderId": 1001, "chatId": None,
+            "status": "PROCESSING", "input": {"path": str(src)},
+            "originalName": "名单.xlsx",
+            "structure": {"kind": "xlsx", "sheets": [
+                {"name": "Sheet1", "cells": [{"ref": "A1", "value": "姓名"}]}]}}
+    ctx = FakeCtx(pm.MessageChain([]))
 
     with patch("core.file_task.reply_text", new=AsyncMock()) as rt:
-        await handle(ctx, ctx.event, is_group=False, deps=plugin)
-        # 反问文案 + active_input 登记
-        assert any("还缺：学号" in c.args[1] for c in rt.await_args_list)
-        assert await file_store.load_active_input(plugin, 1001) is not None
+        result = await apply_fill(task, fill_payload(fills=[]), plugin, ctx)
 
-        statuses = [c.args[0]["status"] for c in plugin.spring.sync_file_task.await_args_list]
-        assert statuses == ["PENDING", "PROCESSING", "NEED_INPUT"]
-
-    active = await file_store.load_active_input(plugin, 1001)
-    with patch("core.file_task.reply_text", new=AsyncMock()):
-        done = await provide_input(active, "学号 2023001", ctx, plugin)
-
-    assert done is True
-    assert await file_store.load_active_input(plugin, 1001) is None
-    last = plugin.spring.sync_file_task.await_args_list[-1].args[0]["status"]
-    assert last == "SENT"
+    assert result == "FAILED"
+    assert any("没找到要填的内容" in c.args[1] and "A1=姓名" in c.args[1]
+               for c in rt.await_args_list)
+    assert not plugin.sent
 
 
 @pytest.mark.asyncio
 @respx.mock
 async def test_unwritable_format_fails_fast(plugin):
-    # pdf 不进入抽取/决策，直接 FAILED + 明确文案
     pdf_chain = pm.MessageChain([
         pm.File(type="File", id="f2", name="材料.pdf", size=10, url=FILE_URL)])
     respx.get(FILE_URL).mock(return_value=httpx.Response(200, content=b"%PDF-fake"))
     ctx = FakeCtx(pdf_chain)
 
     with patch("core.file_task.reply_text", new=AsyncMock()) as rt:
-        await handle(ctx, ctx.event, is_group=False, deps=plugin)
+        task = await ingest(ctx, ctx.event, is_group=False, deps=plugin)
 
+    assert task is None
     assert plugin.spring.sync_file_task.await_args_list[-1].args[0]["status"] == "FAILED"
     assert any("只能读不能改" in c.args[1] for c in rt.await_args_list)
-    # 没有调工作流（respx 未注册 workflows 路由，调了会炸）
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_download_via_napcat_http(settings, tmp_path):
+    """NapCat 回传的 File 没有 url（实机 0.2.4 现象），必须走 NapCat HTTP API 换址。"""
+    s = replace(settings, napcat_api_url="http://napcat:3000", napcat_token="tk")
+    plugin = FakePlugin(s)
+    respx.post("http://napcat:3000/get_private_file_url").mock(
+        return_value=httpx.Response(200, json={"status": "ok", "data": {"url": FILE_URL}}))
+    respx.get(FILE_URL).mock(return_value=httpx.Response(200, content=make_xlsx(tmp_path)))
+    chain = pm.MessageChain([
+        pm.Plain(text="帮我填"),
+        pm.File(type="File", id="fid_1", name="名单.xlsx", size=1, url=""),
+    ])
+    ctx = FakeCtx(chain)
+
+    with patch("core.file_task.reply_text", new=AsyncMock()):
+        task = await ingest(ctx, ctx.event, is_group=False, deps=plugin)
+
+    assert task is not None
+    assert task["structure"]["kind"] == "xlsx"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_download_502_refetches_url_and_succeeds(settings, tmp_path):
+    """QQ CDN 某个边缘节点 502 时，换 NapCat 新 URL 重试成功。"""
+    retry_url = "http://files.test/retry.xlsx"
+    s = replace(settings, napcat_api_url="http://napcat:3000", napcat_token="")
+    plugin = FakePlugin(s)
+    respx.get(FILE_URL).mock(return_value=httpx.Response(502, text="bad gateway"))
+    respx.post("http://napcat:3000/get_private_file_url").mock(
+        return_value=httpx.Response(200, json={"status": "ok", "data": {"url": retry_url}}))
+    respx.get(retry_url).mock(return_value=httpx.Response(200, content=make_xlsx(tmp_path)))
+    ctx = FakeCtx(file_chain())
+
+    with patch("core.file_task.reply_text", new=AsyncMock()):
+        task = await ingest(ctx, ctx.event, is_group=False, deps=plugin)
+
+    assert respx.get(FILE_URL).called
+    assert respx.get(retry_url).called
+    assert task is not None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_download_502_exhausts_three_attempts(settings, tmp_path):
+    """连续 502 时最多试 3 次，失败文案要带状态码，且不能把签名 URL 全量回给用户。"""
+    retry_url = "http://files.test/retry.xlsx"
+    s = replace(settings, napcat_api_url="http://napcat:3000", napcat_token="")
+    plugin = FakePlugin(s)
+    respx.get(FILE_URL).mock(return_value=httpx.Response(502, text="bad gateway"))
+    respx.post("http://napcat:3000/get_private_file_url").mock(
+        return_value=httpx.Response(200, json={"status": "ok", "data": {"url": retry_url}}))
+    respx.get(retry_url).mock(return_value=httpx.Response(502, text="bad gateway"))
+    ctx = FakeCtx(file_chain())
+
+    with patch("core.file_task.reply_text", new=AsyncMock()) as rt:
+        task = await ingest(ctx, ctx.event, is_group=False, deps=plugin)
+
+    assert task is None
+    synced = plugin.spring.sync_file_task.await_args_list[-1].args[0]
+    assert synced["status"] == "FAILED"
+    assert "502" in synced["detail"]["reason"]
+    assert any("502" in c.args[1] for c in rt.await_args_list)
+    assert all("rkey" not in c.args[1] for c in rt.await_args_list)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_napcat_502_reports_real_reason(settings):
+    """NapCat 502（服务没起/被系统代理接管）时，失败文案要带真实原因。"""
+    s = replace(settings, napcat_api_url="http://napcat:3000", napcat_token="")
+    plugin = FakePlugin(s)
+    respx.post("http://napcat:3000/get_private_file_url").mock(
+        return_value=httpx.Response(502, text=""))
+    chain = pm.MessageChain([
+        pm.File(type="File", id="fid_9", name="名单.xlsx", size=1, url="")])
+    ctx = FakeCtx(chain)
+
+    with patch("core.file_task.reply_text", new=AsyncMock()) as rt:
+        task = await ingest(ctx, ctx.event, is_group=False, deps=plugin)
+
+    assert task is None
+    synced = plugin.spring.sync_file_task.await_args_list[-1].args[0]
+    assert synced["status"] == "FAILED"
+    assert "502" in synced["detail"]["reason"] and "网关" in synced["detail"]["reason"]
+    assert any("502" in c.args[1] for c in rt.await_args_list)

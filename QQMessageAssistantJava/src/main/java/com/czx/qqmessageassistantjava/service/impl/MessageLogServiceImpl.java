@@ -8,17 +8,19 @@ import com.czx.qqmessageassistantjava.dto.MessageLogItem;
 import com.czx.qqmessageassistantjava.entity.MessageLog;
 import com.czx.qqmessageassistantjava.mapper.MessageLogMapper;
 import com.czx.qqmessageassistantjava.service.MessageLogService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
 @Service
 public class MessageLogServiceImpl extends ServiceImpl<MessageLogMapper, MessageLog> implements MessageLogService{
 
+    private static final Logger log = LoggerFactory.getLogger(MessageLogServiceImpl.class);
     private static final Set<String> DIRECTIONS = Set.of("IN","OUT");
 
     @Override
@@ -26,7 +28,7 @@ public class MessageLogServiceImpl extends ServiceImpl<MessageLogMapper, Message
         if(items == null || items.isEmpty()){
             throw new BusinessException("日志列表不能为空");
         }
-        List<MessageLog> logs = new ArrayList<>(items.size());
+        int saved = 0;
         for (int i = 0; i < items.size(); i++) {
             MessageLogItem item = items.get(i);
             if (item.getSenderId() == null) {
@@ -38,11 +40,31 @@ public class MessageLogServiceImpl extends ServiceImpl<MessageLogMapper, Message
             if (item.getMsgType() == null || item.getMsgType().isBlank()) {
                 throw new BusinessException("第" + (i + 1) + "条 msgType 不能为空");
             }
-            MessageLog log = new MessageLog();
-            BeanUtils.copyProperties(item, log);
-            logs.add(log);
+            MessageLog messageLog = new MessageLog();
+            BeanUtils.copyProperties(item, messageLog);
+            try {
+                // 逐条写：dedupeKey 撞唯一键时跳过该条，不影响同批其他日志
+                save(messageLog);
+                saved++;
+            } catch (DuplicateKeyException e) {
+                log.debug("duplicate message log ignored: {}", item.getDedupeKey());
+            }
         }
-        saveBatch(logs);
-        return logs.size();
+        return saved;
+    }
+
+    @Override
+    public List<MessageLog> list(Long senderId, String conversationId, String direction, Integer limit) {
+        if (direction != null && !DIRECTIONS.contains(direction)) {
+            throw new BusinessException("direction 必须为 IN|OUT");
+        }
+        int size = limit == null ? 100 : Math.max(1, Math.min(limit, 500));
+        return lambdaQuery()
+                .eq(senderId != null, MessageLog::getSenderId, senderId)
+                .eq(conversationId != null, MessageLog::getConversationId, conversationId)
+                .eq(direction != null, MessageLog::getDirection, direction)
+                .orderByDesc(MessageLog::getId)
+                .last("LIMIT " + size)
+                .list();
     }
 }

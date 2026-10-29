@@ -36,6 +36,7 @@
 | 8 | `style_profile` | 风格画像（注入 Dify 的画像正文） | 方案⑤ |
 | 9 | `app_setting` | 全局配置（总结频率 / 窗口等） | 方案⑤ |
 | 10 | `file_task` | 文件任务状态镜像（Vue 只读） | 方案④ |
+| 11 | `conversation_session` | QQ 会话 ↔ Dify `conversation_id` 映射 | Dify-Centric 整改（`design/agent_contract.md`） |
 
 ---
 
@@ -72,17 +73,23 @@ CREATE TABLE `message_log` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `sender_id`  BIGINT UNSIGNED NOT NULL,
   `chat_id`    BIGINT UNSIGNED NULL,
+  `conversation_id` VARCHAR(64) NULL COMMENT 'Dify conversation_id',
+  `message_id` VARCHAR(64)     NULL COMMENT '平台消息 id',
+  `dedupe_key` VARCHAR(128)    NULL COMMENT '幂等键，重复写入被忽略',
   `direction`  VARCHAR(8)      NOT NULL COMMENT 'IN|OUT',
   `msg_type`   VARCHAR(16)     NOT NULL COMMENT 'text|image|file...',
   `content`    TEXT            NULL,
   `created_at` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_dedupe` (`dedupe_key`),
   KEY `idx_sender_created` (`sender_id`, `created_at`),
-  KEY `idx_created` (`created_at`)
+  KEY `idx_created` (`created_at`),
+  KEY `idx_conversation` (`conversation_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='统一消息日志';
 ```
 
 > 只增不删，故无 `is_deleted`/`updated_at`。写入方为 LangBot（异步、可批量）。
+> `dedupe_key` 走唯一索引：批内/重试重复的日志被跳过，不会写入两条；`NULL` 不参与唯一性判断。
 
 ### 3. `memo` — 备忘录主体
 
@@ -228,19 +235,54 @@ CREATE TABLE `file_task` (
   `task_ref`   VARCHAR(64)     NOT NULL COMMENT 'LangBot 侧 taskId',
   `sender_id`  BIGINT UNSIGNED NOT NULL,
   `chat_id`    BIGINT UNSIGNED NULL,
+  `conversation_id` VARCHAR(64) NULL COMMENT '触发任务的 Dify conversation_id',
   `file_name`  VARCHAR(255)    NULL,
+  `request`    TEXT            NULL COMMENT '用户原始填写要求',
+  `pending_request` TEXT       NULL COMMENT '等待文件时挂起的要求',
   `status`     VARCHAR(20)     NOT NULL DEFAULT 'PENDING'
                COMMENT 'PENDING|PROCESSING|NEED_INPUT|AWAITING_CONFIRM|SENT|FAILED|CANCELLED',
+  `missing`    JSON            NULL COMMENT 'Dify 判定仍缺的字段',
+  `confidence` DECIMAL(3,2)    NULL COMMENT '填写置信度 0-1',
+  `needs_confirm` TINYINT(1)   NULL COMMENT '是否强制人工确认',
+  `file_ref`   VARCHAR(512)    NULL COMMENT '输入文件引用 local://...',
+  `output_ref` VARCHAR(512)    NULL COMMENT '产物文件引用 local://...',
+  `source_message_id` BIGINT UNSIGNED NULL COMMENT '源 QQ 消息 id',
+  `idempotency_key` VARCHAR(128) NULL COMMENT '重复投递去重',
   `detail`     JSON            NULL COMMENT '镜像 LangBot 状态详情',
   `created_at` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_task_ref` (`task_ref`),
-  KEY `idx_sender_status` (`sender_id`, `status`)
+  KEY `idx_sender_status` (`sender_id`, `status`),
+  KEY `idx_conversation` (`conversation_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='文件任务状态镜像';
 ```
 
 > **状态机真身在 LangBot 插件内**（内存 + JSON 落盘）；本表仅为 Vue 只读的镜像——LangBot 状态变更时顺带同步一行（只写不回读业务逻辑）。
+> Phase 3 起，FILE 草稿确认发送成功会由 Spring 把 `status` 推进到 `SENT`；`output_ref` 就是草稿 `fileRef` 指向的产物。
+
+### 11. `conversation_session` — QQ 会话 ↔ Dify conversation_id
+
+```sql
+CREATE TABLE `conversation_session` (
+  `id`                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `bot_uuid`             VARCHAR(64)     NOT NULL,
+  `chat_type`            VARCHAR(16)     NOT NULL COMMENT 'private|group',
+  `chat_id`              BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '私聊为0，群聊为群号',
+  `sender_id`            BIGINT UNSIGNED NOT NULL,
+  `dify_conversation_id` VARCHAR(64)     NOT NULL,
+  `status`               VARCHAR(16)     NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE|RESET',
+  `last_active_at`       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_at`           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_session` (`bot_uuid`, `chat_type`, `chat_id`, `sender_id`),
+  KEY `idx_sender` (`sender_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='QQ会话与Dify conversation_id映射';
+```
+
+> 私聊 `chat_id` 归一为 `0`，让唯一键对私聊同样生效；群聊按 `(群号, 成员)` 隔离。
+> `RESET` 只表示当前映射失效：`resolve` 只返回 `ACTIVE`，下次 `bind` 会覆盖为新的 `conversation_id`。
 
 ---
 
@@ -262,6 +304,7 @@ memo 1 ── N memo_reminder
 | 会话注入事实记忆 | `GET /api/profile/{sender_id}` | `profile_fact.uk_sender_key`（前缀 `sender_id`） |
 | 画像读取 | 总结工作流 | `style_profile.uk_sender` |
 | 文件任务列表 | Vue | `file_task.idx_sender_status` |
+| 解析会话的 Dify conversation_id | LangBot 每条消息 | `conversation_session.uk_session` |
 
 ---
 

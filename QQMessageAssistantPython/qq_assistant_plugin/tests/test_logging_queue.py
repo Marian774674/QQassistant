@@ -53,3 +53,21 @@ def test_enqueue_drops_oldest_when_full():
     for i in range(5):
         q.enqueue(make_item(i))
     assert [i["content"] for i in q._q] == ["msg-2", "msg-3", "msg-4"]
+
+
+@pytest.mark.asyncio
+async def test_enqueue_stamps_stable_dedupe_key(spring):
+    """POST 成功但响应丢失后重试，必须靠 dedupeKey 让服务端忽略重复行。"""
+    q = MessageLogQueue(spring, batch=20)
+    q.enqueue(make_item(1))
+    q.enqueue(make_item(2))
+    keys = [i["dedupeKey"] for i in q._q]
+    assert all(k.startswith("log:") for k in keys)
+    assert keys[0] != keys[1]
+
+    spring.log_messages = AsyncMock(side_effect=[RuntimeError("response lost"), None])
+    await q._flush()
+
+    first = spring.log_messages.await_args_list[0].args[0][0]
+    second = spring.log_messages.await_args_list[1].args[0][0]
+    assert first["dedupeKey"] == second["dedupeKey"]

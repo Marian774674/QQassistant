@@ -38,9 +38,12 @@
 | | GET | `/api/drafts` | Vue | 是 | 草稿列表 |
 | | POST | `/api/drafts/{id}/confirm` | Vue | 否 | 确认草稿 |
 | | POST | `/api/drafts/{id}/reject` | Vue | 否 | 拒绝草稿 |
-| 日志 | POST | `/api/message-logs` | LangBot | 否 | 批量写入消息日志 |
+| 日志 | POST | `/api/message-logs` | LangBot / 发送桥 | 否 | 批量写入消息日志 |
+| | GET | `/api/message-logs` | Vue / 总结任务 | 是 | 按会话/方向查询日志 |
 | 备忘 | POST | `/api/memos` | Dify | 否 | 创建备忘录 |
 | | GET | `/api/memos` | Vue | 是 | 备忘录列表 |
+| | GET | `/api/memos/{id}` | Vue | 是 | 备忘详情 |
+| | GET | `/api/memos/{id}/reminders` | Vue | 是 | 提醒计划 |
 | | PATCH | `/api/memos/{id}` | Vue / LangBot | 否 | 编辑 / 完成 / 取消 |
 | 防重 | POST | `/api/collection-tasks/check` | Dify / LangBot | **是** | 查是否已回复 |
 | | POST | `/api/collection-tasks/mark` | Dify / LangBot | 否 | 标记已回复 |
@@ -61,6 +64,9 @@
 | | PUT | `/api/settings` | Vue | 否 | 更新配置 |
 | 文件任务 | GET | `/api/file-tasks` | Vue | 是 | 只读任务列表 |
 | | POST | `/api/file-tasks/sync` | LangBot | 否 | 状态镜像同步 |
+| 会话映射 | GET | `/api/conversations/resolve` | LangBot | **是** | 取当前 Dify conversation_id |
+| | POST | `/api/conversations/bind` | LangBot | 否 | 绑定/覆盖 conversation_id |
+| | POST | `/api/conversations/reset` | LangBot | **是** | 标记当前映射失效 |
 
 ### B. LangBot 对外 API（Phase 3 实现，供 Spring Boot 调用）
 
@@ -160,11 +166,14 @@
 |---|---|---|---|
 | `senderId` | long | 是 | 用户 |
 | `chatId` | long | 否 | 会话 |
+| `conversationId` | string | 否 | Dify conversation_id |
+| `messageId` | string | 否 | 平台消息 id（桥侧发送成功时回报） |
+| `dedupeKey` | string | 否 | 幂等键；相同值重复写入被跳过 |
 | `direction` | string | 是 | `IN`（收到）\| `OUT`（发出） |
 | `msgType` | string | 是 | `text` \| `image` \| `file` … |
 | `content` | string | 否 | 文本内容 |
 
-**响应** `data` = 写入条数（int）。
+**响应** `data` = 实际写入条数（int；被 `dedupeKey` 挡掉的条目不计入）。
 
 **示例**
 ```jsonc
@@ -174,6 +183,12 @@
 // 响应
 { "code": 0, "message": "ok", "data": 2 }
 ```
+
+### 4.2 `GET /api/message-logs` — 查询（Phase 3）
+
+**Query**：`senderId`（可选）、`conversationId`（可选）、`direction`（可选，`IN|OUT`）、`limit`（可选，默认 100，最大 500）。
+
+**响应** `data` = 日志数组，按 `id` 倒序。用于风格总结取原料与全链路排查。
 
 ---
 
@@ -206,11 +221,34 @@
 
 **响应** `data` = 备忘对象（含 `id`、`status`）。
 
+> `dueTime` 反序列化是**宽松**的：`2026-10-29T19:00:00`、`2026-10-29 19:00`、
+> `2026-10-29T19:00:00+08:00`、`2026-10-29` 都能收。LLM 输出的时间格式不稳定，
+> 不应因为一个空格就 500 丢掉整条备忘。
+
 ### 5.2 `GET /api/memos` — 备忘录列表
 
 **Query**：`status`（可选，`ACTIVE`\|`REMINDED`\|`AWAITING_REPLY`\|`DONE`\|`CANCELLED`\|`OVERDUE`）、`senderId`（可选）。
 
-### 5.3 `PATCH /api/memos/{id}` — 编辑 / 完成 / 取消
+### 5.3 `GET /api/memos/{id}` — 备忘详情
+
+**响应** `data` = 备忘对象；不存在时 `code=400`。
+
+### 5.4 `GET /api/memos/{id}/reminders` — 提醒计划
+
+**响应** `data` = `MemoReminder[]`，按 `remindAt` 升序：
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 提醒 id |
+| `offsetLabel` | `24h` \| `2h` \| `1h` \| `30min` \| `当天` |
+| `remindAt` | 应该推送的时间 |
+| `status` | `PENDING` \| `SENT` \| `CANCELLED` |
+| `sentAt` | 实际推送时间 |
+
+**说明**：改过 `importance`/`dueTime` 后旧档位保留为 `CANCELLED`（审计用），前端只展示
+`PENDING` + `SENT`，需要时再展开已取消项。
+
+### 5.5 `PATCH /api/memos/{id}` — 编辑 / 完成 / 取消
 
 **请求体**（部分更新，传哪个改哪个）
 
@@ -219,6 +257,7 @@
 | `title` | string | 编辑标题 |
 | `content` | string | 编辑详情 |
 | `importance` | int | 改重要性 → **重算 `memo_reminder`** |
+| `category` | string | 同上枚举，非法值返回 400 |
 | `dueTime` | string | 改时间 → **重算 `memo_reminder`** |
 | `status` | string | `DONE`（完成）\| `CANCELLED`（取消） |
 
@@ -366,19 +405,61 @@
 | `taskRef` | string | 是 | LangBot 侧 taskId（幂等键） |
 | `senderId` | long | 是 | 用户 |
 | `chatId` | long | 否 | 会话 |
+| `conversationId` | string | 否 | 触发任务的 Dify conversation_id |
 | `fileName` | string | 否 | 文件名 |
+| `request` | string | 否 | 用户原始填写要求 |
+| `pendingRequest` | string | 否 | 等待文件时挂起的要求 |
 | `status` | string | 是 | 见上枚举 |
+| `missing` | string[] | 否 | Dify 判定仍缺的字段 |
+| `confidence` | number | 否 | 填写置信度 0-1 |
+| `needsConfirm` | boolean | 否 | 是否强制人工确认 |
+| `fileRef` | string | 否 | 输入文件引用 `local://...` |
+| `outputRef` | string | 否 | 产物文件引用 `local://...` |
+| `sourceMessageId` | long | 否 | 源 QQ 消息 id |
+| `idempotencyKey` | string | 否 | 重复投递去重 |
 | `detail` | object | 否 | 状态详情（JSON 镜像） |
 
-**行为**：按 `taskRef` upsert。**只写不回读业务逻辑**——状态机真身在 LangBot 插件内。
+**行为**：按 `taskRef` upsert；缺省字段不覆盖已有值。**只写不回读业务逻辑**——状态机真身在 LangBot 插件内。
+FILE 草稿确认发送成功后，Spring 直接把对应 `taskRef` 的 `status` 置为 `SENT`。
 
 ---
 
-## 十二、LangBot 对外 API（Phase 3 实现）
+## 十二、会话映射（`conversation_session`）
+
+> 用于把 QQ 会话与 Dify `conversation_id` 绑定，使 Dify 能跨消息看到上下文。
+> 插件侧另有本地 JSON 兜底，Spring 是持久化真相源。契约详见 `agent_contract.md` §1.2 / §4。
+
+### 12.1 `GET /api/conversations/resolve` — 解析当前会话
+
+**Query**
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `botUuid` | string | 是 | LangBot bot 标识（插件配置 `bot`） |
+| `chatType` | string | 是 | `private` / `group` |
+| `chatId` | long | 否 | 群号；私聊可省略（服务端归一为 0） |
+| `senderId` | long | 是 | QQ 号 |
+
+**响应** `data` = `{ "conversationId": "..." }`；没有 ACTIVE 映射时为 `null`。
+
+### 12.2 `POST /api/conversations/bind` — 绑定 / 覆盖
+
+**请求体**：`{ botUuid, chatType, chatId, senderId, conversationId }`。
+**行为**：按 `(botUuid, chatType, chatId, senderId)` upsert，状态置 `ACTIVE` 并刷新 `lastActiveAt`。
+**响应** `data` = 会话映射实体。
+
+### 12.3 `POST /api/conversations/reset` — 标记失效
+
+**请求体**：`{ botUuid, chatType, chatId, senderId }`。
+**行为**：状态置 `RESET`；下次 `bind` 会覆盖为新的 `conversation_id`。不存在时幂等返回成功。
+
+---
+
+## 十三、LangBot 对外 API（Phase 3 实现）
 
 > Spring Boot 是「提醒发起者」「草稿确认执行者」，但发 QQ 必须经 LangBot。以下接口由 **LangBot 暴露、Spring Boot 调用**。文本与文件是**两套契约，不混用**。
 
-### 12.1 `POST /api/langbot/send_message` — 发文本
+### 13.1 `POST /api/langbot/send_message` — 发文本
 
 **请求体**
 
@@ -389,7 +470,7 @@
 | `delayMs` | int | 否 | 拟人延迟（毫秒）；不传由 LangBot 按字数计算 |
 | `bizRef` | string | 否 | 业务引用，如 `memo:123` / `draft:45`；LangBot 据此做 QQ 内闭环路由与幂等 |
 
-### 12.2 `POST /api/langbot/send_file` — 发文件
+### 13.2 `POST /api/langbot/send_file` — 发文件
 
 **请求体**
 
@@ -402,6 +483,18 @@
 
 **响应**（两者一致）：`{ "code": 0, "message": "ok", "data": { "messageId": "..." } }`。
 
+**桥的实现约束**（Phase 3 定稿）：
+- 发送**绝不自动重试**：宁可返回失败，也不能重复发消息。
+- `bizRef` 相同的请求 24h 内幂等：直接返回上次的 `messageId`，不再发送。
+- 同一 `bizRef` **同时在途**时，后到的请求返回 HTTP 409，绝不并发发两条；桥内的占位只在成功后才落盘。
+- 幂等判断必须在文件存在性检查之前：产物文件被清理后再重试确认，仍应返回上次的 `messageId`。
+- 文件通道回落 NapCat **只对 LangBot 的确定性拒绝（400/404/405）**；超时与 5xx 可能已送达，绝不回落，避免重复发文件。
+- 拟人延迟只在 `private` 生效；`delayMs` 显式传入时以请求为准（定时提醒传 `0`，不排队等待）。
+- 发送成功后由桥写 `OUT` 日志（带 `dedupeKey=out:<messageId>`）；日志失败不影响已成功的发送。
+- 幂等状态文件默认落在 `send_bridge/data/sent.json` 的**绝对路径**，与启动目录无关。
+- 插件自行发出的内容（`SEND` 文本、`FILE_FILL` 回传文件、`AWAITING_CONFIRM` 提示）由插件写 `OUT` 日志；插件直发文件不经过桥，**必须**自己补一条 `msgType=file` 的 `OUT` 记录，否则 `message_log` 只能看到文本。
+- 业务/参数错误返回 HTTP 400 + `code: 400`；上游失败返回 HTTP 500 + `code: 500`。
+
 > **实现说明（Phase 3 定稿）**：上面是本项目对 Spring Boot 的**稳定契约**，由 Python 侧 `send_bridge`（默认 `http://localhost:5301`）实现，不是 LangBot 原生路径。
 > - `send_message` → 转发到 LangBot 官方 API `POST /api/v1/platform/bots/{bot_uuid}/send_message`（`X-API-Key` 鉴权，`target_type` 为 `person|group`，`message_chain=[{type:"Plain",text:...}]`），并在桥内完成拟人延迟与 OUT 日志。
 > - `send_file` → 若 LangBot 官方 `send_message` 实测接受 `File` 组件则同样转发；否则由桥调 NapCat OneBot 11 的 `upload_private_file` / `upload_group_file`。
@@ -409,7 +502,7 @@
 
 ---
 
-## 十三、待 Phase 4 确认的集成点
+## 十四、待 Phase 4 确认的集成点
 
 - **Dify 应用配置 API**：`POST /api/style-profile/update` 后更新画像 Prompt 的调用方式、鉴权、字段名。
 - **NapCat 文件收发 API**：Phase 3 随 `send_file` 一并确认。

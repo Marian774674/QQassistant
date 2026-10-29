@@ -17,6 +17,12 @@ public class MessageLog {
 
     private Long senderId;
     private Long chatId;
+    /** Dify conversation_id，可用于按会话回溯 */
+    private String conversationId;
+    /** 平台消息 id（有则记录） */
+    private String messageId;
+    /** 幂等键：重复写入被忽略 */
+    private String dedupeKey;
     private String direction;
     private String msgType;
     private String content;

@@ -8,6 +8,7 @@ import com.czx.qqmessageassistantjava.dto.*;
 import com.czx.qqmessageassistantjava.entity.Draft;
 import com.czx.qqmessageassistantjava.mapper.DraftMapper;
 import com.czx.qqmessageassistantjava.service.DraftService;
+import com.czx.qqmessageassistantjava.service.FileTaskService;
 import com.czx.qqmessageassistantjava.service.MemoService;
 import com.czx.qqmessageassistantjava.service.ProfileFactService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +30,8 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
     private LangBotClient langBotClient;
     @Autowired
     private ProfileFactService profileFactService;
+    @Autowired
+    private FileTaskService fileTaskService;
 
     private static final Set<String> TYPES = Set.of("REPLY","FILE","MEMO","FACT");
     private static final Set<String> STATUS = Set.of("PENDING","CONFIRMED","REJECTED");
@@ -43,6 +46,11 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
         }
         if(draftCreateRequest.getPayload() == null){
             throw new BusinessException("Payload不能为空");
+        }
+        if ("FILE".equals(draftCreateRequest.getType())) {
+            // 确认时凭这两个字段回传文件；缺一个就永远发不出去，必须在入口拦住
+            requireField(draftCreateRequest.getPayload(), "taskRef", "FILE 草稿 payload.taskRef 不能为空");
+            requireField(draftCreateRequest.getPayload(), "fileRef", "FILE 草稿 payload.fileRef 不能为空");
         }
         Draft draft = BeanUtil.copyProperties(draftCreateRequest, Draft.class);
         draft.setStatus("PENDING");
@@ -122,6 +130,8 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
         request.setFileRef(asString(payload.get("fileRef")));
         request.setBizRef("draft:"+draft.getId());
         langBotClient.sendFile(request);
+        // 只有发送成功才把镜像状态推进到 SENT；失败时事务回滚，草稿仍是 PENDING
+        fileTaskService.updateStatus(asString(payload.get("taskRef")), "SENT");
     }
 
 
@@ -141,7 +151,8 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
     private SendTarget resolveTarget(Map<String, Object> payload, Draft draft) {
         String type = asString(payload.get("targetType"));
         if (type == null || type.isBlank()) {
-            type = "private";
+            // 有 chatId 说明来自群聊，回给群；否则回给 sender 本人
+            type = draft.getChatId() != null ? "group" : "private";
         }
         Long id = asLong(payload.get("targetId"));
         if (id == null) {
@@ -155,6 +166,13 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
 
     private String asString(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private void requireField(Map<String, Object> payload, String key, String message) {
+        String value = asString(payload.get(key));
+        if (value == null || value.isBlank()) {
+            throw new BusinessException(message);
+        }
     }
 
     private Long asLong(Object value) {

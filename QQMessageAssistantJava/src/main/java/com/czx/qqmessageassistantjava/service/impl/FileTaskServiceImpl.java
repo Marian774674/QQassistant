@@ -66,14 +66,55 @@ public class FileTaskServiceImpl extends ServiceImpl<FileTaskMapper, FileTask> i
                 .list();
     }
 
+    @Override
+    public void updateStatus(String taskRef, String status) {
+        if (taskRef == null || taskRef.isBlank() || status == null) {
+            return;
+        }
+        lambdaUpdate()
+                .eq(FileTask::getTaskRef, taskRef)
+                .set(FileTask::getStatus, status)
+                .update();
+    }
+
     private static void fillAttributes(FileTaskSyncRequest request, FileTask exiting) {
         exiting.setSenderId(request.getSenderId());
         exiting.setStatus(request.getStatus());
         if (request.getChatId() != null) {
             exiting.setChatId(request.getChatId());
         }
+        if (request.getConversationId() != null) {
+            exiting.setConversationId(request.getConversationId());
+        }
         if (request.getFileName() != null) {
             exiting.setFileName(request.getFileName());
+        }
+        if (request.getRequest() != null) {
+            exiting.setRequest(request.getRequest());
+        }
+        if (request.getPendingRequest() != null) {
+            exiting.setPendingRequest(request.getPendingRequest());
+        }
+        if (request.getMissing() != null) {
+            exiting.setMissing(request.getMissing());
+        }
+        if (request.getConfidence() != null) {
+            exiting.setConfidence(request.getConfidence());
+        }
+        if (request.getNeedsConfirm() != null) {
+            exiting.setNeedsConfirm(request.getNeedsConfirm());
+        }
+        if (request.getFileRef() != null) {
+            exiting.setFileRef(request.getFileRef());
+        }
+        if (request.getOutputRef() != null) {
+            exiting.setOutputRef(request.getOutputRef());
+        }
+        if (request.getSourceMessageId() != null) {
+            exiting.setSourceMessageId(request.getSourceMessageId());
+        }
+        if (request.getIdempotencyKey() != null) {
+            exiting.setIdempotencyKey(request.getIdempotencyKey());
         }
         if (request.getDetail() != null) {
             exiting.setDetail(request.getDetail());
