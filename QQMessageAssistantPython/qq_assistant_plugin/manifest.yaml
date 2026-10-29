@@ -4,7 +4,7 @@ metadata:
   author: Marian
   name: qq_assistant_plugin
   repository: ''
-  version: 0.2.0
+  version: 0.2.24
   description:
     en_US: nothing
     zh_Hans: nothing
@@ -45,6 +45,14 @@ spec:
       type: float
       label: { zh_Hans: 文件回写置信度阈值 }
       default: 0.85
+    - name: napcat_api_url
+      type: string
+      label: { zh_Hans: "NapCat HTTP API 地址（如 http://127.0.0.1:3000，留空禁用文件下载）" }
+      default: 'http://127.0.0.1:3000'
+    - name: napcat_token
+      type: string
+      label: { zh_Hans: NapCat HTTP API Token }
+      default: ''
     - name: bot
       type: bot-selector
       label: { zh_Hans: 使用的机器人 }
@@ -87,6 +95,10 @@ spec:
           label: { zh_Hans: 全部, en_US: All }
         - name: "off"
           label: { zh_Hans: 关闭, en_US: Off }
+    - name: data_dir
+      type: string
+      label: { zh_Hans: "插件数据目录（留空=自动探测可写目录：LangBot data/qq_assistant，其次用户目录）" }
+      default: ''
   components:
     EventListener:
       fromDirs:

@@ -1,0 +1,110 @@
+# QQ 助手 · 虚拟机部署编排
+# 组件：LangBot（管理端 + 插件运行时）、NapCat（QQ 协议端）、send_bridge（主动发送桥）
+#
+# 网络策略：
+#   - 容器之间用服务名互访（langbot:5300 / napcat:3000 / napcat:3001）
+#   - 只把需要的端口映射到宿主机，且默认绑 127.0.0.1（配合 SSH 隧道使用）
+#   - 5401（插件运行器调试口）**绝不对外映射**
+#
+# 启动：cd deploy && cp .env.example .env && 填好 .env && docker compose up -d
+
+name: qq-assistant
+
+services:
+  # ── LangBot 主程序：WebUI + 平台适配 + 插件宿主 ─────────────────────────
+  langbot:
+    image: ${LANGBOT_IMAGE:-rockchin/langbot:latest}
+    container_name: qq-langbot
+    restart: unless-stopped
+    depends_on:
+      - langbot_plugin_runtime
+    environment:
+      TZ: Asia/Shanghai
+      # 与插件运行时必须一致（都留空或都填同一个 32 位以上随机串）
+      LANGBOT_PLUGIN_RUNTIME_CONTROL_TOKEN: ${PLUGIN_RUNTIME_CONTROL_TOKEN:-}
+    ports:
+      - "${WEBUI_BIND:-127.0.0.1}:5300:5300"
+    volumes:
+      - ./data:/app/data
+    networks:
+      - qqnet
+
+  # ── 插件运行时：独立进程，通过 ws 控制口与主程序相连 ──────────────────────
+  langbot_plugin_runtime:
+    image: ${LANGBOT_IMAGE:-rockchin/langbot:latest}
+    container_name: qq-langbot-runtime
+    restart: unless-stopped
+    command: ["uv", "run", "--no-sync", "-m", "langbot_plugin.cli.__init__", "rt"]
+    environment:
+      TZ: Asia/Shanghai
+      LANGBOT_PLUGIN_RUNTIME_CONTROL_TOKEN: ${PLUGIN_RUNTIME_CONTROL_TOKEN:-}
+    volumes:
+      # 必须整目录挂载：插件在本容器里运行，产物写到 /app/data/qq_assistant/data/files。
+      # 只挂 plugins / plugin-runtime 子目录的话，这些产物落在容器可写层——
+      # send_bridge 读不到（它挂的是宿主 ./data），容器重建还会丢。
+      - ./data:/app/data
+    networks:
+      - qqnet
+    # 5401 是调试口，按官方安全通告不得对外暴露
+
+  # ── NapCat：QQ 协议端（WebUI 扫码登录 + OneBot HTTP/WS） ─────────────────
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    container_name: qq-napcat
+    restart: unless-stopped
+    environment:
+      # 绑定挂载目录的属主；填宿主机执行 id -u / id -g 的结果
+      NAPCAT_UID: ${NAPCAT_UID:-1000}
+      NAPCAT_GID: ${NAPCAT_GID:-1000}
+      WEBUI_TOKEN: ${NAPCAT_WEBUI_TOKEN:?请在 .env 里设置 NAPCAT_WEBUI_TOKEN}
+      TZ: Asia/Shanghai
+    ports:
+      # 只映射 WebUI；OneBot 的 3000/3001 仅供容器网络内使用
+      # 宿主机端口可改（容器内 NapCat WebUI 固定 6099）
+      - "${NAPCAT_WEBUI_BIND:-127.0.0.1}:${NAPCAT_WEBUI_PORT:-6099}:6099"
+    volumes:
+      - ./napcat/qq:/app/.config/QQ
+      - ./napcat/config:/app/napcat/config
+      - ./napcat/plugins:/app/napcat/plugins
+    networks:
+      - qqnet
+
+  # ── 主动发送桥：Spring Boot → 这里 → LangBot/NapCat ─────────────────────
+  send_bridge:
+    build:
+      context: ../QQMessageAssistantPython
+      dockerfile: send_bridge/Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+    container_name: qq-send-bridge
+    restart: unless-stopped
+    depends_on:
+      - langbot
+      - napcat
+    environment:
+      BRIDGE_HOST: 0.0.0.0
+      BRIDGE_PORT: "5301"
+      LANGBOT_BASE: http://langbot:5300
+      LANGBOT_BOT_UUID: ${LANGBOT_BOT_UUID:?请在 .env 里设置 LANGBOT_BOT_UUID}
+      LANGBOT_API_KEY: ${LANGBOT_API_KEY:?请在 .env 里设置 LANGBOT_API_KEY}
+      NAPCAT_BASE: http://napcat:3000
+      NAPCAT_TOKEN: ${NAPCAT_HTTP_TOKEN:-}
+      # Spring Boot 所在机器（Windows 宿主机）对虚拟机可达的地址
+      SPRING_BASE: ${SPRING_BASE:?请在 .env 里设置 SPRING_BASE}
+      FILE_VIA_LANGBOT: "false"
+      STATE_FILE: /app/bridge-data/sent.json
+      TZ: Asia/Shanghai
+    ports:
+      # Java 端 langbot.base-url 指向 http://<虚拟机IP>:5301
+      - "${BRIDGE_BIND:-0.0.0.0}:5301:5301"
+    volumes:
+      # 与 langbot 容器同路径挂载：插件写出的 local://... 路径这里能直接打开
+      - ./data:/app/data:ro
+      # 幂等状态必须持久化，否则重启后可能重复发送
+      - ./bridge-data:/app/bridge-data
+    networks:
+      - qqnet
+
+networks:
+  qqnet:
+    driver: bridge

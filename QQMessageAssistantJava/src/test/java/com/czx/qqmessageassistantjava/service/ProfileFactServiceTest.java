@@ -56,6 +56,19 @@ class ProfileFactServiceTest {
     }
 
     @Test
+    void confidenceOutOfRangeRejected() {
+        FactUpsertRequest req = new FactUpsertRequest();
+        req.setSenderId(1004L);
+        req.setFactKey("专业");
+        req.setFactValue("计算机");
+        req.setConfidence(new BigDecimal("1.5"));
+
+        assertThatThrownBy(() -> profileFactService.upsertAuto(req))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("confidence");
+    }
+
+    @Test
     void blankKeyRejected() {
         FactUpsertRequest req = new FactUpsertRequest();
         req.setSenderId(1003L);

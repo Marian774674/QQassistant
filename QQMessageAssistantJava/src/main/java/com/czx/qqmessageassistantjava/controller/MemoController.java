@@ -3,7 +3,9 @@ package com.czx.qqmessageassistantjava.controller;
 import com.czx.qqmessageassistantjava.common.Result;
 import com.czx.qqmessageassistantjava.dto.MemoCreateRequest;
 import com.czx.qqmessageassistantjava.dto.MemoPatchRequest;
+import com.czx.qqmessageassistantjava.common.BusinessException;
 import com.czx.qqmessageassistantjava.entity.Memo;
+import com.czx.qqmessageassistantjava.entity.MemoReminder;
 import com.czx.qqmessageassistantjava.service.MemoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -32,6 +34,22 @@ public class MemoController {
                                    @RequestParam(required = false) Long senderId) {
         return Result.ok(memoService.list(status, senderId));
     }
+    @Operation(summary = "备忘详情")
+    @GetMapping("/{id}")
+    public Result<Memo> detail(@PathVariable Long id) {
+        Memo memo = memoService.getById(id);
+        if (memo == null) {
+            throw new BusinessException("备忘录不存在");
+        }
+        return Result.ok(memo);
+    }
+
+    @Operation(summary = "提醒计划", description = "按 importance 展开的每档提醒时间与发送状态")
+    @GetMapping("/{id}/reminders")
+    public Result<List<MemoReminder>> reminders(@PathVariable Long id) {
+        return Result.ok(memoService.reminders(id));
+    }
+
     @Operation(summary = "编辑/完成/取消", description = "改 importance/dueTime 会重算提醒；DONE/CANCELLED 会撤销未发提醒")
     @PatchMapping("/{id}")
     public Result<Memo> patch(@PathVariable Long id,@RequestBody MemoPatchRequest request){

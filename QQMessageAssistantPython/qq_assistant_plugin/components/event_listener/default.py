@@ -5,17 +5,114 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 
 from langbot_plugin.api.definition.components.common.event_listener import EventListener
 from langbot_plugin.api.entities import context, events
 
-from core import closed_loop, file_store, file_task
+from core import conversation_store, file_store
 from core.dispatch import parse_answer
+from core.event import build_inputs
 from core.reply import reply_text
 from core.rules import task_key
 from core.text import extract_text, has_file, human_delay_seconds, is_at_bot
 
 log = logging.getLogger(__name__)
+
+
+def _file_task():
+    """延迟导入 file_task 的唯一入口。
+
+    file_task 会拉起 openpyxl/python-docx/pypdf：模块级导入一旦缺依赖，
+    整个插件都起不来（一条消息都收不到），所以必须延迟导入。
+    坑：不能在分支里写 `from core import file_task` 后又在别处引用——
+    Python 会把 file_task 当成本函数的局部名，后面的 NEED_INPUT 分支
+    在未赋值时就会炸：UnboundLocalError: cannot access local variable
+    'file_task'（实机 23:31 就是这样被 LangBot 吞掉的）。
+    """
+    from core import file_task
+
+    return file_task
+
+
+async def _respond(deps, ctx, is_group, sender_id, chat_id, text,
+                   event_type: str, file_ctx: dict | None = None):
+    """统一出口：画像 → Chatflow → 机械分发。任何异常只记日志，不回复。"""
+    settings = deps.settings
+    chat_type = "group" if is_group else "private"
+    query = text.removeprefix(settings.group_prefix) if is_group else text
+    if not (query or "").strip():
+        # /chat-messages 的 query 不能为空；纯文件事件用单空格占位，
+        # Chatflow 的 CHECK_REQUEST 会 strip 掉，不会误当成填写要求
+        query = " "
+    key = conversation_store.conversation_key(
+        settings.bot_uuid, chat_type, chat_id, sender_id)
+
+    try:
+        profile = await deps.spring.profile(sender_id) or {}
+        pending = await file_store.load_pending(deps, key) or {}
+        inputs = build_inputs(
+            profile, event_type, chat_type, chat_id, sender_id,
+            file_task=file_ctx,
+            pending_request_hint=pending.get("request", ""),
+            last_task_ref=pending.get("taskRef", ""))
+        file_store.debug(
+            f"profile ok facts={len(profile.get('facts') or {})} "
+            f"event={event_type} file={inputs['file_task_ref'] or '-'}")
+
+        # 带上 conversation_id，Dify 才能看到这段对话的前文；
+        # 否则“先说要求、再发文件”这类跨轮语义永远不会成立。
+        conversation_id = await conversation_store.resolve(
+            deps, settings.bot_uuid, chat_type, chat_id, sender_id)
+        user = conversation_store.dify_user(chat_type, chat_id, sender_id)
+        try:
+            result = await deps.dify.chat(
+                query, user=user, conversation_id=conversation_id, inputs=inputs)
+        except Exception as e:
+            # Dify 应用重建/会话过期后，旧 ID 会返回 400 Conversation Not Exists；
+            # 清掉映射后用新会话重试一次，避免用户从此永久收不到回复。
+            if not (conversation_id and conversation_store.is_missing_conversation(e)):
+                raise
+            file_store.debug(
+                f"conversation {conversation_id} missing, retry with new session")
+            await conversation_store.reset(
+                deps, settings.bot_uuid, chat_type, chat_id, sender_id)
+            result = await deps.dify.chat(query, user=user, inputs=inputs)
+
+        new_conversation_id = result.get("conversation_id")
+        if new_conversation_id and new_conversation_id != conversation_id:
+            await conversation_store.bind(
+                deps, settings.bot_uuid, chat_type, chat_id, sender_id,
+                new_conversation_id)
+
+        # 文件任务镜像补上会话/待填要求：Vue 才能按会话筛任务、看到“要填什么”
+        if file_ctx and file_ctx.get("taskRef"):
+            file_ctx["conversationId"] = new_conversation_id or conversation_id or ""
+            file_ctx["pendingRequest"] = (
+                pending.get("request", "") or file_ctx.get("pendingRequest") or "")
+            try:
+                await _file_task().sync(deps, file_ctx)
+            except Exception as e:
+                # 镜像失败不能挡住回复：真身始终在插件本地
+                file_store.debug(f"sync file ctx failed: {e!r}")
+
+        data = parse_answer(result.get("answer", ""))
+        file_store.debug(
+            f"dify ok conversation={new_conversation_id or conversation_id} "
+            f"answer={result.get('answer', '')[:40]!r} action={data.get('action')}")
+        sent = await deps.dispatcher.handle(
+            data, ctx, sender_id, chat_id, file_ctx=file_ctx,
+            conversation_key=key, deps=deps)
+        file_store.debug(f"dispatch sent={bool(sent)} text={(sent or '')[:40]!r}")
+        if sent:
+            deps.log_queue.enqueue({
+                "senderId": sender_id, "chatId": chat_id, "direction": "OUT",
+                "msgType": "text", "content": sent,
+                "conversationId": new_conversation_id or conversation_id or "",
+            })
+    except Exception as e:
+        log.exception("handle message failed: %s", e)
+        file_store.debug(f"EXC handle: {e!r}\n{traceback.format_exc(limit=4)}")
 
 
 class DefaultEventListener(EventListener):
@@ -58,38 +155,34 @@ class DefaultEventListener(EventListener):
             "senderId": sender_id, "chatId": chat_id, "direction": "IN",
             "msgType": "file" if has_file(chain) else "text", "content": text,
         })
+        # 插件 worker 的 stdout 不会进 LangBot 日志文件，落盘面包屑才是唯一稳定痕迹
+        file_store.debug(f"IN sender={sender_id} chat={chat_id} group={is_group} text={text[:50]!r}")
 
-        # 2. 文件消息 → 文件任务状态机（Phase 3-2）异步处理，立即返回
+        # 2. 文件消息 → 下载 + 抽结构，然后交给 Chatflow 决策。
+        #    必须 await：LangBot 的 API 绑定在 invocation 生命周期上，
+        #    create_task 放后台后 handler 一返回，ctx.* 全部报 "Plugin invocation has ended"。
         if has_file(chain):
-            asyncio.create_task(file_task.handle(ctx, event, is_group, deps))
+            log.warning("file message from %s, chain=%s", sender_id,
+                        [type(c).__name__ for c in chain])
+            task = await _file_task().ingest(ctx, event, is_group, deps)
+            if task:
+                await _respond(deps, ctx, is_group, sender_id, chat_id,
+                               text, event_type="file", file_ctx=task)
             return
 
         if not text:
+            # 诊断：既非 File 组件也无文本 → 把组件形态留下，防静默丢弃
+            log.warning("empty text, chain=%s", [type(c).__name__ for c in chain])
             return
 
-        # 2.5 私聊纯文本：若存在 NEED_INPUT 文件任务，优先收集补充信息，
-        #     整段交给 Dify 对齐 missing，插件不做语义解析
-        if not is_group:
-            active = await file_store.load_active_input(deps, sender_id)
-            if active and await file_task.provide_input(active, text, ctx, deps):
-                return
-
-        # 3. 私聊「完成/取消」闭环：不进 Dify，直接查 Spring 收尾
-        if not is_group and closed_loop.classify(text):
-            try:
-                await closed_loop.handle(text, sender_id, ctx, deps)
-            except Exception as e:
-                log.exception("closed loop failed: %s", e)
-            return
-
-        # 4. 触发判定：群聊只响应 @机器人 或配置前缀
+        # 3. 触发判定：群聊只响应 @机器人 或配置前缀
         if is_group:
             triggered = is_at_bot(chain, settings.bot_qq) \
                 or text.startswith(settings.group_prefix)
         else:
             triggered = True
 
-        # 5. 前置拦截。注意在 triggered 退出【之前】执行——
+        # 4. 前置拦截。注意在 triggered 退出【之前】执行——
         #    群里发收集通知通常不会 @机器人，不 @ 也要能拦
         rule = None
         if settings.intercept_scope == "all" \
@@ -102,25 +195,15 @@ class DefaultEventListener(EventListener):
         if not triggered:
             return
 
-        # 6. 画像 → Dify → 机械分发。整段兜底：任何异常只记日志，不回复
-        #    （宁可不回，也不发半截/错的内容；用户可在草稿中心/日志排查）
-        query = text.removeprefix(settings.group_prefix) if is_group else text
-        try:
-            profile = await deps.spring.profile(sender_id) or {}
-            inputs = {
-                "facts": profile.get("facts", {}),
-                "style_prompt": profile.get("stylePrompt", ""),
-            }
-            result = await deps.dify.chat(query, user=str(sender_id), inputs=inputs)
-            data = parse_answer(result.get("answer", ""))
-            sent = await deps.dispatcher.handle(data, ctx, sender_id, chat_id)
-            if sent:
-                deps.log_queue.enqueue({
-                    "senderId": sender_id, "chatId": chat_id, "direction": "OUT",
-                    "msgType": "text", "content": sent,
-                })
-        except Exception as e:
-            log.exception("handle message failed: %s", e)
+        # 5. 文本消息：若有待续文件任务，把它的 structure/task_ref 一起送过去，
+        #    Dify 才能判断“这句是补充字段还是普通聊天”。插件不做语义判断。
+        active_ref = await file_store.load_active_input(deps, sender_id)
+        file_ctx = await file_store.load_task(deps, active_ref) if active_ref else None
+        # 防串会话：任务不属于当前会话就不带（私聊 chatId=None，群聊为群号）
+        if file_ctx and file_ctx.get("chatId") != chat_id:
+            file_ctx = None
+        await _respond(deps, ctx, is_group, sender_id, chat_id, text,
+                       event_type="text", file_ctx=file_ctx)
 
     async def _intercept(self, ctx, deps, rule, sender_id, chat_id):
         """命中拦截规则：防重检查 → 拟人延迟回复 → mark → OUT 日志。

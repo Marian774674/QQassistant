@@ -1,0 +1,343 @@
+/* ─────────────────────────────────────────────────────────────
+   值日表 · design tokens
+   纸=浅冷灰，墨=深蓝黑，信号色=青；重要性用一条砖红→苔绿的刻度，
+   不靠颜色单独传达信息（都配文字/形状）。
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  --paper: #edf0f2;
+  --sheet: #ffffff;
+  --ink: #16232c;
+  --ink-soft: #5c6c79;
+  --ink-faint: #8a98a3;
+  --line: #cfd8df;
+  --line-soft: #e3e8ec;
+
+  --signal: #0e7a89;
+  --signal-deep: #0a5a66;
+  --signal-wash: #e2eff1;
+
+  --u5: #a93e2e;
+  --u5-wash: #f6e7e4;
+  --u4: #8a6013;
+  --u4-wash: #f7eedb;
+  --u3: #3f6550;
+  --u3-wash: #e6efe9;
+  --u-low: #64727d;
+  --u-low-wash: #eaeef1;
+
+  --danger: #a93e2e;
+  --danger-wash: #f6e7e4;
+
+  --radius-sheet: 3px;
+  --radius-float: 14px;
+  --shadow-float: 0 18px 40px -26px rgba(22, 35, 44, 0.4),
+    0 2px 6px rgba(22, 35, 44, 0.05);
+
+  --font-display: "Palatino Linotype", "Book Antiqua", "Songti SC", SimSun, serif;
+  --font-ui: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Segoe UI",
+    system-ui, sans-serif;
+
+  --rail-w: 208px;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100dvh;
+  background-color: var(--paper);
+  background-image: linear-gradient(
+    to bottom,
+    rgba(22, 35, 44, 0.032) 1px,
+    transparent 1px
+  );
+  background-size: 100% 32px;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--signal-deep);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+::selection {
+  background: var(--signal-wash);
+}
+
+/* ── 排版 ─────────────────────────────────────────────────── */
+
+.display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+.num {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+.error {
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
+.faint {
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+/* ── 按钮 ─────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--sheet);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.16s var(--ease),
+    border-color 0.16s var(--ease), color 0.16s var(--ease);
+}
+
+.btn:hover {
+  background: #f7f9fa;
+  border-color: #b9c5ce;
+}
+
+.btn:active {
+  background: var(--line-soft);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--signal-deep);
+  border-color: var(--signal-deep);
+}
+
+.btn-primary:active {
+  background: #074a54;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn-ghost:hover {
+  background: rgba(22, 35, 44, 0.05);
+  border-color: transparent;
+}
+
+.btn-danger {
+  color: var(--danger);
+  border-color: #e2c7c2;
+  background: var(--danger-wash);
+}
+
+.btn-danger:hover {
+  background: #f1d9d5;
+  border-color: #d3aaa3;
+}
+
+.btn-sm {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.btn svg {
+  flex: none;
+}
+
+/* ── 表单 ─────────────────────────────────────────────────── */
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field > label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--sheet);
+  font-size: 15px;
+  transition: border-color 0.16s var(--ease);
+}
+
+.field textarea {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.field input:hover,
+.field select:hover,
+.field textarea:hover {
+  border-color: #b9c5ce;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: var(--signal);
+}
+
+.field .hint {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.field .error {
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
+/* ── 纸张容器 ─────────────────────────────────────────────── */
+
+.sheet {
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sheet);
+}
+
+.hairline {
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  margin: 0;
+}
+
+/* ── 状态标记 ─────────────────────────────────────────────── */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+/* ── 动效 ─────────────────────────────────────────────────── */
+
+.rise {
+  animation: rise 0.42s var(--ease) both;
+  animation-delay: var(--delay, 0ms);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ── 滚动条 ───────────────────────────────────────────────── */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c3cdd4 transparent;
+}
+
+/* ── 小屏 ─────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  body {
+    font-size: 15px;
+  }
+}

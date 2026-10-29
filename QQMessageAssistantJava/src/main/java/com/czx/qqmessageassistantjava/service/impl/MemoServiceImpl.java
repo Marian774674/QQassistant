@@ -2,6 +2,7 @@ package com.czx.qqmessageassistantjava.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.czx.qqmessageassistantjava.common.BusinessException;
@@ -53,6 +54,10 @@ public class MemoServiceImpl extends ServiceImpl<MemoMapper, Memo> implements Me
         if (request.getImportance() == null || request.getImportance() < 1 || request.getImportance() > 5) {
             throw new BusinessException("importance 必须为 1-5");
         }
+        if (request.getCategory() != null && !request.getCategory().isBlank()
+                && !CATEGORIES.contains(request.getCategory())) {
+            throw new BusinessException("category 只能为 " + CATEGORIES + " 之一");
+        }
         Memo memo = BeanUtil.copyProperties(request, Memo.class);
         memo.setStatus("ACTIVE");
         save(memo);
@@ -83,9 +88,18 @@ public class MemoServiceImpl extends ServiceImpl<MemoMapper, Memo> implements Me
                 && (request.getImportance() < 1 || request.getImportance() > 5)) {
             throw new BusinessException("importance 必须为 1-5");
         }
+        if (request.getCategory() != null && !request.getCategory().isBlank()
+                && !CATEGORIES.contains(request.getCategory())) {
+            throw new BusinessException("category 只能为 " + CATEGORIES + " 之一");
+        }
+        boolean clearDueTime = Boolean.TRUE.equals(request.getClearDueTime());
         boolean needRecalc = (request.getImportance() != null && !memo.getImportance().equals(request.getImportance())
-            || request.getDueTime() != null && !request.getDueTime().equals(memo.getDueTime()));
+            || request.getDueTime() != null && !request.getDueTime().equals(memo.getDueTime()))
+            || clearDueTime;
         BeanUtil.copyProperties(request,memo, CopyOptions.create().ignoreNullValue());
+        if (clearDueTime) {
+            memo.setDueTime(null);
+        }
         updateById(memo);
 
         if("DONE".equals(memo.getStatus()) || "CANCELLED".equals(memo.getStatus())){
@@ -125,7 +139,7 @@ public class MemoServiceImpl extends ServiceImpl<MemoMapper, Memo> implements Me
             throw new BusinessException("importance 必须为 1-5");
         }
         LocalDateTime now = LocalDateTime.now();
-        for (String label : REMINDER_STRATEGY.get(memo.getImportance())) {
+        for (String label : labels) {
             LocalDateTime remindAt = computeRemindAt(memo.getDueTime(), label);
             if (!remindAt.isAfter(now)) {
                 continue;                     // 过去的提醒点跳过，避免集中补发
@@ -148,6 +162,15 @@ public class MemoServiceImpl extends ServiceImpl<MemoMapper, Memo> implements Me
             case "当天" -> dueTime.toLocalDate().atTime(9, 0);
             default -> throw new BusinessException("非法的提醒时间 " + label);
         };
+    }
+
+    @Override
+    public List<MemoReminder> reminders(Long memoId) {
+        return memoReminderMapper.selectList(
+                new LambdaQueryWrapper<MemoReminder>()
+                        .eq(MemoReminder::getMemoId, memoId)
+                        .orderByAsc(MemoReminder::getRemindAt)
+        );
     }
 
     private void cancelPendingReminders(Long id) {

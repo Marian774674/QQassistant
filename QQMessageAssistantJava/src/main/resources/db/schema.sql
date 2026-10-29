@@ -21,13 +21,18 @@ CREATE TABLE IF NOT EXISTS `message_log` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `sender_id` BIGINT UNSIGNED NOT NULL,
   `chat_id` BIGINT UNSIGNED NULL,
+  `conversation_id` VARCHAR(64) NULL COMMENT 'Dify conversation_id',
+  `message_id` VARCHAR(64) NULL COMMENT '平台消息 id',
+  `dedupe_key` VARCHAR(128) NULL COMMENT '幂等键，重复写入被忽略',
   `direction` VARCHAR(8) NOT NULL COMMENT 'IN|OUT',
   `msg_type` VARCHAR(16) NOT NULL COMMENT 'text|image|file...',
   `content` TEXT NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_dedupe` (`dedupe_key`),
   KEY `idx_sender_created` (`sender_id`, `created_at`),
-  KEY `idx_created` (`created_at`)
+  KEY `idx_created` (`created_at`),
+  KEY `idx_conversation` (`conversation_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='统一消息日志';
 
 CREATE TABLE IF NOT EXISTS `memo` (
@@ -131,8 +136,18 @@ CREATE TABLE IF NOT EXISTS `file_task` (
   `task_ref` VARCHAR(64) NOT NULL,
   `sender_id` BIGINT UNSIGNED NOT NULL,
   `chat_id` BIGINT UNSIGNED NULL,
+  `conversation_id` VARCHAR(64) NULL COMMENT 'Dify conversation_id',
   `file_name` VARCHAR(255) NULL,
+  `request` TEXT NULL COMMENT '用户原始填写要求',
+  `pending_request` TEXT NULL COMMENT '等待文件时挂起的要求',
   `status` VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+  `missing` JSON NULL COMMENT 'Dify 判定缺失的字段',
+  `confidence` DECIMAL(3,2) NULL COMMENT '填写置信度',
+  `needs_confirm` TINYINT(1) NULL COMMENT '是否强制人工确认',
+  `file_ref` VARCHAR(512) NULL COMMENT '输入文件引用',
+  `output_ref` VARCHAR(512) NULL COMMENT '产物文件引用',
+  `source_message_id` BIGINT UNSIGNED NULL COMMENT '源 QQ 消息 id',
+  `idempotency_key` VARCHAR(128) NULL COMMENT '重复投递去重',
   `detail` JSON NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -140,3 +155,19 @@ CREATE TABLE IF NOT EXISTS `file_task` (
   UNIQUE KEY `uk_task_ref` (`task_ref`),
   KEY `idx_sender_status` (`sender_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='文件任务状态镜像';
+
+CREATE TABLE IF NOT EXISTS `conversation_session` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `bot_uuid` VARCHAR(64) NOT NULL,
+  `chat_type` VARCHAR(16) NOT NULL COMMENT 'private|group',
+  `chat_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '私聊为0，群聊为群号',
+  `sender_id` BIGINT UNSIGNED NOT NULL,
+  `dify_conversation_id` VARCHAR(64) NOT NULL,
+  `status` VARCHAR(16) NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE|RESET',
+  `last_active_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_session` (`bot_uuid`, `chat_type`, `chat_id`, `sender_id`),
+  KEY `idx_sender` (`sender_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='QQ会话与Dify conversation_id映射';

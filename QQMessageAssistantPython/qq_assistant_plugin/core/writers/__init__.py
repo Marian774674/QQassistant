@@ -5,14 +5,15 @@
 """
 from pathlib import Path
 
-from .docx import apply_docx
-from .xlsx import apply_xlsx
-
 
 def apply(src: Path, out: Path, fills) -> list[str]:
     suffix = src.suffix.lower()
     if suffix == ".xlsx":
+        from .xlsx import apply_xlsx
+
         return apply_xlsx(src, out, fills)
     if suffix == ".docx":
+        from .docx import apply_docx
+
         return apply_docx(src, out, fills)
     raise ValueError(f"不支持回写的文件类型：{suffix}")

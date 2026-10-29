@@ -1,0 +1,3 @@
+
+# 发送桥运行时幂等状态（进程内生成，不入库）
+QQMessageAssistantPython/send_bridge/data/

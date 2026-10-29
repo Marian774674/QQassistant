@@ -11,4 +11,5 @@ public interface MessageLogService extends IService<MessageLog> {
 
     int batchSave(List<MessageLogItem> items);
 
+    List<MessageLog> list(Long senderId, String conversationId, String direction, Integer limit);
 }
