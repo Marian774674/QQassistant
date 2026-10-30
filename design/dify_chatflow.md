@@ -44,8 +44,18 @@
 | `last_task_ref` | 上一轮文件任务 | `ft_ab12cd34` |
 | `open_memos` | 未终结备忘 JSON 数组（`max_length` 20000） | `[{"id":12,"title":"班会",...}]` |
 | `event_id` | 写操作幂等键（`max_length` 64） | `m3f9a0…` |
+| `reply_prompt` | 主人在设置页写的额外要求（`max_length` 20000） | `语气随便点` |
+| `recent_messages` | 该会话最近 15 条（JSON 数组，`max_length` 20000） | `[{"senderName":"阿黄",...}]` |
+| `reply_rules` | 自动回复的硬性约束文本（`max_length` 4000） | `以下是硬性约束…` |
 
-> 插件发送未声明的变量会被 Dify 判 400。**先把这 16 个变量建全，再升级插件。**
+> 插件发送未声明的变量会被 Dify 判 400。**先把这 19 个变量建全，再升级插件。**
+>
+> 反过来（插件已升级、DSL 还没导入）也活得下去：插件撞上 400 会撤掉这最后三个变量
+> 重试一次并记住，群里不会静默断线——但那样 Dify 拿不到自动回复的人设与开关，
+> 每句话都会按 `TASK` 照发（**开关暂时形同虚设**），所以仍然建议先导 DSL。
+>
+> 「记住」有 10 分钟有效期，到期后自动用完整输入再探一次：DSL 重导入后最迟 10 分钟
+> 自己恢复，不需要重启 LangBot。
 
 ### 1.3 环境变量（Environment Variables）
 
@@ -571,66 +581,34 @@ def main(query: str) -> dict:
 
 ### 6.8 `CLEAN_DECISION`
 
+唯一的解析器：模型说什么都要过这一关。**完整代码见 `design/QQAssistant.chatflow.yml`
+的 `clean_decision` 节点**——这段代码被文档复制过两次、两次都漂移了，所以这里只钉契约，
+代码只有一处。契约由 `tests/test_chatflow_dsl.py` 守着。
+
 输入：
 
 | 变量 | 类型 | 来源 |
 |---|---|---|
 | `text` | String | `CHAT_DECISION / text` |
+| `sender_id` | String | `Start / sender_id` |
+| `chat_id` | String | `Start / chat_id` |
+| `event_id` | String | `Start / event_id` |
 
-输出：`decision` String。
+输出：`decision`（String，决策信封 JSON）、`is_op`（String，`"true"` / `"false"`）、
+`op_body`（String，只有 op 分支非空）。
 
-```python
-import json
+职责，按顺序：
 
-ALLOWED = {"SEND", "DRAFT", "SILENT", "MEMO", "FACT", "MEMO_CLOSE"}
-CATEGORIES = {"学业", "社交", "健康", "财务", "日常", "其他"}
-
-
-def _clean_memo(memo):
-    """模型偶尔写错枚举/越界分数；这里兜底，否则 Spring 侧 400 会把整条备忘丢掉。"""
-    if not isinstance(memo, dict):
-        memo = {}
-    out = {}
-    title = str(memo.get("title") or "").strip()
-    content = str(memo.get("content") or "").strip()
-    due = str(memo.get("dueTime") or "").strip()
-    out["title"] = title or (content[:40] or "备忘")
-    if content:
-        out["content"] = content
-    if due:
-        out["dueTime"] = due
-    try:
-        importance = int(memo.get("importance"))
-    except (TypeError, ValueError):
-        importance = 3
-    out["importance"] = max(1, min(5, importance))
-    category = str(memo.get("category") or "").strip()
-    out["category"] = category if category in CATEGORIES else "其他"
-    return out
-
-
-def main(text: str) -> dict:
-    raw = (text or "").strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`")
-        if raw.startswith("json"):
-            raw = raw[4:].lstrip()
-
-    try:
-        data = json.loads(raw)
-    except Exception:
-        data = None
-
-    if not isinstance(data, dict) or data.get("action") not in ALLOWED:
-        decision = {"version": 1, "action": "SILENT"}
-    else:
-        data.setdefault("version", 1)
-        if data.get("action") == "MEMO":
-            data["memo"] = _clean_memo(data.get("memo"))
-        decision = data
-
-    return {"decision": json.dumps(decision, ensure_ascii=False)}
-```
+1. 剥 ```json 围栏；解析失败、`action` 不在词表 → `SILENT`。**绝不把原文发到 QQ。**
+2. `MEMO_OP` → 校验 op ∈ `{memo.create, memo.update, memo.close}`，压成扁平字符串 body
+   交给 `OP_HTTP`。`eventId` / `senderId` / `chatId` **只从 Start 取**：模型可以决定
+   「做什么」，不能决定「替谁做」，也不能决定幂等键。没有 `event_id` 就不写，回一句反问。
+3. 归一化 `send_kind`：缺省或不在 `{TASK, CHAT}` 里 → `TASK`。旧提示词、模型的自由发挥
+   都不能让插件的门控失效；而 `TASK` 永远照发，所以这个兜底只会更保守。
+4. 归一化 `needs_confirm`：只在 `send_kind = CHAT` 时保留，且从宽识别
+   `true` / `"true"` / `1`（宁可多一条草稿让主人点一次，也不能把该确认的话直接发出去）；
+   挂在 `TASK` 上一律删掉——否则备忘确认语会被塞进草稿箱，用户永远看不到「改好了」。
+5. `MEMO`（回滚路径）走 `_clean_memo` 兜底枚举与分数。
 
 > 为什么要这段兜底：`category` 在 Spring 侧是强校验枚举，模型按「生活/工作」输出会直接 400，
 > 插件此时既拿不到备忘录、也发不出确认语。Dify 侧修正 + 插件侧 `sanitize_memo` 双重保险。
@@ -665,86 +643,27 @@ def main(text: str) -> dict:
 
 ### 7.2 `CHAT_DECISION`（LLM）
 
-- 模型：选一个中文对话稳定的模型。
+- 模型：选一个中文对话稳定的模型（现用 `qwen-plus`）。
 - Memory：**开启**，窗口 10。
 - 输出变量：`text`（默认）。
 
-**System Prompt：**
+**提示词以 DSL 为准。** 正文每调一次都会变，复制进文档必然漂移；唯一事实来源是
+`design/QQAssistant.chatflow.yml` 的 `chat_decision.prompt_template`。
+这里只钉它必须遵守的契约（`tests/test_chatflow_dsl.py` 守着前四条）：
+
+| 契约 | 内容 |
+|---|---|
+| 动作词表 | `SEND` / `DRAFT` / `SILENT` / `MEMO_OP` / `FACT`；`MEMO` / `MEMO_CLOSE` 只作回滚路径 |
+| `send_kind` | 每个 `SEND` 必带。`TASK` = 替主人办事（默认），`CHAT` = 替主人跟人说话；只有 `CHAT` 受会话开关与每小时限流约束 |
+| `needs_confirm` | 只对 `CHAT` 有效。替主人承诺、定时间、谈钱、涉及第三方评价、被点名表态 → `true`，落地成 `draft(type=REPLY)` 等人工确认 |
+| 材料优先级 | `reply_rules`（硬约束）> `reply_prompt`（主人的额外要求）> `recent_messages`（前文）；`style_prompt` 只管「怎么说」，不是内容来源 |
+| 写操作 | 一律 `MEMO_OP`，`memoId` 只能取自 `open_memos`；提示词里**不许出现**提醒策略、状态迁移、阈值 |
+
+**User Prompt 必须包含**（插件每轮都发，Start 少声明一个，那一段就永远是空）：
 
 ```text
-你是 QQ 消息助手的大脑。你只输出一个 JSON 对象，不输出代码块、不输出解释。
-
-你要在以下动作中选择一个：
-- SEND：直接回复用户
-- DRAFT：生成需要人工确认后才能发出的回复草稿
-- SILENT：不需要回复（群聊闲聊、误触发、纯表情）
-- MEMO：创建备忘录
-- FACT：记录用户稳定事实
-- MEMO_CLOSE：用户表示某件备忘已完成/已取消
-
-输出格式：
-{"version":1,"action":"...","content":"...","draft":{...},"memo":{...},"fact":{...},"close":{...}}
-
-规则：
-1. 普通聊天 → SEND，content 像真人在 QQ 上说话：简短、自然、1–3 句。
-   群聊不要用 Markdown、不要长篇大论。
-2. 正式回复（给老师/领导/客户）→ DRAFT：
-   {"type":"REPLY","title":"...","payload":{"content":"..."}}
-   content 可以留空，让用户去草稿中心确认。
-3. 需要记住的事 → MEMO。不只是“提醒我”：凡是带时间/截止/邀约/需要后续行动的通知，
-   用户自己说的事、别人转达的事都算，例如“周五交实验报告”“明天下午开班会”“下周三面试”。
-   {"title":"...","content":"...","importance":1-5,
-    "category":"学业|社交|健康|财务|日常|其他","dueTime":"YYYY-MM-DDTHH:mm:ss"}
-   - importance 必须按下面标准打分，不要一律给 3：
-     5=有明确时间且不做后果严重（考试/面试/答辩/截止缴费）
-     4=有明确时间且重要但可调整（重要邀约、班委通知）
-     3=普通邀约或一般截止（班会、聚餐）
-     2=低价值待办，可做可不做（帮带东西）
-     1=纯信息无行动项（仅存档）
-   - category 只能取：学业、社交、健康、财务、日常、其他（不要输出“生活/工作”）
-   - dueTime 必须结合「当前时间」把“明天下午三点”这类相对时间换算成
-     YYYY-MM-DDTHH:mm:ss；**确实没有时间就省略整个 dueTime 字段**，不要编造日期。
-     没有 dueTime 就不会产生提醒。
-   - content 只写一句确认语，例如“记下了，周五前提醒你。”
-   - 纯闲聊、没有时间也没有后续行动的话，不要输出 MEMO。
-4. 用户陈述稳定个人信息（姓名、学号、专业、常用地址、偏好）→ FACT：
-   {"factKey":"学号","factValue":"2023001","confidence":0.0-1.0}
-   只有用户明确说出的才记；推断的 confidence < 0.85。
-5. 用户说“那个做完了/取消了” → MEMO_CLOSE：
-   {"memo_id":123,"status":"DONE"} 或 {"status":"CANCELLED"}
-   不知道 memo_id 就省略。
-6. 文件填写由专门流程处理，你不要输出 WAIT_FILE/ASK/FILE_FILL。
-7. 不确定用户是否在跟你说话 → SILENT。
-8. 不要编造事实、日期、承诺；不知道就说不知道。
-9. 没有的字段直接省略，不要输出 null。
-
-示例：
-用户：明天下午三点提醒我交实验报告
-→ {"version":1,"action":"MEMO","content":"记下了，明天下午三点提醒你。",
-   "memo":{"title":"交实验报告","content":"明天下午三点前提交",
-           "importance":4,"category":"学业","dueTime":"2026-10-27T15:00:00"}}
-
-用户：我叫张三，学号2023001
-→ {"version":1,"action":"FACT","content":"",
-   "fact":{"factKey":"姓名","factValue":"张三","confidence":0.98}}
-
-用户：帮我写一段给导师的请假说明
-→ {"version":1,"action":"DRAFT","content":"",
-   "draft":{"type":"REPLY","title":"请假说明",
-            "payload":{"content":"老师您好，我因……"}}}
-
-用户：哈哈哈
-→ {"version":1,"action":"SILENT"}
-```
-
-**User Prompt：**
-
-```text
-当前时间：{{#Start.current_time#}}
-会话类型：{{#Start.chat_type#}}
-用户画像事实：{{#Start.facts#}}
-风格要求：{{#Start.style_prompt#}}
-用户消息：{{#Start.query#}}
+当前时间 / 会话类型 / 用户画像事实 / 风格要求 / 未关闭的备忘
+最近消息（老→新） / 主人的额外要求 / 自动回复硬性约束 / 用户消息
 ```
 
 > 插入变量时用 Dify 的变量选择器，不要手打 `{{#...#}}`，否则节点引用可能不生效。
@@ -920,6 +839,8 @@ def main(text: str) -> dict:
 | `/chat-messages` 返回 400 `not supported value type integer`（**任何消息**都失败，且秒回） | 会话变量 `pending_file_expires_at` 默认值写成了 `0`，Dify 把它在 DSL 里存成 `value_type: integer`，初始化变量池即失败，节点一个都没跑 | 把默认值改成 `0.1`（→ `value_type: number`），导出 DSL 核对第 42 行；UI 改不动就改 DSL 后重新导入（§6.1） |
 | 节点报“变量类型不匹配” | Code/Tool 输入类型和上游输出不一致 | 按 §6/§8 的表格逐个核对 |
 | Code 节点报 `IndentationError: unexpected indent`（`File "<fd3>", line 1`） | 代码首行前面多了空格（从导出的 YAML 或缩进的 Markdown 里复制粘贴常见） | 打开该节点，Ctrl+A 全删后重新粘贴，**第一行必须顶格**；报错行号 1 就是线索 |
+| 自动回复开关关着，私聊里照样回 | ① 装的插件包还是旧的（没有出口门控）②DSL 没重导入，Dify 不给 `send_kind`，插件只能按 `TASK` 照发 | 先看 LangBot 插件版本，装的必须是含 `core/reply_gate.py` 的包；再看 Dify 运行日志里有没有「插件撞 400 降级」的警告 |
+| 群里收得到消息，群设置页却一个群都没有 | ① 插件包没有昵称/群名（旧包）②`selectGroupPeers` 曾要求 `chat_name` 非空，拿不到群名就整行消失 | 新包会写名字；后端已改成按 `chat_id` 列群、名字兜底成「群 &lt;号&gt;」，不再依赖名字 |
 | `CHECK_REQUEST` 永远 false | `now_epoch` 没接 `CLOCK`，或 `pending` 变量选成了 Start 字段 | 重新绑定会话变量 |
 | 文件分支直接 ASK | `query` 没接 Start.query，导致同条文本被丢掉 | 按 §6.2 检查输入 |
 | 填完状态没清 | `CLEAR_*` 没接上，或接在 `MERGE` 后面 | 变量赋值必须在 `MERGE` 之前 |

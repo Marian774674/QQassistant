@@ -45,14 +45,20 @@ def build_inputs(profile: dict | None, event_type: str, chat_type: str,
                  pending_request_hint: str = "",
                  last_task_ref: str = "",
                  open_memos: list | None = None,
-                 event_id: str = "") -> dict:
+                 event_id: str = "",
+                 reply_prompt: str = "",
+                 recent_messages: list | None = None,
+                 reply_rules: str = "") -> dict:
     """生成 /chat-messages 的 inputs。
 
-    Dify 的 text-input 只接受字符串：facts/structure/open_memos 必须 json.dumps，
+    Dify 的 text-input 只接受字符串：facts/structure/open_memos/recent_messages 必须 json.dumps，
     chat_id 私聊传空串（不能传 null）。
 
     open_memos 是「用户还挂着哪些备忘」的快照：Dify 只能从这里取 memoId 去改/取消，
     取不到就给 []——宁可让模型反问一句，也不能让它猜一个 id。
+
+    recent_messages 是「这个群刚才在聊什么」：没有它，模型只能看见被 @ 的那一句，
+    接不上话；取不到给 []，模型会当成「没有上下文」，而不是报错。
     """
     profile = profile or {}
     task = file_task or {}
@@ -73,4 +79,7 @@ def build_inputs(profile: dict | None, event_type: str, chat_type: str,
         "last_task_ref": last_task_ref or "",
         "open_memos": json.dumps(open_memos or [], ensure_ascii=False),
         "event_id": event_id or "",
+        "reply_prompt": reply_prompt or "",
+        "recent_messages": json.dumps(recent_messages or [], ensure_ascii=False),
+        "reply_rules": reply_rules or "",
     }

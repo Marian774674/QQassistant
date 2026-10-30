@@ -2,6 +2,7 @@ package com.czx.qqmessageassistantjava.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.czx.qqmessageassistantjava.entity.ChatSetting;
+import com.czx.qqmessageassistantjava.vo.ReplyContextVO;
 
 import java.util.List;
 
@@ -21,4 +22,11 @@ public interface ChatSettingService extends IService<ChatSetting> {
      */
     ChatSetting upsert(Long chatId, String kind, String chatName,
                        Boolean digestEnabled, Boolean autoReplyEnabled);
+
+    /**
+     * 自动回复的决策快照（见 {@link ReplyContextVO}）。
+     *
+     * @param limit 最近消息条数，clamp 1–50
+     */
+    ReplyContextVO replyContext(Long chatId, String kind, Integer limit);
 }

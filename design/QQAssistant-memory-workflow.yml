@@ -69,11 +69,11 @@ workflow:
         isInIteration: false
         isInLoop: false
         sourceType: if-else
-        targetType: code
+        targetType: if-else
       id: e0000000-0000-4000-8000-000000000203
       source: is_digest
       sourceHandle: 'false'
-      target: empty_items
+      target: is_extract
       targetHandle: target
       type: custom
       zIndex: 0
@@ -104,12 +104,120 @@ workflow:
     - data:
         isInIteration: false
         isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: e0000000-0000-4000-8000-000000000206
+      source: is_extract
+      sourceHandle: 'true'
+      target: extract_llm
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: if-else
+      id: e0000000-0000-4000-8000-000000000207
+      source: is_extract
+      sourceHandle: 'false'
+      target: is_resolve
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000208
+      source: extract_llm
+      sourceHandle: source
+      target: parse_extract
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
         sourceType: code
         targetType: end
-      id: e0000000-0000-4000-8000-000000000206
-      source: empty_items
+      id: e0000000-0000-4000-8000-000000000209
+      source: parse_extract
       sourceHandle: source
-      target: end_other
+      target: end_extract
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: e0000000-0000-4000-8000-000000000210
+      source: is_resolve
+      sourceHandle: 'true'
+      target: resolve_llm
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: e0000000-0000-4000-8000-000000000211
+      source: is_resolve
+      sourceHandle: 'false'
+      target: answer_llm
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000212
+      source: resolve_llm
+      sourceHandle: source
+      target: parse_resolve
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: end
+      id: e0000000-0000-4000-8000-000000000213
+      source: parse_resolve
+      sourceHandle: source
+      target: end_resolve
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000214
+      source: answer_llm
+      sourceHandle: source
+      target: parse_ask_answer
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: end
+      id: e0000000-0000-4000-8000-000000000215
+      source: parse_ask_answer
+      sourceHandle: source
+      target: end_answer
       targetHandle: target
       type: custom
       zIndex: 0
@@ -150,7 +258,43 @@ workflow:
           required: false
           type: text-input
           variable: focus
-      height: 180
+        - label: stage
+          max_length: 32
+          options: []
+          required: false
+          type: text-input
+          variable: stage
+        - label: question
+          max_length: 4000
+          options: []
+          required: false
+          type: text-input
+          variable: question
+        - label: known_contacts
+          max_length: 20000
+          options: []
+          required: false
+          type: text-input
+          variable: known_contacts
+        - label: owner_aliases
+          max_length: 2000
+          options: []
+          required: false
+          type: text-input
+          variable: owner_aliases
+        - label: candidates
+          max_length: 100000
+          options: []
+          required: false
+          type: text-input
+          variable: candidates
+        - label: time_hint
+          max_length: 64
+          options: []
+          required: false
+          type: text-input
+          variable: time_hint
+      height: 470
       id: start
       position:
         x: 80
@@ -333,35 +477,6 @@ workflow:
       width: 241
       zIndex: 0
     - data:
-        code: |
-          def main() -> dict:
-              # 非 digest 任务（历史查询、事实抽取等）还没接线，先给个空结果，避免调用方报错
-              return {"items": "[]"}
-        code_language: python3
-        desc: ''
-        outputs:
-          items:
-            children: null
-            type: string
-        selected: false
-        title: 其它任务占位
-        type: code
-        variables: []
-      height: 50
-      id: empty_items
-      position:
-        x: 720
-        y: 480
-      positionAbsolute:
-        x: 720
-        y: 480
-      selected: false
-      sourcePosition: right
-      targetPosition: left
-      type: custom
-      width: 241
-      zIndex: 0
-    - data:
         desc: ''
         outputs:
         - value_selector:
@@ -386,25 +501,585 @@ workflow:
       width: 241
       zIndex: 0
     - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: c0000000-0000-4000-8000-000000000301
+            value: extract
+            varType: string
+            variable_selector:
+            - start
+            - task
+          id: 'true'
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: 是事实抽取
+        type: if-else
+      height: 122
+      id: is_extract
+      position:
+        x: 720
+        y: 620
+      positionAbsolute:
+        x: 720
+        y: 620
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: c0000000-0000-4000-8000-000000000302
+            value: resolve
+            varType: string
+            variable_selector:
+            - start
+            - stage
+          id: 'true'
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: 先认人
+        type: if-else
+      height: 122
+      id: is_resolve
+      position:
+        x: 1040
+        y: 700
+      positionAbsolute:
+        x: 1040
+        y: 700
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        memory:
+          query_prompt_template: ''
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 10
+        model:
+          completion_params:
+            temperature: 0.1
+          mode: chat
+          name: qwen3.8-flash
+          provider: langgenius/tongyi/tongyi
+        prompt_template:
+        - id: 7a1c0000-0000-4000-8000-000000000301
+          role: system
+          text: |
+            你是「事实归纳器」。输入是一段群聊/私聊记录，每行一条消息，格式：
+            id|sender_id|昵称|群名|HH:mm|正文
+
+            任务：从这些消息里抽出两类东西——「认识的人」和「关于某人的事实」。
+
+            known_contacts 是已知的人名对应表（JSON 数组，字段 senderId/alias/relation）；
+            owner_aliases 是主人（我）常用的自称或昵称，逗号分隔。
+
+            只输出一个 JSON 对象，不要 Markdown 代码块、不要任何解释：
+            {"contacts":[{"sender_id":123,"alias":"阿黄","relation":"室友"}],
+             "notes":[{"subject_sender_id":123,"predicate":"生日","value":"11月11日","happened_at":"","source_msg_ids":[12],"confidence":0.9}]}
+
+            规则：
+            1. contacts 只在消息里出现了「和某个 sender_id 绑定的称呼」时才输出；alias 不超过 16 字，relation 拿不准就留空串。
+            2. notes 的 predicate 只能取下列之一：生日、姓名、专业、班级、学号、住址、电话、时间安排、偏好、关系、其他。都不合适就用「其他」。
+            3. subject_sender_id 只能取输入行里的 sender_id；这条事实是关于我自己的，填 null。
+            4. value 不超过 60 字，写成脱离上下文也能看懂的一句话。
+            5. happened_at 只在消息明确说了日期时填 YYYY-MM-DD，否则留空串。
+            6. source_msg_ids 只能取输入行开头的 id（整数数组），至少一个；拿不出证据的条目不要输出。
+            7. known_contacts 里已经有的同一事实不要重复输出。
+            8. 没有可归纳的内容就输出 {"contacts":[],"notes":[]}。
+            9. 不许出现输入里没有的人、时间、事项；拿不准的一律不要。
+        - id: 7a1c0000-0000-4000-8000-000000000302
+          role: user
+          text: |
+            known_contacts: {{#start.known_contacts#}}
+            owner_aliases: {{#start.owner_aliases#}}
+
+            messages:
+            {{#start.messages#}}
+        selected: false
+        title: 归纳事实
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 98
+      id: extract_llm
+      position:
+        x: 1040
+        y: 560
+      positionAbsolute:
+        x: 1040
+        y: 560
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: |
+          import json
+
+
+          def _load(text):
+              raw = (text or "").strip()
+              if raw.startswith("```"):
+                  raw = raw.strip("`")
+                  if raw.startswith("json"):
+                      raw = raw[4:].lstrip()
+              try:
+                  data = json.loads(raw)
+              except Exception:
+                  return None
+              return data if isinstance(data, dict) else None
+
+
+          def _qq(value):
+              """QQ 号统一成 int；读不出来返回 None。
+
+              模型经常把号码写成字符串（"123"），按 isinstance(x, int) 判会整条丢掉。
+              """
+              if isinstance(value, bool):
+                  return None
+              if isinstance(value, int):
+                  return value
+              text = str(value if value is not None else "").strip()
+              if not text:
+                  return None
+              try:
+                  return int(text)
+              except ValueError:
+                  return None
+
+
+          def main(text: str) -> dict:
+              """把模型输出收成两个纯 JSON 数组；形状不对就当这一批什么都没抽到。"""
+              data = _load(text)
+              if data is None:
+                  return {"contacts": "[]", "notes": "[]"}
+
+              contacts = []
+              for item in data.get("contacts") or []:
+                  if not isinstance(item, dict):
+                      continue
+                  sender_id = _qq(item.get("sender_id"))
+                  alias = str(item.get("alias") or "").strip()
+                  if sender_id is None or not alias:
+                      continue
+                  contacts.append({
+                      "sender_id": sender_id,
+                      "alias": alias[:64],
+                      "relation": str(item.get("relation") or "").strip()[:64],
+                  })
+
+              notes = []
+              for item in data.get("notes") or []:
+                  if not isinstance(item, dict):
+                      continue
+                  ids = item.get("source_msg_ids") or []
+                  value = str(item.get("value") or "").strip()
+                  predicate = str(item.get("predicate") or "").strip()
+                  if not value or not predicate or not isinstance(ids, list) or not ids:
+                      continue
+                  # 缺省/null = 这是我自己的事；给了却读不成号码 = 指向不明，整条丢掉。
+                  # 不能退化成 null —— 那会把别人的事实记到我头上。
+                  raw_subject = item.get("subject_sender_id")
+                  subject = None
+                  if raw_subject is not None and str(raw_subject).strip():
+                      subject = _qq(raw_subject)
+                      if subject is None:
+                          continue
+                  notes.append({
+                      "subject_sender_id": subject,
+                      "predicate": predicate[:64],
+                      "value": value[:255],
+                      "happened_at": str(item.get("happened_at") or "").strip()[:32],
+                      "source_msg_ids": ids,
+                      "confidence": item.get("confidence"),
+                  })
+
+              return {"contacts": json.dumps(contacts, ensure_ascii=False),
+                      "notes": json.dumps(notes, ensure_ascii=False)}
+        code_language: python3
+        desc: ''
+        outputs:
+          contacts:
+            children: null
+            type: string
+          notes:
+            children: null
+            type: string
+        selected: false
+        title: 解析事实
+        type: code
+        variables:
+        - value_selector:
+          - extract_llm
+          - text
+          variable: text
+      height: 76
+      id: parse_extract
+      position:
+        x: 1360
+        y: 560
+      positionAbsolute:
+        x: 1360
+        y: 560
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
         desc: ''
         outputs:
         - value_selector:
-          - empty_items
-          - items
-          # 结束节点的输出变量名在应用内必须唯一，「发布」前的检查清单会卡这个；
-          # Spring 只读 digest 分支的 items，这条占位支路叫什么都不影响调用方
-          variable: placeholder_items
+          - parse_extract
+          - contacts
+          variable: contacts
+        - value_selector:
+          - parse_extract
+          - notes
+          variable: notes
         selected: false
-        title: 结束（占位）
+        title: 结束（事实）
         type: end
-      height: 110
-      id: end_other
+      height: 132
+      id: end_extract
       position:
-        x: 1040
-        y: 480
+        x: 1680
+        y: 560
       positionAbsolute:
-        x: 1040
-        y: 480
+        x: 1680
+        y: 560
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        memory:
+          query_prompt_template: ''
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 10
+        model:
+          completion_params:
+            temperature: 0.1
+          mode: chat
+          name: qwen3.8-flash
+          provider: langgenius/tongyi/tongyi
+        prompt_template:
+        - id: 7a1c0000-0000-4000-8000-000000000303
+          role: system
+          text: |
+            你在帮主人回查聊天记录。给你一个问题，你要指出问题里「提到了谁」和「哪些关键词值得去检索」。
+
+            known_contacts 是已知人名表（JSON 数组，字段 senderId/alias/relation）；
+            owner_aliases 是主人自己的称呼，逗号分隔。
+
+            只输出一个 JSON 对象，不要 Markdown 代码块、不要任何解释：
+            {"entities":["阿黄"],"keywords":["考试","生日"],"time_hint":"本周"}
+
+            规则：
+            1. entities 只放「人」的称呼，尽量照抄 known_contacts 里的 alias；不确定是不是人就别放。
+            2. 问的是主人自己（我、本人、owner_aliases 里的任何称呼）时，不要放进 entities。
+            3. keywords 放 2–4 个要拿去检索的词：事件、物品、地点、专有名词；不要放「谁」「什么时候」「说了什么」这类空词。
+            4. time_hint 只在问题里有时间线索时填（例如「上周」「11月」），否则留空串。
+            5. 什么都没认出来就输出 {"entities":[],"keywords":[],"time_hint":""}。
+        - id: 7a1c0000-0000-4000-8000-000000000304
+          role: user
+          text: |
+            问题：{{#start.question#}}
+
+            known_contacts: {{#start.known_contacts#}}
+            owner_aliases: {{#start.owner_aliases#}}
+        selected: false
+        title: 认出人和关键词
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 98
+      id: resolve_llm
+      position:
+        x: 1360
+        y: 660
+      positionAbsolute:
+        x: 1360
+        y: 660
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: |
+          import json
+
+
+          def _strings(raw, limit):
+              if not isinstance(raw, list):
+                  return []
+              return [str(x).strip() for x in raw if str(x).strip()][:limit]
+
+
+          def main(text: str) -> dict:
+              """认不出来就返回空形状：宁可 Spring 回一句「没查到」，也不要一个瞎猜的人名。"""
+              raw = (text or "").strip()
+              if raw.startswith("```"):
+                  raw = raw.strip("`")
+                  if raw.startswith("json"):
+                      raw = raw[4:].lstrip()
+              try:
+                  data = json.loads(raw)
+              except Exception:
+                  return {"entities": "[]", "keywords": "[]", "time_hint": ""}
+              if not isinstance(data, dict):
+                  return {"entities": "[]", "keywords": "[]", "time_hint": ""}
+              return {
+                  "entities": json.dumps(_strings(data.get("entities"), 8), ensure_ascii=False),
+                  "keywords": json.dumps(_strings(data.get("keywords"), 6), ensure_ascii=False),
+                  "time_hint": str(data.get("time_hint") or "").strip()[:64],
+              }
+        code_language: python3
+        desc: ''
+        outputs:
+          entities:
+            children: null
+            type: string
+          keywords:
+            children: null
+            type: string
+          time_hint:
+            children: null
+            type: string
+        selected: false
+        title: 解析实体
+        type: code
+        variables:
+        - value_selector:
+          - resolve_llm
+          - text
+          variable: text
+      height: 100
+      id: parse_resolve
+      position:
+        x: 1680
+        y: 660
+      positionAbsolute:
+        x: 1680
+        y: 660
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - parse_resolve
+          - entities
+          variable: entities
+        - value_selector:
+          - parse_resolve
+          - keywords
+          variable: keywords
+        - value_selector:
+          - parse_resolve
+          - time_hint
+          variable: time_hint
+        selected: false
+        title: 结束（认人）
+        type: end
+      height: 154
+      id: end_resolve
+      position:
+        x: 2000
+        y: 660
+      positionAbsolute:
+        x: 2000
+        y: 660
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        memory:
+          query_prompt_template: ''
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 10
+        model:
+          completion_params:
+            temperature: 0.2
+          mode: chat
+          name: qwen3.8-flash
+          provider: langgenius/tongyi/tongyi
+        prompt_template:
+        - id: 7a1c0000-0000-4000-8000-000000000305
+          role: system
+          text: |
+            你只能用给定的候选材料回答问题。candidates 每行一条，格式：
+            类型:id|标签|内容
+            类型只有 msg（聊天原文）、note（已归纳的事实）、memo（备忘）、file（文件）。
+
+            只输出一个 JSON 对象，不要 Markdown 代码块、不要任何解释：
+            {"answer":"阿黄下周考高数","used_ids":["msg:12","note:3"]}
+
+            规则：
+            1. answer 不超过 120 字，直接回答问题的核心，不要复述材料。
+            2. used_ids 只能取候选材料每行最前面的「类型:id」，最多 5 个；answer 里每个结论都必须有对应的 used_ids。
+            3. 材料不足以回答时，answer 留空串、used_ids 输出 []，不要编造。
+            4. 不许出现 candidates 里没有的人、时间、数字。
+            5. time_hint 非空时优先采用落在那个时间段里的材料。
+        - id: 7a1c0000-0000-4000-8000-000000000306
+          role: user
+          text: |
+            问题：{{#start.question#}}
+            时间范围：{{#start.time_hint#}}
+
+            candidates:
+            {{#start.candidates#}}
+        selected: false
+        title: 在候选里作答
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 98
+      id: answer_llm
+      position:
+        x: 1360
+        y: 1000
+      positionAbsolute:
+        x: 1360
+        y: 1000
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: |
+          import json
+
+
+          def main(text: str) -> dict:
+              """结论必须带引用；引用不是数组、或者一个引用都没有，就把结论清空。"""
+              raw = (text or "").strip()
+              if raw.startswith("```"):
+                  raw = raw.strip("`")
+                  if raw.startswith("json"):
+                      raw = raw[4:].lstrip()
+              try:
+                  data = json.loads(raw)
+              except Exception:
+                  return {"answer": "", "used_ids": "[]"}
+              if not isinstance(data, dict):
+                  return {"answer": "", "used_ids": "[]"}
+              answer = str(data.get("answer") or "").strip()
+              used = data.get("used_ids")
+              if not isinstance(used, list):
+                  used = []
+              used = [str(x).strip() for x in used if str(x).strip()][:5]
+              if not used:
+                  answer = ""
+              return {"answer": answer[:512], "used_ids": json.dumps(used, ensure_ascii=False)}
+        code_language: python3
+        desc: ''
+        outputs:
+          answer:
+            children: null
+            type: string
+          used_ids:
+            children: null
+            type: string
+        selected: false
+        title: 解析答案
+        type: code
+        variables:
+        - value_selector:
+          - answer_llm
+          - text
+          variable: text
+      height: 76
+      id: parse_ask_answer
+      position:
+        x: 1680
+        y: 1000
+      positionAbsolute:
+        x: 1680
+        y: 1000
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - parse_ask_answer
+          - answer
+          variable: answer
+        - value_selector:
+          - parse_ask_answer
+          - used_ids
+          variable: used_ids
+        selected: false
+        title: 结束（回答）
+        type: end
+      height: 132
+      id: end_answer
+      position:
+        x: 2000
+        y: 1000
+      positionAbsolute:
+        x: 2000
+        y: 1000
       selected: false
       sourcePosition: right
       targetPosition: left

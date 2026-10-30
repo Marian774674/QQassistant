@@ -40,6 +40,10 @@ def deps(tmp_path, monkeypatch):
         spring=SimpleNamespace(
             profile=AsyncMock(return_value={"facts": {}, "stylePrompt": ""}),
             list_open_memos=AsyncMock(return_value=[]),
+            reply_context=AsyncMock(return_value={
+                "enabled": True, "replyPrompt": "", "rateLimit": 20,
+                "outLastHour": 0, "recentMessages": []}),
+            create_draft=AsyncMock(return_value={"id": 1}),
             sync_file_task=AsyncMock()),
         dify=SimpleNamespace(chat=AsyncMock(return_value={
             "answer": '{"action":"SILENT"}', "conversation_id": "conv-1"})),
@@ -264,3 +268,169 @@ async def test_retry_reuses_the_same_event_id(deps):
 
     first, second = deps.dify.chat.await_args_list
     assert first.kwargs["inputs"]["event_id"] == second.kwargs["inputs"]["event_id"]
+
+
+@pytest.mark.asyncio
+async def test_reply_context_reaches_dify_and_degrades_when_spring_fails(deps):
+    """人设与最近消息要送进 Chatflow；Spring 调不通时整轮照跑，只是自动回复保持关闭。"""
+    deps.spring.reply_context = AsyncMock(return_value={
+        "enabled": True, "replyPrompt": "随意点", "rateLimit": 20, "outLastHour": 0,
+        "recentMessages": [{"senderName": "阿黄", "direction": "IN", "content": "在吗"}]})
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="你好")]))
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    inputs = deps.dify.chat.await_args.kwargs["inputs"]
+    assert inputs["reply_prompt"] == "随意点"
+    assert json.loads(inputs["recent_messages"])[0]["content"] == "在吗"
+    assert "不透露" in inputs["reply_rules"]
+    # 私聊没有群号：拿对方 QQ 当会话键，否则私聊的限流与开关永远查不到
+    assert deps.spring.reply_context.await_args.args == (1001, "PRIVATE")
+
+
+@pytest.mark.asyncio
+async def test_reply_context_failure_does_not_break_the_turn(deps):
+    deps.spring.reply_context = AsyncMock(side_effect=RuntimeError("spring down"))
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="你好")]))
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    assert deps.dify.chat.await_count == 1
+    assert deps.spring.reply_context.await_count == 1
+    assert deps.dify.chat.await_args.kwargs["inputs"]["recent_messages"] == "[]"
+
+
+@pytest.mark.asyncio
+async def test_chat_reply_is_silenced_when_the_switch_is_off(deps):
+    """开关关着时，Dify 的闲聊应答不许真的发出去；但动作照跑，不报错。"""
+    deps.spring.reply_context = AsyncMock(return_value={
+        "enabled": False, "replyPrompt": "", "rateLimit": 20,
+        "outLastHour": 0, "recentMessages": []})
+    deps.dify.chat = AsyncMock(return_value={
+        "answer": '{"action":"SEND","send_kind":"CHAT","content":"哈哈那挺好"}',
+        "conversation_id": "conv-1"})
+    deps.dispatcher.handle = AsyncMock(return_value="哈哈那挺好")
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="!你看这个")]), launcher_id="222")
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=True)
+
+    assert deps.dispatcher.handle.await_args.args[0]["content"] == ""
+
+
+@pytest.mark.asyncio
+async def test_needs_confirm_creates_a_reply_draft_instead_of_sending(deps):
+    deps.spring.reply_context = AsyncMock(return_value={
+        "enabled": True, "replyPrompt": "", "rateLimit": 20,
+        "outLastHour": 0, "recentMessages": []})
+    deps.dify.chat = AsyncMock(return_value={
+        "answer": '{"action":"SEND","send_kind":"CHAT","needs_confirm":true,'
+                  '"content":"行，明天下午三点我过去"}',
+        "conversation_id": "conv-1"})
+    deps.dispatcher.handle = AsyncMock(return_value=None)
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="!明天三点你能来吗")]), launcher_id="222")
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=True)
+
+    draft = deps.spring.create_draft.await_args
+    assert draft.args[0] == "REPLY"
+    # create_draft(type, senderId, chatId, title, payload)
+    assert draft.args[4]["content"] == "行，明天下午三点我过去"
+    assert deps.dispatcher.handle.await_args.args[0]["content"] == ""
+
+
+@pytest.mark.asyncio
+async def test_old_chatflow_without_the_new_inputs_still_answers(deps, monkeypatch):
+    """Dify 的 Start 只认声明过的变量：插件先上、DSL 还没重导入时会 400。
+
+    撞上就退回旧口径重试一次——否则升级插件的那一刻，群里所有消息都静默没人管。
+    """
+    from components.event_listener import default as listener
+
+    monkeypatch.setattr(listener, "_legacy_chatflow", False)
+    deps.dify.chat = AsyncMock(side_effect=[
+        RuntimeError('Dify /chat-messages HTTP 400: '
+                     '{"code":"invalid_param","message":"inputs invalid"}'),
+        {"answer": '{"action":"SILENT"}', "conversation_id": "conv-1"},
+    ])
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="你好")]))
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    first, second = deps.dify.chat.await_args_list
+    assert "reply_rules" in first.kwargs["inputs"]
+    assert "reply_rules" not in second.kwargs["inputs"]
+    assert "recent_messages" not in second.kwargs["inputs"]
+    assert second.kwargs["inputs"]["event_id"]          # 其余输入一个都不能少
+    deps.dispatcher.handle.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_legacy_mode_is_remembered_for_later_turns(deps, monkeypatch):
+    """既然知道自己是旧 Chatflow，就别每条消息都先撞一次 400。"""
+    from components.event_listener import default as listener
+
+    monkeypatch.setattr(listener, "_legacy_chatflow", True)
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="你好")]))
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    inputs = deps.dify.chat.await_args.kwargs["inputs"]
+    assert "reply_prompt" not in inputs
+    assert "reply_rules" not in inputs
+    assert deps.dify.chat.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_mode_expires_so_a_reimported_dsl_heals_without_restart(deps, monkeypatch):
+    """记住「旧 Chatflow」只能是暂时的。
+
+    DSL 重导入后，如果插件还在丢那三个输入，自动回复的开关就永远不生效，
+    用户只能靠重启 LangBot 自救——所以过一段时间必须再探一次。
+    """
+    from components.event_listener import default as listener
+
+    monkeypatch.setattr(listener, "_legacy_chatflow", True)
+    monkeypatch.setattr(listener, "LEGACY_PROBE_SECONDS", 0)  # 立即到期
+    deps.dify.chat = AsyncMock(return_value={
+        "answer": '{"action":"SILENT"}', "conversation_id": "conv-1"})
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="你好")]))
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    inputs = deps.dify.chat.await_args.kwargs["inputs"]
+    assert "reply_rules" in inputs          # 到期后用完整输入再探一次
+    assert listener._legacy_chatflow is False
+
+
+@pytest.mark.asyncio
+async def test_draft_failure_leaves_a_trace_and_logs_the_apology(deps):
+    """草稿没建成 = 这条回复彻底没了。至少要在面包屑和消息日志里留下痕迹。"""
+    deps.spring.reply_context = AsyncMock(return_value={
+        "enabled": True, "replyPrompt": "", "rateLimit": 20,
+        "outLastHour": 0, "recentMessages": []})
+    deps.dify.chat = AsyncMock(return_value={
+        "answer": '{"action":"SEND","send_kind":"CHAT","needs_confirm":true,'
+                  '"content":"行，明天下午三点我过去"}',
+        "conversation_id": "conv-1"})
+    deps.spring.create_draft = AsyncMock(side_effect=RuntimeError("spring down"))
+    sent = []
+    deps.log_queue = SimpleNamespace(enqueue=lambda payload: sent.append(payload))
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="!明天三点你能来吗")]), launcher_id="222")
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)), \
+            patch("components.event_listener.default.reply_text", AsyncMock()) as reply_text:
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=True)
+
+    # 叮嘱没发出去（走的是道歉语），道歉语必须进 OUT 日志，否则网页上什么都看不到
+    assert deps.dispatcher.handle.await_args.args[0]["content"] == ""
+    reply_text.assert_awaited_once()
+    assert sent[-1]["direction"] == "OUT"
+    assert sent[-1]["content"] == reply_text.await_args.args[1]
+    assert sent[-1]["replyKind"] == "TASK"

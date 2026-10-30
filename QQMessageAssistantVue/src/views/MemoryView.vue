@@ -15,6 +15,7 @@ import {
   updateStyleProfile,
 } from '@/api/memory'
 import { getSettings, putSettings } from '@/api/settings'
+import { createContact, deleteContact, listContacts, type Contact } from '@/api/ask'
 import type { ProfileFact, StyleProfile } from '@/api/types'
 import { useOwner } from '@/composables/useOwner'
 import { useRefresh } from '@/composables/useRefresh'
@@ -64,6 +65,79 @@ const FREQUENCIES = [
 
 const senderId = computed(() => owner.senderId)
 
+/* ── 认识的人 ─────────────────────────────────────────────── */
+
+const contacts = ref<Contact[]>([])
+const loadingContacts = ref(true)
+const contactsError = ref('')
+const contactSheetOpen = ref(false)
+const contactForm = reactive({ senderId: '', alias: '', relation: '' })
+const contactFormError = ref('')
+const savingContact = ref(false)
+const confirmingContactId = ref<number | null>(null)
+
+// 通讯录是全局的（谁的称呼都记在一起），不按当前主人过滤
+async function loadContacts() {
+  loadingContacts.value = true
+  contactsError.value = ''
+  try {
+    contacts.value = await listContacts()
+  } catch (e) {
+    contactsError.value = e instanceof Error ? e.message : '人物读取失败'
+  } finally {
+    loadingContacts.value = false
+  }
+}
+
+function openContactSheet() {
+  contactForm.senderId = ''
+  contactForm.alias = ''
+  contactForm.relation = ''
+  contactFormError.value = ''
+  contactSheetOpen.value = true
+}
+
+async function saveContact() {
+  const raw = contactForm.senderId.trim()
+  const alias = contactForm.alias.trim()
+  if (!/^\d{5,12}$/.test(raw)) {
+    contactFormError.value = 'QQ 号是 5–12 位数字'
+    return
+  }
+  if (!alias) {
+    contactFormError.value = '称呼不能为空'
+    return
+  }
+  savingContact.value = true
+  contactFormError.value = ''
+  try {
+    const created = await createContact({
+      senderId: Number(raw),
+      alias,
+      relation: contactForm.relation.trim() || undefined,
+    })
+    contacts.value = [created, ...contacts.value.filter((row) => row.id !== created.id)]
+    contactSheetOpen.value = false
+    toast.success('记住了')
+  } catch (e) {
+    contactFormError.value = e instanceof Error ? e.message : '保存失败'
+  } finally {
+    savingContact.value = false
+  }
+}
+
+async function removeContact(contact: Contact) {
+  try {
+    await deleteContact(contact.id)
+    contacts.value = contacts.value.filter((row) => row.id !== contact.id)
+    toast.push(`已删除「${contact.alias}」`)
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : '删除失败')
+  } finally {
+    confirmingContactId.value = null
+  }
+}
+
 async function loadFacts() {
   if (!senderId.value) {
     loadingFacts.value = false
@@ -106,6 +180,7 @@ async function loadFrequency() {
 }
 
 async function loadAll() {
+  void loadContacts()
   if (!senderId.value) {
     loadingFacts.value = false
     return
@@ -267,6 +342,58 @@ async function changeFrequency(value: Frequency) {
         />
       </section>
 
+      <section class="block" aria-labelledby="contacts-title">
+        <div class="block-head">
+          <h2 id="contacts-title" class="section-title">认识的人</h2>
+          <button type="button" class="add-btn" @click="openContactSheet">
+            <Plus :size="15" :stroke-width="2.2" aria-hidden="true" />
+            认一个
+          </button>
+        </div>
+        <p class="block-hint">夜间归纳会自己认人；手动认过的称呼不会再被它覆盖。</p>
+
+        <ErrorState v-if="contactsError" :message="contactsError" @retry="loadContacts" />
+        <Skeleton v-else-if="loadingContacts" :rows="2" />
+
+        <ul v-else-if="contacts.length" class="contacts">
+          <li v-for="contact in contacts" :key="contact.id" class="contact">
+            <div class="contact-main">
+              <span class="contact-alias">
+                {{ contact.alias }}
+                <span v-if="contact.relation" class="contact-relation">{{ contact.relation }}</span>
+                <span class="contact-source" :class="contact.source === 'USER' ? 'manual' : 'auto'">
+                  {{ contact.source === 'USER' ? '手动' : '自动' }}
+                </span>
+              </span>
+              <span class="contact-meta num">QQ {{ contact.senderId }}</span>
+            </div>
+            <div v-if="confirmingContactId === contact.id" class="contact-confirm">
+              <button type="button" class="btn btn-sm btn-ghost" @click="confirmingContactId = null">
+                算了
+              </button>
+              <button type="button" class="btn btn-sm btn-danger" @click="removeContact(contact)">
+                删除
+              </button>
+            </div>
+            <button
+              v-else
+              type="button"
+              class="contact-del"
+              :aria-label="`删除称呼 ${contact.alias}`"
+              @click="confirmingContactId = contact.id"
+            >
+              <Trash2 :size="14" aria-hidden="true" />
+            </button>
+          </li>
+        </ul>
+
+        <EmptyState
+          v-else
+          title="还不认识任何人"
+          hint="等夜间归纳自己认，或者点右上角「认一个」。"
+        />
+      </section>
+
       <section class="block" aria-labelledby="profile-title">
         <div class="block-head">
           <h2 id="profile-title" class="section-title">风格画像</h2>
@@ -376,6 +503,58 @@ async function changeFrequency(value: Frequency) {
         </button>
       </template>
     </Sheet>
+
+    <Sheet
+      :open="contactSheetOpen"
+      title="认一个人"
+      description="记下称呼和 QQ 号，以后问起这个人就不用再猜。"
+      @close="contactSheetOpen = false"
+    >
+      <div class="form">
+        <div class="frow">
+          <label class="frow-label" for="contact-alias">称呼</label>
+          <input
+            id="contact-alias"
+            v-model="contactForm.alias"
+            class="frow-input"
+            type="text"
+            placeholder="阿黄"
+            maxlength="64"
+          />
+        </div>
+        <div class="frow">
+          <label class="frow-label" for="contact-qq">QQ 号</label>
+          <input
+            id="contact-qq"
+            v-model="contactForm.senderId"
+            class="frow-input"
+            type="text"
+            inputmode="numeric"
+            placeholder="1753800374"
+            maxlength="12"
+          />
+        </div>
+        <div class="frow">
+          <label class="frow-label" for="contact-relation">关系</label>
+          <input
+            id="contact-relation"
+            v-model="contactForm.relation"
+            class="frow-input"
+            type="text"
+            placeholder="室友（可空）"
+            maxlength="64"
+          />
+        </div>
+        <p v-if="contactFormError" class="form-error" role="alert">{{ contactFormError }}</p>
+      </div>
+
+      <template #footer>
+        <button type="button" class="btn btn-ghost" @click="contactSheetOpen = false">取消</button>
+        <button type="button" class="btn btn-on-dark" :disabled="savingContact" @click="saveContact">
+          {{ savingContact ? '保存中…' : '保存' }}
+        </button>
+      </template>
+    </Sheet>
   </div>
 </template>
 
@@ -475,6 +654,93 @@ async function changeFrequency(value: Frequency) {
   grid-row: 1 / span 3;
   align-self: center;
   color: var(--ink-3);
+}
+
+/* ── 认识的人 ─────────────────────────────────────────────── */
+
+.contacts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--r-lg);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.contacts > li + li {
+  border-top: 1px solid var(--hairline);
+}
+
+.contact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+}
+
+.contact-main {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.contact-alias {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 15px;
+}
+
+.contact-relation {
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+
+.contact-source {
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  font-size: 10.5px;
+}
+
+.contact-source.manual {
+  background: var(--card-inverse);
+  color: var(--on-dark);
+}
+
+.contact-source.auto {
+  background: var(--surface);
+  color: var(--ink-3);
+}
+
+.contact-meta {
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+
+.contact-del {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  flex: none;
+}
+
+.contact-del:active {
+  background: var(--surface);
+}
+
+.contact-confirm {
+  display: flex;
+  gap: 6px;
+  flex: none;
 }
 
 /* ── 风格画像 ─────────────────────────────────────────────── */

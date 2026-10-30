@@ -100,6 +100,14 @@ class SpringClient:
         return await self._request("GET", "/api/memos/open",
                                    params={"senderId": sender_id, "limit": limit})
 
+    async def reply_context(self, chat_id, kind, limit=15):
+        """自动回复的决策快照：开关 / 限流 / 子提示词 / 最近消息，一次取齐。
+
+        拆成多次请求会让快照之间互相不一致（刚发完一条，限流窗口已经变了）。
+        """
+        return await self._request("GET", "/api/chat-settings/reply-context",
+                                   params={"chatId": chat_id, "kind": kind, "limit": limit})
+
     async def upsert_fact(self, sender_id, fact_key, fact_value, confidence):
         return await self._request("PUT", "/api/profile/facts",
                                    json={

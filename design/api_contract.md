@@ -70,6 +70,12 @@
 | 会话映射 | GET | `/api/conversations/resolve` | LangBot | **是** | 取当前 Dify conversation_id |
 | | POST | `/api/conversations/bind` | LangBot | 否 | 绑定/覆盖 conversation_id |
 | | POST | `/api/conversations/reset` | LangBot | **是** | 标记当前映射失效 |
+| 认识的人 | GET | `/api/contacts` | Vue | 是 | 人物列表 |
+| | POST | `/api/contacts` | Vue / `/api/ask` | 否 | 手工认人（`source=USER`） |
+| | DELETE | `/api/contacts/{id}` | Vue | 否 | 删除一个称呼 |
+| 历史查询 | POST | `/api/ask` | Vue | 否 | 一句话回查聊天记录、事实、备忘、文件 |
+| 记忆归纳 | POST | `/api/memory/rebuild` | Vue / 运维 | 否 | 游标清零，全量补算事实 |
+| 自动回复 | GET | `/api/chat-settings/reply-context` | LangBot | 是 | 开关 + 限流快照 + 子提示词 + 最近消息 |
 
 ### B. LangBot 对外 API（Phase 3 实现，供 Spring Boot 调用）
 
@@ -584,7 +590,138 @@ FILE 草稿确认发送成功后，Spring 直接把对应 `taskRef` 的 `status`
 
 ---
 
-## 十四、待 Phase 4 确认的集成点
+## 十四、记忆归纳与历史查询（Phase B）
+
+> 三张新表见 `database_schema.md` §12/§13；Dify 那一侧的分支见 `memory_workflow.md`。
+> 共同原则：**模型只做语义判断，认人、校验、落库全在 Spring**。
+
+### 14.1 `GET /api/contacts` — 人物列表
+
+**Query**：`senderId`（可选，按 QQ 号过滤；不传返回全部称呼）。
+
+**响应** `data` = 数组：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | long | 主键 |
+| `senderId` | long | QQ 号 |
+| `alias` | string | 称呼（`(senderId, alias)` 唯一） |
+| `relation` | string \| null | 同学 / 老师 / 室友…… |
+| `importance` | int | 0 普通 / 1 一般 / 2 重要 |
+| `note` | string \| null | 备注 |
+| `source` | string | `AUTO`（夜间归纳写的）/ `USER`（用户认过的） |
+| `updatedAt` | string | ISO 本地时间 |
+
+### 14.2 `POST /api/contacts` — 手工认人
+
+**请求体**：`{ senderId, alias, relation? }`。
+
+**行为**：按 `(senderId, alias)` upsert，并把 `source` 强制写成 `USER`——**USER 行夜间任务永不覆盖**。
+校验：`alias` 非空且 ≤64 字，`senderId` 必填；失败是 `code!=0` 的中文 message。
+
+**响应** `data` = `contact` 实体。
+
+### 14.3 `DELETE /api/contacts/{id}` — 删除一个称呼
+
+**响应** `data` = `1`。删掉的只是「这个名字对应这个人」这一条，不影响消息与事实。
+
+### 14.4 `POST /api/ask` — 一句话回查
+
+**请求体**
+
+```json
+{
+  "question": "阿黄什么时候考试",
+  "clarify": { "alias": "阿黄", "senderId": 1753800374, "from": "室友" }
+}
+```
+
+- `clarify` 可选：用户刚回答了「你说的阿黄是谁」时带上。Spring 先按 `USER` 写一条 contact，再拿这个映射直接作答。
+- 空问题 → `code!=0`「问题不能为空」。
+
+**响应** `data`
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `answer` | string | 结论；降级或认不出人时为空串 |
+| `degraded` | boolean | `true` = 模型引用了候选集之外的东西（或有结论没引用），结论作废，只给证据 |
+| `evidence` | array | `{ type, id, label, content }`；`type ∈ msg/note/memo/file`，`id` 是纯数字，前端用 `type:id` 做 key |
+| `needClarify` | object \| null | `{ alias, candidates: [{ senderId, alias, relation, hint }] }`；`candidates` 为空表示库里没这个称呼，需要用户补 QQ 号 |
+
+**流程**（详细理由见 `memory_workflow.md` §1.3）：
+
+1. Dify `stage=resolve` 抽 `entities`/`keywords`/`time_hint`；
+2. Spring 用 `contact.alias` 精确认人：0 条 → `needClarify`（空候选）；≥2 个不同 QQ → `needClarify`（带候选）；1 条 → 认下；
+3. Spring 按 `sender_id` 查事实与消息、按关键词 LIKE 查事实/消息/备忘/文件，压成 `类型:id|标签|内容`，总量截断；
+4. Dify `stage=answer` 只在这堆行里作答并给出 `used_ids`；
+5. Spring 校验 `used_ids ⊆ 候选集`：不满足即 `degraded=true`、`answer=""`、`evidence` 取前 5 条候选。
+
+**不做什么**：不做向量检索、不做多轮追问；一次请求最多两趟 Dify 调用。
+
+### 14.5 `POST /api/memory/rebuild` — 全量补算
+
+**行为**：把 `app_setting.memory_job_cursor` 置 `0`，然后循环跑夜间归纳，直到游标不再前进为止（最多 50 批，每批 200 条 `IN` 消息）。
+
+**响应** `data` = 本次累计写入的事实条数。
+
+**注意**：幂等靠 `(subject, predicate, value)` 去重，重复补算不会产生重复行；但**不会删除**已经写进去的旧事实。
+这是运维/首次导入用的口子，不是日常开关——日常靠 `app_setting.memory_job_enabled=1` + 每天 00:10 的定时任务。
+
+### 14.6 `GET /api/chat-settings/reply-context` — 自动回复的决策快照（LangBot）
+
+**用途**：插件在调 Dify **之前**取一次，一次拿齐「这个会话能不能自动回复、还能说几条、
+主人写的人设、群里刚才在聊什么」。分三次请求会让快照之间互相不一致。
+
+**请求参数**
+
+| 参数 | 必填 | 默认 | 说明 |
+|---|---|---|---|
+| `chatId` | 是 | — | 群号；私聊填对方 QQ 号 |
+| `kind` | 否 | `GROUP` | `GROUP` / `PRIVATE` |
+| `limit` | 否 | `15` | 最近消息条数，clamp 1–50 |
+
+**响应** `data`
+
+```json
+{
+  "enabled": true,
+  "replyPrompt": "我是张三，说话随意一点，别提我工作",
+  "rateLimit": 20,
+  "outLastHour": 3,
+  "recentMessages": [
+    {"senderName": "阿黄", "direction": "IN", "content": "明天几点集合", "createdAt": "2026-10-30T21:14:00"},
+    {"senderName": "", "direction": "OUT", "content": "八点半东门", "createdAt": "2026-10-30T21:15:00"}
+  ]
+}
+```
+
+| 字段 | 语义 |
+|---|---|
+| `enabled` | `app_setting.reply_enabled`（总开关，缺省 `true`）**且** `chat_setting.auto_reply_enabled`；没建开关行 = `false`（不报错） |
+| `replyPrompt` | `app_setting.reply_prompt`；空串 = 主人没写 |
+| `rateLimit` | `app_setting.reply_rate_limit`，默认 **20**；非法值也回落默认 |
+| `outLastHour` | 该会话最近一小时 `direction='OUT' AND reply_kind='CHAT'` 的行数 |
+| `recentMessages` | 该会话最近 `limit` 条（两个方向都要），**按时间正序**；`content` 压掉换行、截 200 字 |
+
+**总开关（`app_setting.reply_enabled`）**：一键闭嘴。只有明确的
+`false` / `0` / `no` / `off` 才算关，**没配过一律当开**——它是紧急闸，
+不能因为升级或新装把用户逐个打开的会话顺手关掉。它只影响「替你说日常话」，
+备忘、查资料、文件填写照常（那些走 `TASK`）。
+
+**为什么计 `reply_kind='CHAT'` 而不是所有 OUT**：限流只该约束「替主人闲聊」。
+把拦截回复、备忘确认语算进来，会让一条日更通知把当天的自动回复额度全吃掉。
+
+**索引**：`message_log` 的 `idx_chat_created (chat_id, created_at)` 同时覆盖最近消息与这一小时的 `COUNT`。
+
+**私聊的会话键是对方 QQ，不是 `message_log.chat_id`**：私聊没有群号，插件写日志时
+`chat_id` 一律为 `NULL`，`sender_id` 才是对方。所以 `kind=PRIVATE` 时，`outLastHour`
+与 `recentMessages` 都按 `chat_id IS NULL AND sender_id = chatId` 过滤——
+和 `chat_setting.chat_id`（私聊行存对方 QQ）用的是同一个值。
+两种会话必须分开查：群号可能恰好等于某个人的 QQ，混着查会把两个会话串起来。
+
+---
+
+## 十五、待 Phase 4 确认的集成点
 
 - **Dify 应用配置 API**：`POST /api/style-profile/update` 后更新画像 Prompt 的调用方式、鉴权、字段名。
 - **NapCat 文件收发 API**：Phase 3 随 `send_file` 一并确认。

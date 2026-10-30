@@ -2,82 +2,87 @@ app:
   description: QQ 消息助手 Dify Chatflow（Dify 做语义与决策，插件做执行）
   icon: 🤖
   icon_background: '#FFEAD5'
+  icon_type: emoji
   mode: advanced-chat
   name: QQAssistant
   use_icon_as_answer_icon: false
+dependencies:
+- current_identifier: null
+  type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: langgenius/tongyi:0.2.26@6c75a6b95954ef3c97f0d3225bad7cbfbff7cdbc82d9425074aae121cc056a64
+    version: null
 kind: app
-version: 0.1.5
+version: 0.7.0
 workflow:
   conversation_variables:
-    - description: 用户先说的填写要求
-      id: a0000000-0000-4000-8000-000000000001
-      name: pending_file_request
-      selector:
-        - conversation
-        - pending_file_request
-      value: ''
-      value_type: string
-    - description: 已收到文件、等待补充信息时的 task_ref
-      id: a0000000-0000-4000-8000-000000000002
-      name: pending_file_task_ref
-      selector:
-        - conversation
-        - pending_file_task_ref
-      value: ''
-      value_type: string
-    - description: pending 请求过期时间（epoch 秒）
-      id: a0000000-0000-4000-8000-000000000003
-      name: pending_file_expires_at
-      selector:
-        - conversation
-        - pending_file_expires_at
-      # 必须是小数：默认值 0 会被 Dify 归一化成 value_type: integer，
-      # 而 integer 无法被会话变量工厂加载，/chat-messages 直接 400
-      value: 0.1
-      value_type: number
-    - description: none / file_request / file_input
-      id: a0000000-0000-4000-8000-000000000004
-      name: awaiting
-      selector:
-        - conversation
-        - awaiting
-      value: none
-      value_type: string
-    - description: 最近一次动作（调试）
-      id: a0000000-0000-4000-8000-000000000005
-      name: last_action
-      selector:
-        - conversation
-        - last_action
-      value: ''
-      value_type: string
-    - description: 上一轮文件任务引用
-      id: a0000000-0000-4000-8000-000000000006
-      name: last_task_ref
-      selector:
-        - conversation
-        - last_task_ref
-      value: ''
-      value_type: string
+  - description: 用户先说的填写要求
+    id: a0000000-0000-4000-8000-000000000001
+    name: pending_file_request
+    selector:
+    - conversation
+    - pending_file_request
+    value: ''
+    value_type: string
+  - description: 已收到文件、等待补充信息时的 task_ref
+    id: a0000000-0000-4000-8000-000000000002
+    name: pending_file_task_ref
+    selector:
+    - conversation
+    - pending_file_task_ref
+    value: ''
+    value_type: string
+  - description: pending 请求过期时间（epoch 秒）
+    id: a0000000-0000-4000-8000-000000000003
+    name: pending_file_expires_at
+    selector:
+    - conversation
+    - pending_file_expires_at
+    value: 0.1
+    value_type: float
+  - description: none / file_request / file_input
+    id: a0000000-0000-4000-8000-000000000004
+    name: awaiting
+    selector:
+    - conversation
+    - awaiting
+    value: none
+    value_type: string
+  - description: 最近一次动作（调试）
+    id: a0000000-0000-4000-8000-000000000005
+    name: last_action
+    selector:
+    - conversation
+    - last_action
+    value: ''
+    value_type: string
+  - description: 上一轮文件任务引用
+    id: a0000000-0000-4000-8000-000000000006
+    name: last_task_ref
+    selector:
+    - conversation
+    - last_task_ref
+    value: ''
+    value_type: string
   environment_variables:
-    - description: Spring Boot 基地址：Docker 里的 Dify 用 http://host.docker.internal:8080，
-        同机直跑用 http://localhost:8080
-      id: a0000000-0000-4000-8000-000000000101
-      name: SPRING_BASE_URL
-      selector:
-        - env
-        - SPRING_BASE_URL
-      value: http://host.docker.internal:8080
-      value_type: string
-    - description: /api/agent/* 的 X-Agent-Token。secret 不随 DSL 导出，导入后必须在
-        Dify 控制台重新填写，否则接口一律 503。
-      id: a0000000-0000-4000-8000-000000000102
-      name: AGENT_OPS_TOKEN
-      selector:
-        - env
-        - AGENT_OPS_TOKEN
-      value: ''
-      value_type: secret
+  - description: Spring Boot 基地址：Docker 里的 Dify 用 http://host.docker.internal:8080，
+      同机直跑用 http://localhost:8080
+    id: a0000000-0000-4000-8000-000000000101
+    name: SPRING_BASE_URL
+    selector:
+    - env
+    - SPRING_BASE_URL
+    value: http://host.docker.internal:8080
+    value_type: string
+  - description: /api/agent/* 的 X-Agent-Token。secret 不随 DSL 导出，导入后必须在 Dify 控制台重新填写，否则接口一律
+      503。
+    id: a0000000-0000-4000-8000-000000000102
+    name: AGENT_OPS_TOKEN
+    selector:
+    - env
+    - AGENT_OPS_TOKEN
+    value: ''
+    value_type: secret
   features:
     file_upload:
       allowed_file_extensions: []
@@ -102,2407 +107,2352 @@ workflow:
       voice: ''
   graph:
     edges:
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: start
-          targetType: code
-        id: e0000000-0000-4000-8000-000000000001
-        source: start
-        sourceHandle: source
-        target: clock
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: code
-          targetType: if-else
-        id: e0000000-0000-4000-8000-000000000002
-        source: clock
-        sourceHandle: source
-        target: is_file
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: code
-        id: e0000000-0000-4000-8000-000000000003
-        source: is_file
-        sourceHandle: 'true'
-        target: check_request
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: if-else
-        id: e0000000-0000-4000-8000-000000000004
-        source: is_file
-        sourceHandle: 'false'
-        target: is_awaiting
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: code
-          targetType: if-else
-        id: e0000000-0000-4000-8000-000000000005
-        source: check_request
-        sourceHandle: source
-        target: has_request
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: llm
-        id: e0000000-0000-4000-8000-000000000006
-        source: has_request
-        sourceHandle: 'true'
-        target: fill_file_llm
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: code
-        id: e0000000-0000-4000-8000-000000000007
-        source: has_request
-        sourceHandle: 'false'
-        target: ask_no_request
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: llm
-          targetType: code
-        id: e0000000-0000-4000-8000-000000000008
-        source: fill_file_llm
-        sourceHandle: source
-        target: parse_fill_file
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: code
-          targetType: code
-        id: e0000000-0000-4000-8000-000000000009
-        source: parse_fill_file
-        sourceHandle: source
-        target: check_missing
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: code
-          targetType: if-else
-        id: e0000000-0000-4000-8000-000000000010
-        source: check_missing
-        sourceHandle: source
-        target: has_missing
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: assigner
-        id: e0000000-0000-4000-8000-000000000011
-        source: has_missing
-        sourceHandle: 'true'
-        target: keep_file_input
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: assigner
-        id: e0000000-0000-4000-8000-000000000012
-        source: has_missing
-        sourceHandle: 'false'
-        target: clear_after_fill
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: code
-          targetType: assigner
-        id: e0000000-0000-4000-8000-000000000013
-        source: ask_no_request
-        sourceHandle: source
-        target: set_file_input
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: if-else
-        id: e0000000-0000-4000-8000-000000000014
-        source: is_awaiting
-        sourceHandle: 'true'
-        target: is_cancel
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: question-classifier
-        id: e0000000-0000-4000-8000-000000000015
-        source: is_awaiting
-        sourceHandle: 'false'
-        target: text_intent
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: code
-        id: e0000000-0000-4000-8000-000000000016
-        source: is_cancel
-        sourceHandle: 'true'
-        target: cancel_reply
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: code
-        id: e0000000-0000-4000-8000-000000000017
-        source: is_cancel
-        sourceHandle: 'false'
-        target: build_request
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: code
-          targetType: assigner
-        id: e0000000-0000-4000-8000-000000000018
-        source: cancel_reply
-        sourceHandle: source
-        target: clear_cancel
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: code
-          targetType: llm
-        id: e0000000-0000-4000-8000-000000000019
-        source: build_request
-        sourceHandle: source
-        target: fill_text_llm
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: llm
-          targetType: code
-        id: e0000000-0000-4000-8000-000000000020
-        source: fill_text_llm
-        sourceHandle: source
-        target: parse_fill_text
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: code
-          targetType: code
-        id: e0000000-0000-4000-8000-000000000021
-        source: parse_fill_text
-        sourceHandle: source
-        target: check_missing_text
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: code
-          targetType: if-else
-        id: e0000000-0000-4000-8000-000000000022
-        source: check_missing_text
-        sourceHandle: source
-        target: has_missing_text
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: assigner
-        id: e0000000-0000-4000-8000-000000000023
-        source: has_missing_text
-        sourceHandle: 'true'
-        target: keep_file_input_text
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: assigner
-        id: e0000000-0000-4000-8000-000000000024
-        source: has_missing_text
-        sourceHandle: 'false'
-        target: clear_after_fill_text
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: question-classifier
-          targetType: code
-        id: e0000000-0000-4000-8000-000000000025
-        source: text_intent
-        sourceHandle: '1'
-        target: wait_file_reply
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: question-classifier
-          targetType: llm
-        id: e0000000-0000-4000-8000-000000000026
-        source: text_intent
-        sourceHandle: '2'
-        target: chat_decision
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: code
-          targetType: assigner
-        id: e0000000-0000-4000-8000-000000000027
-        source: wait_file_reply
-        sourceHandle: source
-        target: set_file_request
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: llm
-          targetType: code
-        id: e0000000-0000-4000-8000-000000000028
-        source: chat_decision
-        sourceHandle: source
-        target: clean_decision
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: assigner
-          targetType: variable-aggregator
-        id: e0000000-0000-4000-8000-000000000029
-        source: keep_file_input
-        sourceHandle: source
-        target: merge_decision
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: assigner
-          targetType: variable-aggregator
-        id: e0000000-0000-4000-8000-000000000030
-        source: clear_after_fill
-        sourceHandle: source
-        target: merge_decision
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: assigner
-          targetType: variable-aggregator
-        id: e0000000-0000-4000-8000-000000000031
-        source: set_file_input
-        sourceHandle: source
-        target: merge_decision
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: assigner
-          targetType: variable-aggregator
-        id: e0000000-0000-4000-8000-000000000032
-        source: clear_cancel
-        sourceHandle: source
-        target: merge_decision
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: assigner
-          targetType: variable-aggregator
-        id: e0000000-0000-4000-8000-000000000033
-        source: keep_file_input_text
-        sourceHandle: source
-        target: merge_decision
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: assigner
-          targetType: variable-aggregator
-        id: e0000000-0000-4000-8000-000000000034
-        source: clear_after_fill_text
-        sourceHandle: source
-        target: merge_decision
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: assigner
-          targetType: variable-aggregator
-        id: e0000000-0000-4000-8000-000000000035
-        source: set_file_request
-        sourceHandle: source
-        target: merge_decision
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: code
-          targetType: if-else
-        id: e0000000-0000-4000-8000-000000000036
-        source: clean_decision
-        sourceHandle: source
-        target: is_op
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: http-request
-        id: e0000000-0000-4000-8000-000000000038
-        source: is_op
-        sourceHandle: 'true'
-        target: op_http
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: if-else
-          targetType: variable-aggregator
-        id: e0000000-0000-4000-8000-000000000039
-        source: is_op
-        sourceHandle: 'false'
-        target: merge_decision
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: http-request
-          targetType: code
-        id: e0000000-0000-4000-8000-000000000040
-        source: op_http
-        sourceHandle: source
-        target: read_op_result
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: http-request
-          targetType: code
-        id: e0000000-0000-4000-8000-000000000041
-        source: op_http
-        sourceHandle: fail-branch
-        target: op_failed
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: code
-          targetType: variable-aggregator
-        id: e0000000-0000-4000-8000-000000000042
-        source: read_op_result
-        sourceHandle: source
-        target: merge_decision
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: code
-          targetType: variable-aggregator
-        id: e0000000-0000-4000-8000-000000000043
-        source: op_failed
-        sourceHandle: source
-        target: merge_decision
-        targetHandle: target
-      - data:
-          isInIteration: false
-          isInLoop: false
-          sourceType: variable-aggregator
-          targetType: answer
-        id: e0000000-0000-4000-8000-000000000037
-        source: merge_decision
-        sourceHandle: source
-        target: answer
-        targetHandle: target
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000001
+      source: start
+      sourceHandle: source
+      target: clock
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: if-else
+      id: e0000000-0000-4000-8000-000000000002
+      source: clock
+      sourceHandle: source
+      target: is_file
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000003
+      source: is_file
+      sourceHandle: 'true'
+      target: check_request
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: if-else
+      id: e0000000-0000-4000-8000-000000000004
+      source: is_file
+      sourceHandle: 'false'
+      target: is_awaiting
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: if-else
+      id: e0000000-0000-4000-8000-000000000005
+      source: check_request
+      sourceHandle: source
+      target: has_request
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: e0000000-0000-4000-8000-000000000006
+      source: has_request
+      sourceHandle: 'true'
+      target: fill_file_llm
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000007
+      source: has_request
+      sourceHandle: 'false'
+      target: ask_no_request
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000008
+      source: fill_file_llm
+      sourceHandle: source
+      target: parse_fill_file
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000009
+      source: parse_fill_file
+      sourceHandle: source
+      target: check_missing
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: if-else
+      id: e0000000-0000-4000-8000-000000000010
+      source: check_missing
+      sourceHandle: source
+      target: has_missing
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: assigner
+      id: e0000000-0000-4000-8000-000000000011
+      source: has_missing
+      sourceHandle: 'true'
+      target: keep_file_input
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: assigner
+      id: e0000000-0000-4000-8000-000000000012
+      source: has_missing
+      sourceHandle: 'false'
+      target: clear_after_fill
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: assigner
+      id: e0000000-0000-4000-8000-000000000013
+      source: ask_no_request
+      sourceHandle: source
+      target: set_file_input
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: if-else
+      id: e0000000-0000-4000-8000-000000000014
+      source: is_awaiting
+      sourceHandle: 'true'
+      target: is_cancel
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: question-classifier
+      id: e0000000-0000-4000-8000-000000000015
+      source: is_awaiting
+      sourceHandle: 'false'
+      target: text_intent
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000016
+      source: is_cancel
+      sourceHandle: 'true'
+      target: cancel_reply
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000017
+      source: is_cancel
+      sourceHandle: 'false'
+      target: build_request
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: assigner
+      id: e0000000-0000-4000-8000-000000000018
+      source: cancel_reply
+      sourceHandle: source
+      target: clear_cancel
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: llm
+      id: e0000000-0000-4000-8000-000000000019
+      source: build_request
+      sourceHandle: source
+      target: fill_text_llm
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000020
+      source: fill_text_llm
+      sourceHandle: source
+      target: parse_fill_text
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000021
+      source: parse_fill_text
+      sourceHandle: source
+      target: check_missing_text
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: if-else
+      id: e0000000-0000-4000-8000-000000000022
+      source: check_missing_text
+      sourceHandle: source
+      target: has_missing_text
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: assigner
+      id: e0000000-0000-4000-8000-000000000023
+      source: has_missing_text
+      sourceHandle: 'true'
+      target: keep_file_input_text
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: assigner
+      id: e0000000-0000-4000-8000-000000000024
+      source: has_missing_text
+      sourceHandle: 'false'
+      target: clear_after_fill_text
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: question-classifier
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000025
+      source: text_intent
+      sourceHandle: '1'
+      target: wait_file_reply
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: question-classifier
+        targetType: llm
+      id: e0000000-0000-4000-8000-000000000026
+      source: text_intent
+      sourceHandle: '2'
+      target: chat_decision
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: assigner
+      id: e0000000-0000-4000-8000-000000000027
+      source: wait_file_reply
+      sourceHandle: source
+      target: set_file_request
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000028
+      source: chat_decision
+      sourceHandle: source
+      target: clean_decision
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: assigner
+        targetType: variable-aggregator
+      id: e0000000-0000-4000-8000-000000000029
+      source: keep_file_input
+      sourceHandle: source
+      target: merge_decision
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: assigner
+        targetType: variable-aggregator
+      id: e0000000-0000-4000-8000-000000000030
+      source: clear_after_fill
+      sourceHandle: source
+      target: merge_decision
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: assigner
+        targetType: variable-aggregator
+      id: e0000000-0000-4000-8000-000000000031
+      source: set_file_input
+      sourceHandle: source
+      target: merge_decision
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: assigner
+        targetType: variable-aggregator
+      id: e0000000-0000-4000-8000-000000000032
+      source: clear_cancel
+      sourceHandle: source
+      target: merge_decision
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: assigner
+        targetType: variable-aggregator
+      id: e0000000-0000-4000-8000-000000000033
+      source: keep_file_input_text
+      sourceHandle: source
+      target: merge_decision
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: assigner
+        targetType: variable-aggregator
+      id: e0000000-0000-4000-8000-000000000034
+      source: clear_after_fill_text
+      sourceHandle: source
+      target: merge_decision
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: assigner
+        targetType: variable-aggregator
+      id: e0000000-0000-4000-8000-000000000035
+      source: set_file_request
+      sourceHandle: source
+      target: merge_decision
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: if-else
+      id: e0000000-0000-4000-8000-000000000036
+      source: clean_decision
+      sourceHandle: source
+      target: is_op
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: http-request
+      id: e0000000-0000-4000-8000-000000000038
+      source: is_op
+      sourceHandle: 'true'
+      target: op_http
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: variable-aggregator
+      id: e0000000-0000-4000-8000-000000000039
+      source: is_op
+      sourceHandle: 'false'
+      target: merge_decision
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: http-request
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000040
+      source: op_http
+      sourceHandle: source
+      target: read_op_result
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: http-request
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000041
+      source: op_http
+      sourceHandle: fail-branch
+      target: op_failed
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: variable-aggregator
+      id: e0000000-0000-4000-8000-000000000042
+      source: read_op_result
+      sourceHandle: source
+      target: merge_decision
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: variable-aggregator
+      id: e0000000-0000-4000-8000-000000000043
+      source: op_failed
+      sourceHandle: source
+      target: merge_decision
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: variable-aggregator
+        targetType: answer
+      id: e0000000-0000-4000-8000-000000000037
+      source: merge_decision
+      sourceHandle: source
+      target: answer
+      targetHandle: target
+      type: custom
+      zIndex: 0
     nodes:
-      - data:
-          desc: ''
-          selected: false
-          title: 开始
-          type: start
-          variables:
-            - label: event_type
-              max_length: 32
-              options: []
-              required: false
-              type: text-input
-              variable: event_type
-            - label: query
-              max_length: 4000
-              options: []
-              required: false
-              type: text-input
-              variable: query
-            - label: facts
-              max_length: 100000
-              options: []
-              required: false
-              type: text-input
-              variable: facts
-            - label: style_prompt
-              max_length: 20000
-              options: []
-              required: false
-              type: text-input
-              variable: style_prompt
-            - label: chat_type
-              max_length: 32
-              options: []
-              required: false
-              type: text-input
-              variable: chat_type
-            - label: chat_id
-              max_length: 64
-              options: []
-              required: false
-              type: text-input
-              variable: chat_id
-            - label: sender_id
-              max_length: 64
-              options: []
-              required: false
-              type: text-input
-              variable: sender_id
-            - label: current_time
-              max_length: 64
-              options: []
-              required: false
-              type: text-input
-              variable: current_time
-            - label: file_task_ref
-              max_length: 64
-              options: []
-              required: false
-              type: text-input
-              variable: file_task_ref
-            - label: file_name
-              max_length: 255
-              options: []
-              required: false
-              type: text-input
-              variable: file_name
-            - label: file_kind
-              max_length: 32
-              options: []
-              required: false
-              type: text-input
-              variable: file_kind
-            - label: structure
-              max_length: 100000
-              options: []
-              required: false
-              type: text-input
-              variable: structure
-            - label: pending_request_hint
-              max_length: 4000
-              options: []
-              required: false
-              type: text-input
-              variable: pending_request_hint
-            - label: last_task_ref
-              max_length: 64
-              options: []
-              required: false
-              type: text-input
-              variable: last_task_ref
-            - label: open_memos
-              max_length: 20000
-              options: []
-              required: false
-              type: text-input
-              variable: open_memos
-            - label: event_id
-              max_length: 64
-              options: []
-              required: false
-              type: text-input
-              variable: event_id
-        height: 520
-        id: start
-        position:
-          x: 80
-          y: 480
-        positionAbsolute:
-          x: 80
-          y: 480
+    - data:
+        desc: ''
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          code: |
-            import datetime
+        title: 开始
+        type: start
+        variables:
+        - label: event_type
+          max_length: 32
+          options: []
+          required: false
+          type: text-input
+          variable: event_type
+        - label: query
+          max_length: 4000
+          options: []
+          required: false
+          type: text-input
+          variable: query
+        - label: facts
+          max_length: 100000
+          options: []
+          required: false
+          type: text-input
+          variable: facts
+        - label: style_prompt
+          max_length: 20000
+          options: []
+          required: false
+          type: text-input
+          variable: style_prompt
+        - label: chat_type
+          max_length: 32
+          options: []
+          required: false
+          type: text-input
+          variable: chat_type
+        - label: chat_id
+          max_length: 64
+          options: []
+          required: false
+          type: text-input
+          variable: chat_id
+        - label: sender_id
+          max_length: 64
+          options: []
+          required: false
+          type: text-input
+          variable: sender_id
+        - label: current_time
+          max_length: 64
+          options: []
+          required: false
+          type: text-input
+          variable: current_time
+        - label: file_task_ref
+          max_length: 64
+          options: []
+          required: false
+          type: text-input
+          variable: file_task_ref
+        - label: file_name
+          max_length: 255
+          options: []
+          required: false
+          type: text-input
+          variable: file_name
+        - label: file_kind
+          max_length: 32
+          options: []
+          required: false
+          type: text-input
+          variable: file_kind
+        - label: structure
+          max_length: 100000
+          options: []
+          required: false
+          type: text-input
+          variable: structure
+        - label: pending_request_hint
+          max_length: 4000
+          options: []
+          required: false
+          type: text-input
+          variable: pending_request_hint
+        - label: last_task_ref
+          max_length: 64
+          options: []
+          required: false
+          type: text-input
+          variable: last_task_ref
+        - label: open_memos
+          max_length: 20000
+          options: []
+          required: false
+          type: text-input
+          variable: open_memos
+        - label: event_id
+          max_length: 64
+          options: []
+          required: false
+          type: text-input
+          variable: event_id
+        - label: reply_prompt
+          max_length: 20000
+          options: []
+          required: false
+          type: text-input
+          variable: reply_prompt
+        - label: recent_messages
+          max_length: 20000
+          options: []
+          required: false
+          type: text-input
+          variable: recent_messages
+        - label: reply_rules
+          max_length: 4000
+          options: []
+          required: false
+          type: text-input
+          variable: reply_rules
+      height: 575
+      id: start
+      position:
+        x: 80
+        y: 480
+      positionAbsolute:
+        x: 80
+        y: 480
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 0
+    - data:
+        code: "import datetime\n\ndef main(current_time: str) -> dict:\n    # 返回 float\
+          \ 即可：会话变量 pending_file_expires_at 的默认值是 0.1，\n    # Dify 据此判成 number；若默认值是\
+          \ 0 会变成 integer，接口直接 400\n    try:\n        now = datetime.datetime.fromisoformat(current_time).timestamp()\n\
+          \    except Exception:\n        now = datetime.datetime.now().timestamp()\n\
+          \    return {\"now_epoch\": now, \"next_expires\": now + 900}\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          next_expires:
+            children: null
+            type: number
+          now_epoch:
+            children: null
+            type: number
+        selected: false
+        title: CLOCK
+        type: code
+        variables:
+        - value_selector:
+          - start
+          - current_time
+          variable: current_time
+      height: 50
+      id: clock
+      position:
+        x: 320
+        y: 480
+      positionAbsolute:
+        x: 320
+        y: 480
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: c0000000-0000-4000-8000-000000000001
+            value: file
+            varType: string
+            variable_selector:
+            - start
+            - event_type
+          id: 'true'
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: IS_FILE
+        type: if-else
+      height: 122
+      id: is_file
+      position:
+        x: 560
+        y: 480
+      positionAbsolute:
+        x: 560
+        y: 480
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: "def main(pending_file_request: str, pending_request_hint: str,\n  \
+          \       query: str, pending_file_expires_at: float,\n         now_epoch:\
+          \ float) -> dict:\n    pending = (pending_file_request or \"\").strip()\n\
+          \    hint = (pending_request_hint or \"\").strip()\n    inline = (query\
+          \ or \"\").strip()\n    try:\n        expires = float(pending_file_expires_at\
+          \ or 0)\n    except (TypeError, ValueError):\n        expires = 0\n    valid\
+          \ = bool(pending or hint) and (expires == 0 or expires > float(now_epoch\
+          \ or 0))\n    base = (pending or hint) if valid else \"\"\n    parts = [p\
+          \ for p in (base, inline) if p]\n    request = \"\\n\".join(parts).strip()\n\
+          \    return {\"has_request\": \"true\" if request else \"false\", \"request\"\
+          : request}\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          has_request:
+            children: null
+            type: string
+          request:
+            children: null
+            type: string
+        selected: false
+        title: CHECK_REQUEST
+        type: code
+        variables:
+        - value_selector:
+          - conversation
+          - pending_file_request
+          variable: pending_file_request
+        - value_selector:
+          - start
+          - pending_request_hint
+          variable: pending_request_hint
+        - value_selector:
+          - start
+          - query
+          variable: query
+        - value_selector:
+          - conversation
+          - pending_file_expires_at
+          variable: pending_file_expires_at
+        - value_selector:
+          - clock
+          - now_epoch
+          variable: now_epoch
+      height: 50
+      id: check_request
+      position:
+        x: 800
+        y: 160
+      positionAbsolute:
+        x: 800
+        y: 160
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: c0000000-0000-4000-8000-000000000002
+            value: 'true'
+            varType: string
+            variable_selector:
+            - check_request
+            - has_request
+          id: 'true'
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: HAS_REQUEST
+        type: if-else
+      height: 146
+      id: has_request
+      position:
+        x: 1040
+        y: 160
+      positionAbsolute:
+        x: 1040
+        y: 160
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 10
+        model:
+          completion_params:
+            temperature: 0.1
+          mode: chat
+          name: qwen3.8-flash
+          provider: langgenius/tongyi/tongyi
+        prompt_template:
+        - id: fe0aaac4-360f-4ace-b8c0-9b7a30a7903a
+          role: system
+          text: "你是表单填写器。根据 structure、facts 和 request，决定每个空该填什么。\n\n只输出一个 JSON 对象，不要\
+            \ Markdown、不要解释：\n{\"fills\":[],\"missing\":[],\"confidence\":0.0,\"needs_confirm\"\
+            :false}\n\n规则：\n1. 只填 request 明确要求、且 facts 或 structure 能确定的字段；不要猜测。\n\
+            2. missing 列出 request 要求但 facts 中缺失的字段名（用表头/标签原文）。\n3. xlsx 的 fills 格式：{\"\
+            sheet\":\"Sheet1\",\"ref\":\"B2\",\"value\":\"张三\"}\n   docx 的 paragraph\
+            \ 格式：{\"kind\":\"paragraph\",\"index\":3,\"value\":\"张三\"}\n   docx 的\
+            \ table 格式：{\"kind\":\"table\",\"table\":0,\"row\":1,\"col\":1,\"value\"\
+            :\"2023001\"}\n4. ref/index/row/col 必须来自 structure 中真实存在的坐标；拿不准就不填。\n\
+            5. confidence 取 0–1；任何字段靠推断时 ≤0.6，并置 needs_confirm=true。\n6. 不要改动无关单元格，不要新增行/列，不要改格式。\n\
+            7. request 为空、或与文件无关时，返回：\n   {\"fills\":[],\"missing\":[],\"confidence\"\
+            :0,\"needs_confirm\":true}\n8. 用户要求“保留原格式/只填空”时，只输出 fills，不要描述文件内容。\n"
+        - id: d659644e-a06b-4400-884c-20c3db34c97a
+          role: user
+          text: 'structure:
 
-            def main(current_time: str) -> dict:
-                # 返回 float 即可：会话变量 pending_file_expires_at 的默认值是 0.1，
-                # Dify 据此判成 number；若默认值是 0 会变成 integer，接口直接 400
-                try:
-                    now = datetime.datetime.fromisoformat(current_time).timestamp()
-                except Exception:
-                    now = datetime.datetime.now().timestamp()
-                return {"now_epoch": now, "next_expires": now + 900}
-          code_language: python3
-          desc: ''
-          outputs:
-            next_expires:
-              children: null
-              type: number
-            now_epoch:
-              children: null
-              type: number
-          selected: false
-          title: CLOCK
-          type: code
-          variables:
-            - value_selector:
-                - start
-                - current_time
-              variable: current_time
-        height: 120
-        id: clock
-        position:
-          x: 320
-          y: 480
-        positionAbsolute:
-          x: 320
-          y: 480
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          cases:
-            - case_id: 'true'
-              conditions:
-                - comparison_operator: is
-                  id: c0000000-0000-4000-8000-000000000001
-                  value: file
-                  varType: string
-                  variable_selector:
-                    - start
-                    - event_type
-              id: 'true'
-              logical_operator: and
-          desc: ''
-          selected: false
-          title: IS_FILE
-          type: if-else
-        height: 150
-        id: is_file
-        position:
-          x: 560
-          y: 480
-        positionAbsolute:
-          x: 560
-          y: 480
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          code: |
-            def main(pending_file_request: str, pending_request_hint: str,
-                     query: str, pending_file_expires_at: float,
-                     now_epoch: float) -> dict:
-                pending = (pending_file_request or "").strip()
-                hint = (pending_request_hint or "").strip()
-                inline = (query or "").strip()
-                try:
-                    expires = float(pending_file_expires_at or 0)
-                except (TypeError, ValueError):
-                    expires = 0
-                valid = bool(pending or hint) and (expires == 0 or expires > float(now_epoch or 0))
-                base = (pending or hint) if valid else ""
-                parts = [p for p in (base, inline) if p]
-                request = "\n".join(parts).strip()
-                return {"has_request": "true" if request else "false", "request": request}
-          code_language: python3
-          desc: ''
-          outputs:
-            has_request:
-              children: null
-              type: string
+            {{#start.structure#}}
+
+
+            facts:
+
+            {{#start.facts#}}
+
+
             request:
-              children: null
-              type: string
-          selected: false
-          title: CHECK_REQUEST
-          type: code
-          variables:
-            - value_selector:
-                - conversation
-                - pending_file_request
-              variable: pending_file_request
-            - value_selector:
-                - start
-                - pending_request_hint
-              variable: pending_request_hint
-            - value_selector:
-                - start
-                - query
-              variable: query
-            - value_selector:
-                - conversation
-                - pending_file_expires_at
-              variable: pending_file_expires_at
-            - value_selector:
-                - clock
-                - now_epoch
-              variable: now_epoch
-        height: 180
-        id: check_request
-        position:
-          x: 800
-          y: 160
-        positionAbsolute:
-          x: 800
-          y: 160
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          cases:
-            - case_id: 'true'
-              conditions:
-                - comparison_operator: is
-                  id: c0000000-0000-4000-8000-000000000002
-                  value: 'true'
-                  varType: string
-                  variable_selector:
-                    - check_request
-                    - has_request
-              id: 'true'
-              logical_operator: and
-          desc: ''
-          selected: false
-          title: HAS_REQUEST
-          type: if-else
-        height: 130
-        id: has_request
-        position:
-          x: 1040
-          y: 160
-        positionAbsolute:
-          x: 1040
-          y: 160
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          context:
-            enabled: false
-            variable_selector: []
-          desc: ''
-          memory:
-            query_prompt_template: '{{#sys.query#}}'
-            role_prefix:
-              assistant: ''
-              user: ''
-            window:
-              enabled: false
-              size: 10
-          model:
-            completion_params:
-              temperature: 0.1
-            mode: chat
-            name: qwen-plus
-            provider: langgenius/tongyi/tongyi
-          prompt_template:
-            - role: system
-              text: |
-                你是表单填写器。根据 structure、facts 和 request，决定每个空该填什么。
 
-                只输出一个 JSON 对象，不要 Markdown、不要解释：
-                {"fills":[],"missing":[],"confidence":0.0,"needs_confirm":false}
+            {{#check_request.request#}}
 
-                规则：
-                1. 只填 request 明确要求、且 facts 或 structure 能确定的字段；不要猜测。
-                2. missing 列出 request 要求但 facts 中缺失的字段名（用表头/标签原文）。
-                3. xlsx 的 fills 格式：{"sheet":"Sheet1","ref":"B2","value":"张三"}
-                   docx 的 paragraph 格式：{"kind":"paragraph","index":3,"value":"张三"}
-                   docx 的 table 格式：{"kind":"table","table":0,"row":1,"col":1,"value":"2023001"}
-                4. ref/index/row/col 必须来自 structure 中真实存在的坐标；拿不准就不填。
-                5. confidence 取 0–1；任何字段靠推断时 ≤0.6，并置 needs_confirm=true。
-                6. 不要改动无关单元格，不要新增行/列，不要改格式。
-                7. request 为空、或与文件无关时，返回：
-                   {"fills":[],"missing":[],"confidence":0,"needs_confirm":true}
-                8. 用户要求“保留原格式/只填空”时，只输出 fills，不要描述文件内容。
-            - role: user
-              text: |
-                structure:
-                {{#start.structure#}}
-
-                facts:
-                {{#start.facts#}}
-
-                request:
-                {{#check_request.request#}}
-          selected: false
-          title: FILL_FILE_LLM
-          type: llm
-          variables: []
-          vision:
-            enabled: false
-        height: 260
-        id: fill_file_llm
-        position:
-          x: 1280
-          y: 60
-        positionAbsolute:
-          x: 1280
-          y: 60
+            '
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          code: |
-            import json
-
-            def main(text: str) -> dict:
-                raw = (text or "").strip()
-                if raw.startswith("```"):
-                    raw = raw.strip("`")
-                    if raw.startswith("json"):
-                        raw = raw[4:].lstrip()
-                try:
-                    data = json.loads(raw)
-                except Exception:
-                    data = {}
-                fills = data.get("fills") or []
-                missing = data.get("missing") or []
-                if not isinstance(fills, list):
-                    fills = []
-                if not isinstance(missing, list):
-                    missing = []
-                try:
-                    confidence = float(data.get("confidence") or 0)
-                except (TypeError, ValueError):
-                    confidence = 0.0
-                nc = data.get("needs_confirm")
-                if isinstance(nc, str):
-                    needs_confirm = nc.lower() == "true"
-                else:
-                    needs_confirm = bool(nc)
-                return {"fills": fills, "missing": [str(x) for x in missing],
-                        "confidence": confidence, "needs_confirm": needs_confirm}
-          code_language: python3
-          desc: ''
-          outputs:
-            confidence:
-              children: null
-              type: number
-            fills:
-              children: null
-              type: array[object]
-            missing:
-              children: null
-              type: array[string]
-            needs_confirm:
-              children: null
-              type: boolean
-          selected: false
-          title: PARSE_FILL_FILE
-          type: code
-          variables:
-            - value_selector:
-                - fill_file_llm
-                - text
-              variable: text
-        height: 200
-        id: parse_fill_file
-        position:
-          x: 1520
-          y: 60
-        positionAbsolute:
-          x: 1520
-          y: 60
+        title: FILL_FILE_LLM
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 86
+      id: fill_file_llm
+      position:
+        x: 1280
+        y: 60
+      positionAbsolute:
+        x: 1280
+        y: 60
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: "import json\n\ndef main(text: str) -> dict:\n    raw = (text or \"\"\
+          ).strip()\n    if raw.startswith(\"```\"):\n        raw = raw.strip(\"`\"\
+          )\n        if raw.startswith(\"json\"):\n            raw = raw[4:].lstrip()\n\
+          \    try:\n        data = json.loads(raw)\n    except Exception:\n     \
+          \   data = {}\n    fills = data.get(\"fills\") or []\n    missing = data.get(\"\
+          missing\") or []\n    if not isinstance(fills, list):\n        fills = []\n\
+          \    if not isinstance(missing, list):\n        missing = []\n    try:\n\
+          \        confidence = float(data.get(\"confidence\") or 0)\n    except (TypeError,\
+          \ ValueError):\n        confidence = 0.0\n    nc = data.get(\"needs_confirm\"\
+          )\n    if isinstance(nc, str):\n        needs_confirm = nc.lower() == \"\
+          true\"\n    else:\n        needs_confirm = bool(nc)\n    return {\"fills\"\
+          : fills, \"missing\": [str(x) for x in missing],\n            \"confidence\"\
+          : confidence, \"needs_confirm\": needs_confirm}\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          confidence:
+            children: null
+            type: number
+          fills:
+            children: null
+            type: array[object]
+          missing:
+            children: null
+            type: array[string]
+          needs_confirm:
+            children: null
+            type: boolean
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          code: |
-            import json
-
-            def load(value, default):
-                if isinstance(value, (list, dict)):
-                    return value
-                try:
-                    return json.loads(value) if value else default
-                except Exception:
-                    return default
-
-            def main(task_ref: str, fills, missing, confidence, needs_confirm) -> dict:
-                fill_list = load(fills, [])
-                missing_list = load(missing, [])
-                if not isinstance(fill_list, list):
-                    fill_list = []
-                if not isinstance(missing_list, list):
-                    missing_list = []
-                try:
-                    conf = float(confidence)
-                except (TypeError, ValueError):
-                    conf = 0.0
-                if isinstance(needs_confirm, str):
-                    confirm = needs_confirm.lower() == "true"
-                else:
-                    confirm = bool(needs_confirm)
-                if missing_list:
-                    decision = {
-                        "version": 1,
-                        "action": "ASK",
-                        "content": "还差这些信息：" + "、".join(str(x) for x in missing_list),
-                        "ask": {"missing": [str(x) for x in missing_list],
-                                "task_ref": task_ref or ""},
-                    }
-                else:
-                    decision = {
-                        "version": 1,
-                        "action": "FILE_FILL",
-                        "content": "填好了。",
-                        "file": {"task_ref": task_ref or "", "fills": fill_list,
-                                 "missing": [], "confidence": conf,
-                                 "needs_confirm": confirm},
-                    }
-                return {"decision": json.dumps(decision, ensure_ascii=False),
-                        "has_missing": "true" if missing_list else "false"}
-          code_language: python3
-          desc: ''
-          outputs:
-            decision:
-              children: null
-              type: string
-            has_missing:
-              children: null
-              type: string
-          selected: false
-          title: CHECK_MISSING
-          type: code
-          variables:
-            - value_selector:
-                - start
-                - file_task_ref
-              variable: task_ref
-            - value_selector:
-                - parse_fill_file
-                - fills
-              variable: fills
-            - value_selector:
-                - parse_fill_file
-                - missing
-              variable: missing
-            - value_selector:
-                - parse_fill_file
-                - confidence
-              variable: confidence
-            - value_selector:
-                - parse_fill_file
-                - needs_confirm
-              variable: needs_confirm
-        height: 220
-        id: check_missing
-        position:
-          x: 1760
-          y: 60
-        positionAbsolute:
-          x: 1760
-          y: 60
+        title: PARSE_FILL_FILE
+        type: code
+        variables:
+        - value_selector:
+          - fill_file_llm
+          - text
+          variable: text
+      height: 50
+      id: parse_fill_file
+      position:
+        x: 1520
+        y: 60
+      positionAbsolute:
+        x: 1520
+        y: 60
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: "import json\n\ndef load(value, default):\n    if isinstance(value,\
+          \ (list, dict)):\n        return value\n    try:\n        return json.loads(value)\
+          \ if value else default\n    except Exception:\n        return default\n\
+          \ndef main(task_ref: str, fills, missing, confidence, needs_confirm) ->\
+          \ dict:\n    fill_list = load(fills, [])\n    missing_list = load(missing,\
+          \ [])\n    if not isinstance(fill_list, list):\n        fill_list = []\n\
+          \    if not isinstance(missing_list, list):\n        missing_list = []\n\
+          \    try:\n        conf = float(confidence)\n    except (TypeError, ValueError):\n\
+          \        conf = 0.0\n    if isinstance(needs_confirm, str):\n        confirm\
+          \ = needs_confirm.lower() == \"true\"\n    else:\n        confirm = bool(needs_confirm)\n\
+          \    if missing_list:\n        decision = {\n            \"version\": 1,\n\
+          \            \"action\": \"ASK\",\n            \"content\": \"还差这些信息：\"\
+          \ + \"、\".join(str(x) for x in missing_list),\n            \"ask\": {\"\
+          missing\": [str(x) for x in missing_list],\n                    \"task_ref\"\
+          : task_ref or \"\"},\n        }\n    else:\n        decision = {\n     \
+          \       \"version\": 1,\n            \"action\": \"FILE_FILL\",\n      \
+          \      \"content\": \"填好了。\",\n            \"file\": {\"task_ref\": task_ref\
+          \ or \"\", \"fills\": fill_list,\n                     \"missing\": [],\
+          \ \"confidence\": conf,\n                     \"needs_confirm\": confirm},\n\
+          \        }\n    return {\"decision\": json.dumps(decision, ensure_ascii=False),\n\
+          \            \"has_missing\": \"true\" if missing_list else \"false\"}\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          decision:
+            children: null
+            type: string
+          has_missing:
+            children: null
+            type: string
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          cases:
-            - case_id: 'true'
-              conditions:
-                - comparison_operator: is
-                  id: c0000000-0000-4000-8000-000000000003
-                  value: 'true'
-                  varType: string
-                  variable_selector:
-                    - check_missing
-                    - has_missing
-              id: 'true'
-              logical_operator: and
-          desc: ''
-          selected: false
-          title: HAS_MISSING
-          type: if-else
-        height: 130
-        id: has_missing
-        position:
-          x: 2000
-          y: 60
-        positionAbsolute:
-          x: 2000
-          y: 60
+        title: CHECK_MISSING
+        type: code
+        variables:
+        - value_selector:
+          - start
+          - file_task_ref
+          variable: task_ref
+        - value_selector:
+          - parse_fill_file
+          - fills
+          variable: fills
+        - value_selector:
+          - parse_fill_file
+          - missing
+          variable: missing
+        - value_selector:
+          - parse_fill_file
+          - confidence
+          variable: confidence
+        - value_selector:
+          - parse_fill_file
+          - needs_confirm
+          variable: needs_confirm
+      height: 50
+      id: check_missing
+      position:
+        x: 1760
+        y: 60
+      positionAbsolute:
+        x: 1760
+        y: 60
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: c0000000-0000-4000-8000-000000000003
+            value: 'true'
+            varType: string
+            variable_selector:
+            - check_missing
+            - has_missing
+          id: 'true'
+          logical_operator: and
+        desc: ''
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          desc: ''
-          items:
-            - input_type: constant
-              operation: over-write
-              value: file_input
-              variable_selector:
-                - conversation
-                - awaiting
-            - input_type: variable
-              operation: over-write
-              value:
-                - start
-                - file_task_ref
-              variable_selector:
-                - conversation
-                - pending_file_task_ref
-            - input_type: variable
-              operation: over-write
-              value:
-                - clock
-                - next_expires
-              variable_selector:
-                - conversation
-                - pending_file_expires_at
-            - input_type: constant
-              operation: over-write
-              value: ASK
-              variable_selector:
-                - conversation
-                - last_action
-          selected: false
-          title: KEEP_FILE_INPUT
-          type: assigner
-          version: '2'
-        height: 220
-        id: keep_file_input
-        position:
-          x: 2240
-          y: 20
-        positionAbsolute:
-          x: 2240
-          y: 20
+        title: HAS_MISSING
+        type: if-else
+      height: 146
+      id: has_missing
+      position:
+        x: 2000
+        y: 60
+      positionAbsolute:
+        x: 2000
+        y: 60
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        desc: ''
+        items:
+        - input_type: constant
+          operation: over-write
+          value: file_input
+          variable_selector:
+          - conversation
+          - awaiting
+        - input_type: variable
+          operation: over-write
+          value:
+          - start
+          - file_task_ref
+          variable_selector:
+          - conversation
+          - pending_file_task_ref
+        - input_type: variable
+          operation: over-write
+          value:
+          - clock
+          - next_expires
+          variable_selector:
+          - conversation
+          - pending_file_expires_at
+        - input_type: constant
+          operation: over-write
+          value: ASK
+          variable_selector:
+          - conversation
+          - last_action
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          desc: ''
-          items:
-            - input_type: constant
-              operation: over-write
-              value: ''
-              variable_selector:
-                - conversation
-                - pending_file_request
-            - input_type: constant
-              operation: over-write
-              value: ''
-              variable_selector:
-                - conversation
-                - pending_file_task_ref
-            - input_type: constant
-              operation: over-write
-              value: 0
-              variable_selector:
-                - conversation
-                - pending_file_expires_at
-            - input_type: constant
-              operation: over-write
-              value: none
-              variable_selector:
-                - conversation
-                - awaiting
-            - input_type: constant
-              operation: over-write
-              value: FILE_FILL
-              variable_selector:
-                - conversation
-                - last_action
-            - input_type: variable
-              operation: over-write
-              value:
-                - start
-                - file_task_ref
-              variable_selector:
-                - conversation
-                - last_task_ref
-          selected: false
-          title: CLEAR_AFTER_FILL
-          type: assigner
-          version: '2'
-        height: 280
-        id: clear_after_fill
-        position:
-          x: 2240
-          y: 140
-        positionAbsolute:
-          x: 2240
-          y: 140
+        title: KEEP_FILE_INPUT
+        type: assigner
+        version: '2'
+      height: 160
+      id: keep_file_input
+      position:
+        x: 2240
+        y: 20
+      positionAbsolute:
+        x: 2240
+        y: 20
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        desc: ''
+        items:
+        - input_type: variable
+          operation: clear
+          value: []
+          variable_selector:
+          - conversation
+          - pending_file_request
+        - input_type: variable
+          operation: clear
+          value: []
+          variable_selector:
+          - conversation
+          - pending_file_task_ref
+        - input_type: constant
+          operation: set
+          value: 0
+          variable_selector:
+          - conversation
+          - pending_file_expires_at
+        - input_type: constant
+          operation: over-write
+          value: none
+          variable_selector:
+          - conversation
+          - awaiting
+        - input_type: constant
+          operation: over-write
+          value: FILE_FILL
+          variable_selector:
+          - conversation
+          - last_action
+        - input_type: variable
+          operation: over-write
+          value:
+          - start
+          - file_task_ref
+          variable_selector:
+          - conversation
+          - last_task_ref
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          code: |
-            import json
-
-            def main(task_ref: str) -> dict:
-                decision = {
-                    "version": 1,
-                    "action": "ASK",
-                    "content": "收到文件了，要我填什么？",
-                    "ask": {"missing": [], "task_ref": task_ref or ""},
-                }
-                return {"decision": json.dumps(decision, ensure_ascii=False)}
-          code_language: python3
-          desc: ''
-          outputs:
-            decision:
-              children: null
-              type: string
-          selected: false
-          title: ASK_NO_REQUEST
-          type: code
-          variables:
-            - value_selector:
-                - start
-                - file_task_ref
-              variable: task_ref
-        height: 130
-        id: ask_no_request
-        position:
-          x: 1280
-          y: 260
-        positionAbsolute:
-          x: 1280
-          y: 260
+        title: CLEAR_AFTER_FILL
+        type: assigner
+        version: '2'
+      height: 212
+      id: clear_after_fill
+      position:
+        x: 2240
+        y: 140
+      positionAbsolute:
+        x: 2240
+        y: 140
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: "import json\n\ndef main(task_ref: str) -> dict:\n    decision = {\n\
+          \        \"version\": 1,\n        \"action\": \"ASK\",\n        \"content\"\
+          : \"收到文件了，要我填什么？\",\n        \"ask\": {\"missing\": [], \"task_ref\": task_ref\
+          \ or \"\"},\n    }\n    return {\"decision\": json.dumps(decision, ensure_ascii=False)}\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          decision:
+            children: null
+            type: string
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          desc: ''
-          items:
-            - input_type: constant
-              operation: over-write
-              value: ''
-              variable_selector:
-                - conversation
-                - pending_file_request
-            - input_type: variable
-              operation: over-write
-              value:
-                - start
-                - file_task_ref
-              variable_selector:
-                - conversation
-                - pending_file_task_ref
-            - input_type: variable
-              operation: over-write
-              value:
-                - clock
-                - next_expires
-              variable_selector:
-                - conversation
-                - pending_file_expires_at
-            - input_type: constant
-              operation: over-write
-              value: file_input
-              variable_selector:
-                - conversation
-                - awaiting
-            - input_type: constant
-              operation: over-write
-              value: ASK
-              variable_selector:
-                - conversation
-                - last_action
-          selected: false
-          title: SET_FILE_INPUT
-          type: assigner
-          version: '2'
-        height: 260
-        id: set_file_input
-        position:
-          x: 1520
-          y: 260
-        positionAbsolute:
-          x: 1520
-          y: 260
+        title: ASK_NO_REQUEST
+        type: code
+        variables:
+        - value_selector:
+          - start
+          - file_task_ref
+          variable: task_ref
+      height: 50
+      id: ask_no_request
+      position:
+        x: 1280
+        y: 260
+      positionAbsolute:
+        x: 1280
+        y: 260
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        desc: ''
+        items:
+        - input_type: variable
+          operation: clear
+          value: []
+          variable_selector:
+          - conversation
+          - pending_file_request
+        - input_type: variable
+          operation: over-write
+          value:
+          - start
+          - file_task_ref
+          variable_selector:
+          - conversation
+          - pending_file_task_ref
+        - input_type: variable
+          operation: over-write
+          value:
+          - clock
+          - next_expires
+          variable_selector:
+          - conversation
+          - pending_file_expires_at
+        - input_type: constant
+          operation: over-write
+          value: file_input
+          variable_selector:
+          - conversation
+          - awaiting
+        - input_type: constant
+          operation: over-write
+          value: ASK
+          variable_selector:
+          - conversation
+          - last_action
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          cases:
-            - case_id: 'true'
-              conditions:
-                - comparison_operator: is
-                  id: c0000000-0000-4000-8000-000000000004
-                  value: file_input
-                  varType: string
-                  variable_selector:
-                    - conversation
-                    - awaiting
-                - comparison_operator: is not empty
-                  id: c0000000-0000-4000-8000-000000000005
-                  value: ''
-                  varType: string
-                  variable_selector:
-                    - conversation
-                    - pending_file_task_ref
-              id: 'true'
-              logical_operator: and
-          desc: ''
-          selected: false
-          title: IS_AWAITING
-          type: if-else
-        height: 160
-        id: is_awaiting
-        position:
-          x: 800
-          y: 720
-        positionAbsolute:
-          x: 800
-          y: 720
+        title: SET_FILE_INPUT
+        type: assigner
+        version: '2'
+      height: 186
+      id: set_file_input
+      position:
+        x: 1520
+        y: 260
+      positionAbsolute:
+        x: 1520
+        y: 260
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: c0000000-0000-4000-8000-000000000004
+            value: file_input
+            varType: string
+            variable_selector:
+            - conversation
+            - awaiting
+          - comparison_operator: not empty
+            id: c0000000-0000-4000-8000-000000000005
+            value: ''
+            varType: string
+            variable_selector:
+            - conversation
+            - pending_file_task_ref
+          id: 'true'
+          logical_operator: and
+        desc: ''
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          cases:
-            - case_id: 'true'
-              conditions:
-                - comparison_operator: contains
-                  id: c0000000-0000-4000-8000-000000000006
-                  value: 算了
-                  varType: string
-                  variable_selector:
-                    - start
-                    - query
-                - comparison_operator: contains
-                  id: c0000000-0000-4000-8000-000000000007
-                  value: 取消
-                  varType: string
-                  variable_selector:
-                    - start
-                    - query
-                - comparison_operator: contains
-                  id: c0000000-0000-4000-8000-000000000008
-                  value: 不填了
-                  varType: string
-                  variable_selector:
-                    - start
-                    - query
-                - comparison_operator: contains
-                  id: c0000000-0000-4000-8000-000000000009
-                  value: 不用了
-                  varType: string
-                  variable_selector:
-                    - start
-                    - query
-              id: 'true'
-              logical_operator: or
-          desc: ''
-          selected: false
-          title: IS_CANCEL
-          type: if-else
-        height: 200
-        id: is_cancel
-        position:
-          x: 1040
-          y: 600
-        positionAbsolute:
-          x: 1040
-          y: 600
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          code: |
-            import json
-
-            def main(query: str) -> dict:
-                decision = {
-                    "version": 1,
-                    "action": "SEND",
-                    "content": "好的，这份表先不填了。",
-                }
-                return {"decision": json.dumps(decision, ensure_ascii=False)}
-          code_language: python3
-          desc: ''
-          outputs:
-            decision:
-              children: null
-              type: string
-          selected: false
-          title: CANCEL_REPLY
-          type: code
-          variables:
-            - value_selector:
-                - start
-                - query
-              variable: query
-        height: 130
-        id: cancel_reply
-        position:
-          x: 1280
-          y: 540
-        positionAbsolute:
-          x: 1280
-          y: 540
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          desc: ''
-          items:
-            - input_type: constant
-              operation: over-write
-              value: ''
-              variable_selector:
-                - conversation
-                - pending_file_request
-            - input_type: constant
-              operation: over-write
-              value: ''
-              variable_selector:
-                - conversation
-                - pending_file_task_ref
-            - input_type: constant
-              operation: over-write
-              value: 0
-              variable_selector:
-                - conversation
-                - pending_file_expires_at
-            - input_type: constant
-              operation: over-write
-              value: none
-              variable_selector:
-                - conversation
-                - awaiting
-            - input_type: constant
-              operation: over-write
-              value: SEND
-              variable_selector:
-                - conversation
-                - last_action
-          selected: false
-          title: CLEAR_CANCEL
-          type: assigner
-          version: '2'
-        height: 240
-        id: clear_cancel
-        position:
-          x: 1520
-          y: 540
-        positionAbsolute:
-          x: 1520
-          y: 540
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          code: |
-            def main(query: str, hint: str, pending: str) -> dict:
-                base = (pending or hint or "").strip()
-                query = (query or "").strip()
-                if base and query:
-                    return {"request": base + "\n补充：" + query}
-                return {"request": query or base}
-          code_language: python3
-          desc: ''
-          outputs:
-            request:
-              children: null
-              type: string
-          selected: false
-          title: BUILD_REQUEST
-          type: code
-          variables:
-            - value_selector:
-                - start
-                - query
-              variable: query
-            - value_selector:
-                - start
-                - pending_request_hint
-              variable: hint
-            - value_selector:
-                - conversation
-                - pending_file_request
-              variable: pending
-        height: 140
-        id: build_request
-        position:
-          x: 1280
-          y: 720
-        positionAbsolute:
-          x: 1280
-          y: 720
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          context:
-            enabled: false
-            variable_selector: []
-          desc: ''
-          memory:
-            query_prompt_template: '{{#sys.query#}}'
-            role_prefix:
-              assistant: ''
-              user: ''
-            window:
-              enabled: false
-              size: 10
-          model:
-            completion_params:
-              temperature: 0.1
-            mode: chat
-            name: qwen-plus
-            provider: langgenius/tongyi/tongyi
-          prompt_template:
-            - role: system
-              text: |
-                你是表单填写器。根据 structure、facts 和 request，决定每个空该填什么。
-
-                只输出一个 JSON 对象，不要 Markdown、不要解释：
-                {"fills":[],"missing":[],"confidence":0.0,"needs_confirm":false}
-
-                规则：
-                1. 只填 request 明确要求、且 facts 或 structure 能确定的字段；不要猜测。
-                2. missing 列出 request 要求但 facts 中缺失的字段名（用表头/标签原文）。
-                3. xlsx 的 fills 格式：{"sheet":"Sheet1","ref":"B2","value":"张三"}
-                   docx 的 paragraph 格式：{"kind":"paragraph","index":3,"value":"张三"}
-                   docx 的 table 格式：{"kind":"table","table":0,"row":1,"col":1,"value":"2023001"}
-                4. ref/index/row/col 必须来自 structure 中真实存在的坐标；拿不准就不填。
-                5. confidence 取 0–1；任何字段靠推断时 ≤0.6，并置 needs_confirm=true。
-                6. 不要改动无关单元格，不要新增行/列，不要改格式。
-                7. request 为空、或与文件无关时，返回：
-                   {"fills":[],"missing":[],"confidence":0,"needs_confirm":true}
-                8. 用户要求“保留原格式/只填空”时，只输出 fills，不要描述文件内容。
-            - role: user
-              text: |
-                structure:
-                {{#start.structure#}}
-
-                facts:
-                {{#start.facts#}}
-
-                request:
-                {{#build_request.request#}}
-          selected: false
-          title: FILL_TEXT_LLM
-          type: llm
-          variables: []
-          vision:
-            enabled: false
-        height: 260
-        id: fill_text_llm
-        position:
-          x: 1520
-          y: 720
-        positionAbsolute:
-          x: 1520
-          y: 720
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          code: |
-            import json
-
-            def main(text: str) -> dict:
-                raw = (text or "").strip()
-                if raw.startswith("```"):
-                    raw = raw.strip("`")
-                    if raw.startswith("json"):
-                        raw = raw[4:].lstrip()
-                try:
-                    data = json.loads(raw)
-                except Exception:
-                    data = {}
-                fills = data.get("fills") or []
-                missing = data.get("missing") or []
-                if not isinstance(fills, list):
-                    fills = []
-                if not isinstance(missing, list):
-                    missing = []
-                try:
-                    confidence = float(data.get("confidence") or 0)
-                except (TypeError, ValueError):
-                    confidence = 0.0
-                nc = data.get("needs_confirm")
-                if isinstance(nc, str):
-                    needs_confirm = nc.lower() == "true"
-                else:
-                    needs_confirm = bool(nc)
-                return {"fills": fills, "missing": [str(x) for x in missing],
-                        "confidence": confidence, "needs_confirm": needs_confirm}
-          code_language: python3
-          desc: ''
-          outputs:
-            confidence:
-              children: null
-              type: number
-            fills:
-              children: null
-              type: array[object]
-            missing:
-              children: null
-              type: array[string]
-            needs_confirm:
-              children: null
-              type: boolean
-          selected: false
-          title: PARSE_FILL_TEXT
-          type: code
-          variables:
-            - value_selector:
-                - fill_text_llm
-                - text
-              variable: text
-        height: 200
-        id: parse_fill_text
-        position:
-          x: 1760
-          y: 720
-        positionAbsolute:
-          x: 1760
-          y: 720
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          code: |
-            import json
-
-            def load(value, default):
-                if isinstance(value, (list, dict)):
-                    return value
-                try:
-                    return json.loads(value) if value else default
-                except Exception:
-                    return default
-
-            def main(task_ref: str, fills, missing, confidence, needs_confirm) -> dict:
-                fill_list = load(fills, [])
-                missing_list = load(missing, [])
-                if not isinstance(fill_list, list):
-                    fill_list = []
-                if not isinstance(missing_list, list):
-                    missing_list = []
-                try:
-                    conf = float(confidence)
-                except (TypeError, ValueError):
-                    conf = 0.0
-                if isinstance(needs_confirm, str):
-                    confirm = needs_confirm.lower() == "true"
-                else:
-                    confirm = bool(needs_confirm)
-                if missing_list:
-                    decision = {
-                        "version": 1,
-                        "action": "ASK",
-                        "content": "还差这些信息：" + "、".join(str(x) for x in missing_list),
-                        "ask": {"missing": [str(x) for x in missing_list],
-                                "task_ref": task_ref or ""},
-                    }
-                else:
-                    decision = {
-                        "version": 1,
-                        "action": "FILE_FILL",
-                        "content": "填好了。",
-                        "file": {"task_ref": task_ref or "", "fills": fill_list,
-                                 "missing": [], "confidence": conf,
-                                 "needs_confirm": confirm},
-                    }
-                return {"decision": json.dumps(decision, ensure_ascii=False),
-                        "has_missing": "true" if missing_list else "false"}
-          code_language: python3
-          desc: ''
-          outputs:
-            decision:
-              children: null
-              type: string
-            has_missing:
-              children: null
-              type: string
-          selected: false
-          title: CHECK_MISSING_TEXT
-          type: code
-          variables:
-            - value_selector:
-                - conversation
-                - pending_file_task_ref
-              variable: task_ref
-            - value_selector:
-                - parse_fill_text
-                - fills
-              variable: fills
-            - value_selector:
-                - parse_fill_text
-                - missing
-              variable: missing
-            - value_selector:
-                - parse_fill_text
-                - confidence
-              variable: confidence
-            - value_selector:
-                - parse_fill_text
-                - needs_confirm
-              variable: needs_confirm
-        height: 220
-        id: check_missing_text
-        position:
-          x: 2000
-          y: 720
-        positionAbsolute:
-          x: 2000
-          y: 720
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          cases:
-            - case_id: 'true'
-              conditions:
-                - comparison_operator: is
-                  id: c0000000-0000-4000-8000-000000000010
-                  value: 'true'
-                  varType: string
-                  variable_selector:
-                    - check_missing_text
-                    - has_missing
-              id: 'true'
-              logical_operator: and
-          desc: ''
-          selected: false
-          title: HAS_MISSING_TEXT
-          type: if-else
-        height: 130
-        id: has_missing_text
-        position:
-          x: 2240
-          y: 720
-        positionAbsolute:
-          x: 2240
-          y: 720
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          desc: ''
-          items:
-            - input_type: constant
-              operation: over-write
-              value: file_input
-              variable_selector:
-                - conversation
-                - awaiting
-            - input_type: variable
-              operation: over-write
-              value:
-                - clock
-                - next_expires
-              variable_selector:
-                - conversation
-                - pending_file_expires_at
-            - input_type: constant
-              operation: over-write
-              value: ASK
-              variable_selector:
-                - conversation
-                - last_action
-          selected: false
-          title: KEEP_FILE_INPUT_TEXT
-          type: assigner
-          version: '2'
-        height: 200
-        id: keep_file_input_text
-        position:
-          x: 2480
-          y: 660
-        positionAbsolute:
-          x: 2480
-          y: 660
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          desc: ''
-          items:
-            - input_type: variable
-              operation: over-write
-              value:
-                - conversation
-                - pending_file_task_ref
-              variable_selector:
-                - conversation
-                - last_task_ref
-            - input_type: constant
-              operation: over-write
-              value: ''
-              variable_selector:
-                - conversation
-                - pending_file_request
-            - input_type: constant
-              operation: over-write
-              value: ''
-              variable_selector:
-                - conversation
-                - pending_file_task_ref
-            - input_type: constant
-              operation: over-write
-              value: 0
-              variable_selector:
-                - conversation
-                - pending_file_expires_at
-            - input_type: constant
-              operation: over-write
-              value: none
-              variable_selector:
-                - conversation
-                - awaiting
-            - input_type: constant
-              operation: over-write
-              value: FILE_FILL
-              variable_selector:
-                - conversation
-                - last_action
-          selected: false
-          title: CLEAR_AFTER_FILL_TEXT
-          type: assigner
-          version: '2'
-        height: 280
-        id: clear_after_fill_text
-        position:
-          x: 2480
-          y: 780
-        positionAbsolute:
-          x: 2480
-          y: 780
-        selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          classes:
-            - id: '1'
-              name: file_request
-            - id: '2'
-              name: other
-          desc: ''
-          instruction: |
-            你在判断用户这句话属于哪一类，只输出类别，不要解释。
-
-            file_request：用户在提出填写、修改、整理文件的要求，但当前还没有把文件发过来（或者只是问“能不能帮我填表”）。例如“我等下发个表，你帮我填姓名学号”“这个 Excel 帮我补一下专业”“发你一个 Word，按模板填一下”。
-
-            other：普通聊天、备忘、事实、纠错、对已发文件的补充信息、其他。例如“姓名张三”“记一下明天交报告”“哈哈哈”。正在补充字段时（例如只发“姓名张三”）也归 other。
-          model:
-            completion_params:
-              temperature: 0.1
-            mode: chat
-            name: qwen-plus
-            provider: langgenius/tongyi/tongyi
-          query_variable_selector:
+        title: IS_AWAITING
+        type: if-else
+      height: 148
+      id: is_awaiting
+      position:
+        x: 800
+        y: 720
+      positionAbsolute:
+        x: 800
+        y: 720
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: contains
+            id: c0000000-0000-4000-8000-000000000006
+            value: 算了
+            varType: string
+            variable_selector:
             - start
             - query
-          selected: false
-          title: TEXT_INTENT
-          type: question-classifier
-          vision:
+          - comparison_operator: contains
+            id: c0000000-0000-4000-8000-000000000007
+            value: 取消
+            varType: string
+            variable_selector:
+            - start
+            - query
+          - comparison_operator: contains
+            id: c0000000-0000-4000-8000-000000000008
+            value: 不填了
+            varType: string
+            variable_selector:
+            - start
+            - query
+          - comparison_operator: contains
+            id: c0000000-0000-4000-8000-000000000009
+            value: 不用了
+            varType: string
+            variable_selector:
+            - start
+            - query
+          id: 'true'
+          logical_operator: or
+        desc: ''
+        selected: false
+        title: IS_CANCEL
+        type: if-else
+      height: 200
+      id: is_cancel
+      position:
+        x: 1040
+        y: 600
+      positionAbsolute:
+        x: 1040
+        y: 600
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: "import json\n\ndef main(query: str) -> dict:\n    decision = {\n  \
+          \      \"version\": 1,\n        \"action\": \"SEND\",\n        \"content\"\
+          : \"好的，这份表先不填了。\",\n    }\n    return {\"decision\": json.dumps(decision,\
+          \ ensure_ascii=False)}\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          decision:
+            children: null
+            type: string
+        selected: false
+        title: CANCEL_REPLY
+        type: code
+        variables:
+        - value_selector:
+          - start
+          - query
+          variable: query
+      height: 50
+      id: cancel_reply
+      position:
+        x: 1280
+        y: 540
+      positionAbsolute:
+        x: 1280
+        y: 540
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        desc: ''
+        items:
+        - input_type: variable
+          operation: clear
+          value: []
+          variable_selector:
+          - conversation
+          - pending_file_request
+        - input_type: variable
+          operation: clear
+          value: []
+          variable_selector:
+          - conversation
+          - pending_file_task_ref
+        - input_type: constant
+          operation: set
+          value: 0
+          variable_selector:
+          - conversation
+          - pending_file_expires_at
+        - input_type: constant
+          operation: over-write
+          value: none
+          variable_selector:
+          - conversation
+          - awaiting
+        - input_type: constant
+          operation: over-write
+          value: SEND
+          variable_selector:
+          - conversation
+          - last_action
+        selected: false
+        title: CLEAR_CANCEL
+        type: assigner
+        version: '2'
+      height: 186
+      id: clear_cancel
+      position:
+        x: 1520
+        y: 540
+      positionAbsolute:
+        x: 1520
+        y: 540
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: "def main(query: str, hint: str, pending: str) -> dict:\n    base =\
+          \ (pending or hint or \"\").strip()\n    query = (query or \"\").strip()\n\
+          \    if base and query:\n        return {\"request\": base + \"\\n补充：\"\
+          \ + query}\n    return {\"request\": query or base}\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          request:
+            children: null
+            type: string
+        selected: false
+        title: BUILD_REQUEST
+        type: code
+        variables:
+        - value_selector:
+          - start
+          - query
+          variable: query
+        - value_selector:
+          - start
+          - pending_request_hint
+          variable: hint
+        - value_selector:
+          - conversation
+          - pending_file_request
+          variable: pending
+      height: 50
+      id: build_request
+      position:
+        x: 1280
+        y: 720
+      positionAbsolute:
+        x: 1280
+        y: 720
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
             enabled: false
-        height: 200
-        id: text_intent
-        position:
-          x: 1040
-          y: 920
-        positionAbsolute:
-          x: 1040
-          y: 920
+            size: 10
+        model:
+          completion_params:
+            temperature: 0.1
+          mode: chat
+          name: qwen3.8-flash
+          provider: langgenius/tongyi/tongyi
+        prompt_template:
+        - id: 51cfd7f7-6f63-4491-9dc7-d65298bc6a5e
+          role: system
+          text: "你是表单填写器。根据 structure、facts 和 request，决定每个空该填什么。\n\n只输出一个 JSON 对象，不要\
+            \ Markdown、不要解释：\n{\"fills\":[],\"missing\":[],\"confidence\":0.0,\"needs_confirm\"\
+            :false}\n\n规则：\n1. 只填 request 明确要求、且 facts 或 structure 能确定的字段；不要猜测。\n\
+            2. missing 列出 request 要求但 facts 中缺失的字段名（用表头/标签原文）。\n3. xlsx 的 fills 格式：{\"\
+            sheet\":\"Sheet1\",\"ref\":\"B2\",\"value\":\"张三\"}\n   docx 的 paragraph\
+            \ 格式：{\"kind\":\"paragraph\",\"index\":3,\"value\":\"张三\"}\n   docx 的\
+            \ table 格式：{\"kind\":\"table\",\"table\":0,\"row\":1,\"col\":1,\"value\"\
+            :\"2023001\"}\n4. ref/index/row/col 必须来自 structure 中真实存在的坐标；拿不准就不填。\n\
+            5. confidence 取 0–1；任何字段靠推断时 ≤0.6，并置 needs_confirm=true。\n6. 不要改动无关单元格，不要新增行/列，不要改格式。\n\
+            7. request 为空、或与文件无关时，返回：\n   {\"fills\":[],\"missing\":[],\"confidence\"\
+            :0,\"needs_confirm\":true}\n8. 用户要求“保留原格式/只填空”时，只输出 fills，不要描述文件内容。\n"
+        - id: 8a95d358-3681-4ed2-8561-1cfa2a1e05d6
+          role: user
+          text: 'structure:
+
+            {{#start.structure#}}
+
+
+            facts:
+
+            {{#start.facts#}}
+
+
+            request:
+
+            {{#build_request.request#}}
+
+            '
+        selected: true
+        title: FILL_TEXT_LLM
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 86
+      id: fill_text_llm
+      position:
+        x: 1520
+        y: 720
+      positionAbsolute:
+        x: 1520
+        y: 720
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: "import json\n\ndef main(text: str) -> dict:\n    raw = (text or \"\"\
+          ).strip()\n    if raw.startswith(\"```\"):\n        raw = raw.strip(\"`\"\
+          )\n        if raw.startswith(\"json\"):\n            raw = raw[4:].lstrip()\n\
+          \    try:\n        data = json.loads(raw)\n    except Exception:\n     \
+          \   data = {}\n    fills = data.get(\"fills\") or []\n    missing = data.get(\"\
+          missing\") or []\n    if not isinstance(fills, list):\n        fills = []\n\
+          \    if not isinstance(missing, list):\n        missing = []\n    try:\n\
+          \        confidence = float(data.get(\"confidence\") or 0)\n    except (TypeError,\
+          \ ValueError):\n        confidence = 0.0\n    nc = data.get(\"needs_confirm\"\
+          )\n    if isinstance(nc, str):\n        needs_confirm = nc.lower() == \"\
+          true\"\n    else:\n        needs_confirm = bool(nc)\n    return {\"fills\"\
+          : fills, \"missing\": [str(x) for x in missing],\n            \"confidence\"\
+          : confidence, \"needs_confirm\": needs_confirm}\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          confidence:
+            children: null
+            type: number
+          fills:
+            children: null
+            type: array[object]
+          missing:
+            children: null
+            type: array[string]
+          needs_confirm:
+            children: null
+            type: boolean
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          code: |
-            import json
-
-            def main(query: str) -> dict:
-                decision = {
-                    "version": 1,
-                    "action": "WAIT_FILE",
-                    "content": "发过来吧，我按你说的填。",
-                    "wait": {"request": (query or "").strip(), "ttl_seconds": 900},
-                }
-                return {"decision": json.dumps(decision, ensure_ascii=False)}
-          code_language: python3
-          desc: ''
-          outputs:
-            decision:
-              children: null
-              type: string
-          selected: false
-          title: WAIT_FILE_REPLY
-          type: code
-          variables:
-            - value_selector:
-                - start
-                - query
-              variable: query
-        height: 130
-        id: wait_file_reply
-        position:
-          x: 1280
-          y: 880
-        positionAbsolute:
-          x: 1280
-          y: 880
+        title: PARSE_FILL_TEXT
+        type: code
+        variables:
+        - value_selector:
+          - fill_text_llm
+          - text
+          variable: text
+      height: 50
+      id: parse_fill_text
+      position:
+        x: 1760
+        y: 720
+      positionAbsolute:
+        x: 1760
+        y: 720
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: "import json\n\ndef load(value, default):\n    if isinstance(value,\
+          \ (list, dict)):\n        return value\n    try:\n        return json.loads(value)\
+          \ if value else default\n    except Exception:\n        return default\n\
+          \ndef main(task_ref: str, fills, missing, confidence, needs_confirm) ->\
+          \ dict:\n    fill_list = load(fills, [])\n    missing_list = load(missing,\
+          \ [])\n    if not isinstance(fill_list, list):\n        fill_list = []\n\
+          \    if not isinstance(missing_list, list):\n        missing_list = []\n\
+          \    try:\n        conf = float(confidence)\n    except (TypeError, ValueError):\n\
+          \        conf = 0.0\n    if isinstance(needs_confirm, str):\n        confirm\
+          \ = needs_confirm.lower() == \"true\"\n    else:\n        confirm = bool(needs_confirm)\n\
+          \    if missing_list:\n        decision = {\n            \"version\": 1,\n\
+          \            \"action\": \"ASK\",\n            \"content\": \"还差这些信息：\"\
+          \ + \"、\".join(str(x) for x in missing_list),\n            \"ask\": {\"\
+          missing\": [str(x) for x in missing_list],\n                    \"task_ref\"\
+          : task_ref or \"\"},\n        }\n    else:\n        decision = {\n     \
+          \       \"version\": 1,\n            \"action\": \"FILE_FILL\",\n      \
+          \      \"content\": \"填好了。\",\n            \"file\": {\"task_ref\": task_ref\
+          \ or \"\", \"fills\": fill_list,\n                     \"missing\": [],\
+          \ \"confidence\": conf,\n                     \"needs_confirm\": confirm},\n\
+          \        }\n    return {\"decision\": json.dumps(decision, ensure_ascii=False),\n\
+          \            \"has_missing\": \"true\" if missing_list else \"false\"}\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          decision:
+            children: null
+            type: string
+          has_missing:
+            children: null
+            type: string
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          desc: ''
-          items:
-            - input_type: variable
-              operation: over-write
-              value:
-                - start
-                - query
-              variable_selector:
-                - conversation
-                - pending_file_request
-            - input_type: constant
-              operation: over-write
-              value: ''
-              variable_selector:
-                - conversation
-                - pending_file_task_ref
-            - input_type: variable
-              operation: over-write
-              value:
-                - clock
-                - next_expires
-              variable_selector:
-                - conversation
-                - pending_file_expires_at
-            - input_type: constant
-              operation: over-write
-              value: file_request
-              variable_selector:
-                - conversation
-                - awaiting
-            - input_type: constant
-              operation: over-write
-              value: WAIT_FILE
-              variable_selector:
-                - conversation
-                - last_action
-          selected: false
-          title: SET_FILE_REQUEST
-          type: assigner
-          version: '2'
-        height: 240
-        id: set_file_request
-        position:
-          x: 1520
-          y: 880
-        positionAbsolute:
-          x: 1520
-          y: 880
+        title: CHECK_MISSING_TEXT
+        type: code
+        variables:
+        - value_selector:
+          - conversation
+          - pending_file_task_ref
+          variable: task_ref
+        - value_selector:
+          - parse_fill_text
+          - fills
+          variable: fills
+        - value_selector:
+          - parse_fill_text
+          - missing
+          variable: missing
+        - value_selector:
+          - parse_fill_text
+          - confidence
+          variable: confidence
+        - value_selector:
+          - parse_fill_text
+          - needs_confirm
+          variable: needs_confirm
+      height: 50
+      id: check_missing_text
+      position:
+        x: 2000
+        y: 720
+      positionAbsolute:
+        x: 2000
+        y: 720
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: c0000000-0000-4000-8000-000000000010
+            value: 'true'
+            varType: string
+            variable_selector:
+            - check_missing_text
+            - has_missing
+          id: 'true'
+          logical_operator: and
+        desc: ''
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          context:
-            enabled: false
-            variable_selector: []
-          desc: ''
-          memory:
-            query_prompt_template: '{{#sys.query#}}'
-            role_prefix:
-              assistant: ''
-              user: ''
-            window:
-              enabled: true
-              size: 10
-          model:
-            completion_params:
-              temperature: 0.7
-            mode: chat
-            name: qwen-plus
-            provider: langgenius/tongyi/tongyi
-          prompt_template:
-            - role: system
-              text: |
-                你是 QQ 消息助手的大脑。你只输出一个 JSON 对象，不输出代码块、不输出解释。
-
-                你要在以下动作中选择一个：
-                - SEND：直接回复用户
-                - DRAFT：生成需要人工确认后才能发出的回复草稿
-                - SILENT：不需要回复（群聊闲聊、误触发、纯表情）
-                - MEMO_OP：新建 / 修改 / 完成 / 取消一条备忘（写操作由后台执行，你只负责决定做什么）
-                - FACT：记录用户稳定事实
-
-                输出格式：
-                {"version":1,"action":"...","content":"...","draft":{...},"fact":{...},
-                 "op":"memo.create|memo.update|memo.close","memoId":"","title":"","content":"",
-                 "importance":"","category":"","dueTime":"","clearDueTime":"","status":""}
-
-                **第一步永远先问自己**：这条消息是在动一件**已经记下的事**吗？
-                （改时间 / 改地点 / 补细节 / 取消 / 做完了 / “错了”“不是…是…”“改一下”“重新说”）
-                是 → MEMO_OP + "op":"memo.update"（或 "memo.close"），memoId 从「未关闭的备忘」里选，
-                     **绝对不要用 memo.create** —— 那会多出一条和旧的互相矛盾的备忘，是最严重的错误。
-                只有在“这不是在动已有的事”时，才允许走下面的 create。
-
-                规则：
-                1. 普通聊天 → SEND，content 像真人在 QQ 上说话：简短、自然、1–3 句。
-                   群聊不要用 Markdown、不要长篇大论。
-                2. 正式回复（给老师/领导/客户）→ DRAFT：
-                   {"type":"REPLY","title":"...","payload":{"content":"..."}}
-                   content 可以留空，让用户去草稿中心确认。
-                3. 要新记一件事 → MEMO_OP + "op":"memo.create"，字段：
-                   {"title":"...","content":"...","importance":1-5,
-                    "category":"学业|社交|健康|财务|日常|其他","dueTime":"YYYY-MM-DDTHH:mm:ss"}
-                   - 不只是“提醒我”：凡是带时间/截止/邀约/需要后续行动的通知，用户自己说的事、
-                     别人转达的事都算，例如“周五交实验报告”“明天下午开班会”“下周三面试”。
-                   - importance 必须按下面标准打分，不要一律给 3：
-                     5=有明确时间且不做后果严重（考试/面试/答辩/截止缴费）
-                     4=有明确时间且重要但可调整（重要邀约、班委通知）
-                     3=普通邀约或一般截止（班会、聚餐）
-                     2=低价值待办，可做可不做（帮带东西）
-                     1=纯信息无行动项（仅存档）
-                   - category 只能取：学业、社交、健康、财务、日常、其他（不要输出“生活/工作”）
-                   - dueTime 必须结合「当前时间」把“明天下午三点”这类相对时间换算成
-                     YYYY-MM-DDTHH:mm:ss；**确实没有时间就省略整个 dueTime 字段**，
-                     不要编造日期。没有 dueTime 就不会产生提醒。
-                   - content 写这件事的完整信息（时间/地点/要做的事），它是**备忘本身**，
-                     不是你对用户说的话：不许出现“好的/收到/明白了/已更正/已经帮你”这类应答语，
-                     也不许写“提醒你……”。MEMO_OP 的回复文案由后台按真实写入结果生成，
-                     你说什么都不算数。
-                     反例（错）：content = "好的，已更正为明晚九点。"
-                     正例（对）：content = "明晚21:00 青云楼S109开班会"
-                   - 纯闲聊、没有时间也没有后续行动的话，不要输出 MEMO_OP。
-                4. 用户陈述稳定个人信息（姓名、学号、专业、常用地址、偏好）→ FACT：
-                   {"factKey":"学号","factValue":"2023001","confidence":0.0-1.0}
-                   只有用户明确说出的才记；推断的 confidence < 0.85。
-                5. 要改 / 完成 / 取消一件**已经记下**的事 → 仍然是 MEMO_OP，绝对不要新建一条：
-                   - 改时间、改地点、改要求、补充细节 → "op":"memo.update"，只填真正变化的字段。
-                     content 请重写成**改动后的完整状态**（例如“明天下午2点 教学楼 S111”），
-                     旧值后台有记录，不要靠正文保留历史。
-                   - 做完了 → "op":"memo.close" + "status":"DONE"；不办了/取消了 → "status":"CANCELLED"。
-                   - memoId **只能取自下方「未关闭的备忘」列表里的 id**，不许编造、不许猜。
-                   - 拿不准指的是哪一条（0 条像，或 2 条以上都像）→ 输出 SEND 反问一句“你说的是哪个？”，
-                     不要猜 memoId，也不要退化成新建。列表为空时同样不要编 id。
-                   - 用户明显在**更正**（“错了错了”“不是…是…”“改一下”“重新说一下”），
-                     而列表为空或对不上时 → SEND 反问，**绝不新建一条**：那会变成两条互相矛盾的备忘。
-                6. 用户说“时间不定了/暂时取消提醒”这类含糊说法，按改动处理：
-                   不确定要改什么就先 SEND 问一句，不要凭感觉写。
-                7. 文件填写由专门流程处理，你不要输出 WAIT_FILE/ASK/FILE_FILL。
-                8. 不确定用户是否在跟你说话 → SILENT。
-                9. 不要编造事实、日期、承诺；不知道就说不知道。
-                10. 没有的字段直接省略，不要输出 null；不要输出 Markdown 代码块。
-
-                示例：
-                用户：明天下午三点提醒我交实验报告
-                → {"version":1,"action":"MEMO_OP","op":"memo.create","title":"交实验报告",
-                   "content":"明天下午三点前提交","importance":4,"category":"学业",
-                   "dueTime":"2026-10-27T15:00:00"}
-
-                用户：班会地点改成 S111（未关闭的备忘里有 id 12「班会」）
-                → {"version":1,"action":"MEMO_OP","op":"memo.update","memoId":"12",
-                   "content":"明天下午2点 教学楼 S111"}
-
-                用户：错了错了，是明天晚上9点开班会（未关闭的备忘里有 id 11「青云楼S109开班会」19:00）
-                → {"version":1,"action":"MEMO_OP","op":"memo.update","memoId":"11",
-                   "dueTime":"2026-10-30T21:00:00","content":"明晚21:00 青云楼S109开班会"}
-
-                用户：明天不开班会了，取消吧（未关闭的备忘里有 id 12「班会」）
-                → {"version":1,"action":"MEMO_OP","op":"memo.close","memoId":"12","status":"CANCELLED"}
-
-                用户：那个会改一下（未关闭的备忘里有 3 条都像“会”）
-                → {"version":1,"action":"SEND","content":"你说的是哪个会？班会、面试还是组会？"}
-
-                用户：我叫张三，学号2023001
-                → {"version":1,"action":"FACT","content":"",
-                   "fact":{"factKey":"姓名","factValue":"张三","confidence":0.98}}
-
-                用户：帮我写一段给导师的请假说明
-                → {"version":1,"action":"DRAFT","content":"",
-                   "draft":{"type":"REPLY","title":"请假说明",
-                            "payload":{"content":"老师您好，我因……"}}}
-
-                用户：哈哈哈
-                → {"version":1,"action":"SILENT"}
-            - role: user
-              text: |
-                当前时间：{{#start.current_time#}}
-                会话类型：{{#start.chat_type#}}
-                用户画像事实：{{#start.facts#}}
-                风格要求：{{#start.style_prompt#}}
-                未关闭的备忘（memoId 只能取自这里）：{{#start.open_memos#}}
-                用户消息：{{#start.query#}}
-          selected: false
-          title: CHAT_DECISION
-          type: llm
-          variables: []
-          vision:
-            enabled: false
-        height: 380
-        id: chat_decision
-        position:
-          x: 1280
-          y: 1040
-        positionAbsolute:
-          x: 1280
-          y: 1040
+        title: HAS_MISSING_TEXT
+        type: if-else
+      height: 146
+      id: has_missing_text
+      position:
+        x: 2240
+        y: 720
+      positionAbsolute:
+        x: 2240
+        y: 720
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        desc: ''
+        items:
+        - input_type: constant
+          operation: over-write
+          value: file_input
+          variable_selector:
+          - conversation
+          - awaiting
+        - input_type: variable
+          operation: over-write
+          value:
+          - clock
+          - next_expires
+          variable_selector:
+          - conversation
+          - pending_file_expires_at
+        - input_type: constant
+          operation: over-write
+          value: ASK
+          variable_selector:
+          - conversation
+          - last_action
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          code: |
-            import json
-
-            # MEMO / MEMO_CLOSE 是回滚路径（提示词已切到 MEMO_OP），保留解析但不再产出
-            ALLOWED = {"SEND", "DRAFT", "SILENT", "MEMO", "FACT", "MEMO_CLOSE", "MEMO_OP"}
-            CATEGORIES = {"学业", "社交", "健康", "财务", "日常", "其他"}
-            OPS = {"memo.create", "memo.update", "memo.close"}
-            OP_FIELDS = ("memoId", "title", "content", "importance", "category",
-                         "dueTime", "clearDueTime", "status")
-            SILENT = {"version": 1, "action": "SILENT"}
-
-
-            def _clean_memo(memo):
-                """模型偶尔写错枚举/越界分数；这里兜底，否则 Spring 侧 400 会把整条备忘丢掉。"""
-                if not isinstance(memo, dict):
-                    memo = {}
-                out = {}
-                title = str(memo.get("title") or "").strip()
-                content = str(memo.get("content") or "").strip()
-                due = str(memo.get("dueTime") or "").strip()
-                out["title"] = title or (content[:40] or "备忘")
-                if content:
-                    out["content"] = content
-                if due:
-                    out["dueTime"] = due
-                try:
-                    importance = int(memo.get("importance"))
-                except (TypeError, ValueError):
-                    importance = 3
-                out["importance"] = max(1, min(5, importance))
-                category = str(memo.get("category") or "").strip()
-                out["category"] = category if category in CATEGORIES else "其他"
-                return out
-
-
-            def _clean(value):
-                return "" if value is None else str(value).strip()
-
-
-            def _dump(value):
-                return json.dumps(value, ensure_ascii=False)
-
-
-            def _op_body(data, sender_id, chat_id, event_id):
-                """把模型的 op 压成扁平字符串 body。
-
-                身份字段（senderId / chatId / eventId）只从 Start 取：
-                模型可以决定「做什么」，但绝不能决定「替谁做」，也不能决定幂等键。
-                """
-                if _clean(data.get("op")) not in OPS:
-                    return None
-                body = {
-                    "eventId": _clean(event_id),
-                    "op": _clean(data.get("op")),
-                    "senderId": _clean(sender_id),
-                    "chatId": _clean(chat_id),
-                }
-                for key in OP_FIELDS:
-                    body[key] = _clean(data.get(key))
-                return _dump(body)
-
-
-            def main(text: str, sender_id: str, chat_id: str, event_id: str) -> dict:
-                raw = (text or "").strip()
-                if raw.startswith("```"):
-                    raw = raw.strip("`")
-                    if raw.startswith("json"):
-                        raw = raw[4:].lstrip()
-
-                try:
-                    data = json.loads(raw)
-                except Exception:
-                    data = None
-
-                if not isinstance(data, dict) or data.get("action") not in ALLOWED:
-                    return {"decision": _dump(SILENT), "is_op": "false", "op_body": ""}
-
-                if data.get("action") == "MEMO_OP":
-                    body = _op_body(data, sender_id, chat_id, event_id)
-                    if body is None:
-                        # 模型给了非法的 op：宁可不写，也不猜
-                        return {"decision": _dump(SILENT), "is_op": "false", "op_body": ""}
-                    if not _clean(event_id):
-                        # 没有幂等键就不写：重复执行一次改期/取消，用户是察觉不到的
-                        return {"decision": _dump({"version": 1, "action": "SEND",
-                                                   "text": "刚才没办成，麻烦再说一遍？"}),
-                                "is_op": "false", "op_body": ""}
-                    return {"decision": "", "is_op": "true", "op_body": body}
-
-                data.setdefault("version", 1)
-                if data.get("action") == "MEMO":
-                    data["memo"] = _clean_memo(data.get("memo"))
-                return {"decision": _dump(data), "is_op": "false", "op_body": ""}
-          code_language: python3
-          desc: ''
-          outputs:
-            decision:
-              children: null
-              type: string
-            is_op:
-              children: null
-              type: string
-            op_body:
-              children: null
-              type: string
-          selected: false
-          title: CLEAN_DECISION
-          type: code
-          variables:
-            - value_selector:
-                - chat_decision
-                - text
-              variable: text
-            - value_selector:
-                - start
-                - sender_id
-              variable: sender_id
-            - value_selector:
-                - start
-                - chat_id
-              variable: chat_id
-            - value_selector:
-                - start
-                - event_id
-              variable: event_id
-        height: 180
-        id: clean_decision
-        position:
-          x: 1520
-          y: 1040
-        positionAbsolute:
-          x: 1520
-          y: 1040
+        title: KEEP_FILE_INPUT_TEXT
+        type: assigner
+        version: '2'
+      height: 134
+      id: keep_file_input_text
+      position:
+        x: 2480
+        y: 660
+      positionAbsolute:
+        x: 2480
+        y: 660
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        desc: ''
+        items:
+        - input_type: variable
+          operation: over-write
+          value:
+          - conversation
+          - pending_file_task_ref
+          variable_selector:
+          - conversation
+          - last_task_ref
+        - input_type: variable
+          operation: clear
+          value: []
+          variable_selector:
+          - conversation
+          - pending_file_request
+        - input_type: variable
+          operation: clear
+          value: []
+          variable_selector:
+          - conversation
+          - pending_file_task_ref
+        - input_type: constant
+          operation: set
+          value: 0
+          variable_selector:
+          - conversation
+          - pending_file_expires_at
+        - input_type: constant
+          operation: over-write
+          value: none
+          variable_selector:
+          - conversation
+          - awaiting
+        - input_type: constant
+          operation: over-write
+          value: FILE_FILL
+          variable_selector:
+          - conversation
+          - last_action
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          cases:
-            - case_id: 'true'
-              conditions:
-                - comparison_operator: is
-                  id: c0000000-0000-4000-8000-000000000002
-                  value: 'true'
-                  varType: string
-                  variable_selector:
-                    - clean_decision
-                    - is_op
-              id: 'true'
-              logical_operator: and
-          desc: 这条消息是不是一次备忘写操作
-          selected: false
-          title: IS_OP
-          type: if-else
-        height: 150
-        id: is_op
-        position:
-          x: 1800
-          y: 1040
-        positionAbsolute:
-          x: 1800
-          y: 1040
+        title: CLEAR_AFTER_FILL_TEXT
+        type: assigner
+        version: '2'
+      height: 212
+      id: clear_after_fill_text
+      position:
+        x: 2480
+        y: 780
+      positionAbsolute:
+        x: 2480
+        y: 780
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        classes:
+        - id: '1'
+          name: file_request
+        - id: '2'
+          name: other
+        desc: ''
+        instruction: '你在判断用户这句话属于哪一类，只输出类别，不要解释。
+
+
+          file_request：用户在提出填写、修改、整理文件的要求，但当前还没有把文件发过来（或者只是问“能不能帮我填表”）。例如“我等下发个表，你帮我填姓名学号”“这个
+          Excel 帮我补一下专业”“发你一个 Word，按模板填一下”。
+
+
+          other：普通聊天、备忘、事实、纠错、对已发文件的补充信息、其他。例如“姓名张三”“记一下明天交报告”“哈哈哈”。正在补充字段时（例如只发“姓名张三”）也归
+          other。
+
+          '
+        model:
+          completion_params:
+            temperature: 0.1
+          mode: chat
+          name: qwen3.8-flash
+          provider: langgenius/tongyi/tongyi
+        query_variable_selector:
+        - start
+        - query
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          authorization:
-            config: null
-            type: no-auth
-          body:
-            data:
-              - type: text
-                value: '{{#clean_decision.op_body#}}'
-            type: json
-          desc: 备忘写操作。Dify 只决定做什么，校验/归属/状态机/提醒重算全在 Spring
-          error_strategy: fail-branch
-          headers: |
-            X-Agent-Token: {{#env.AGENT_OPS_TOKEN#}}
-          method: post
-          params: ''
-          selected: false
-          timeout:
-            max_connect_timeout: 5
-            max_read_timeout: 20
-            max_write_timeout: 20
-          title: OP_HTTP
-          type: http-request
-          url: '{{#env.SPRING_BASE_URL#}}/api/agent/ops'
-          variables: []
-        height: 180
-        id: op_http
-        position:
-          x: 2080
-          y: 960
-        positionAbsolute:
-          x: 2080
-          y: 960
+        title: TEXT_INTENT
+        type: question-classifier
+        vision:
+          enabled: false
+      height: 176
+      id: text_intent
+      position:
+        x: 1040
+        y: 920
+      positionAbsolute:
+        x: 1040
+        y: 920
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: "import json\n\ndef main(query: str) -> dict:\n    decision = {\n  \
+          \      \"version\": 1,\n        \"action\": \"WAIT_FILE\",\n        \"content\"\
+          : \"发过来吧，我按你说的填。\",\n        \"wait\": {\"request\": (query or \"\").strip(),\
+          \ \"ttl_seconds\": 900},\n    }\n    return {\"decision\": json.dumps(decision,\
+          \ ensure_ascii=False)}\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          decision:
+            children: null
+            type: string
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          code: |
-            import json
-
-            MAX_TEXT = 200
-
-
-            def _send(text):
-                return json.dumps({"version": 1, "action": "SEND",
-                                   "text": text[:MAX_TEXT]}, ensure_ascii=False)
-
-
-            def _payload(body):
-                if isinstance(body, dict):
-                    return body
-                try:
-                    return json.loads(body or "")
-                except Exception:
-                    return None
-
-
-            def main(status_code: int, body: str) -> dict:
-                """把 HTTP 结果翻成决策信封（前后端唯一约定）。
-
-                全函数：任何输入都返回 SEND，绝不抛异常——抛了整条工作流会中断，
-                用户连「没办成」都收不到。也不回显 body：后端细节不该出现在 QQ 里。
-                """
-                try:
-                    code = int(status_code or 0)
-                except (TypeError, ValueError):
-                    code = 0
-                payload = _payload(body)
-                if payload is None or not 200 <= code < 300:
-                    return {"decision": _send("刚才没办成，后台没连上，等会儿再说一次？")}
-
-                message = str(payload.get("message") or "").strip()
-                if payload.get("code") != 0:
-                    # 业务拒绝（校验/归属/找不到）走这条：把 Spring 给的中文原因原样转达，
-                    # 别改写成「没连上」，用户会以为重试就能好。
-                    return {"decision": _send(message or "这次没改成，换个说法再试试？")}
-
-                data = payload.get("data") or {}
-                if data.get("replayed"):
-                    message = (message or "这件事已经办过了") + "（没有重复执行）"
-                return {"decision": _send(message or "办好了")}
-          code_language: python3
-          desc: 成功分支：把 Result 信封翻成 SEND
-          outputs:
-            decision:
-              children: null
-              type: string
-          selected: false
-          title: READ_OP_RESULT
-          type: code
-          variables:
-            - value_selector:
-                - op_http
-                - status_code
-              variable: status_code
-            - value_selector:
-                - op_http
-                - body
-              variable: body
-        height: 180
-        id: read_op_result
-        position:
-          x: 2360
-          y: 900
-        positionAbsolute:
-          x: 2360
-          y: 900
+        title: WAIT_FILE_REPLY
+        type: code
+        variables:
+        - value_selector:
+          - start
+          - query
+          variable: query
+      height: 50
+      id: wait_file_reply
+      position:
+        x: 1280
+        y: 880
+      positionAbsolute:
+        x: 1280
+        y: 880
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        desc: ''
+        items:
+        - input_type: variable
+          operation: over-write
+          value:
+          - start
+          - query
+          variable_selector:
+          - conversation
+          - pending_file_request
+        - input_type: variable
+          operation: clear
+          value: []
+          variable_selector:
+          - conversation
+          - pending_file_task_ref
+        - input_type: variable
+          operation: over-write
+          value:
+          - clock
+          - next_expires
+          variable_selector:
+          - conversation
+          - pending_file_expires_at
+        - input_type: constant
+          operation: over-write
+          value: file_request
+          variable_selector:
+          - conversation
+          - awaiting
+        - input_type: constant
+          operation: over-write
+          value: WAIT_FILE
+          variable_selector:
+          - conversation
+          - last_action
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          code: |
-            import json
+        title: SET_FILE_REQUEST
+        type: assigner
+        version: '2'
+      height: 186
+      id: set_file_request
+      position:
+        x: 1520
+        y: 880
+      positionAbsolute:
+        x: 1520
+        y: 880
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: true
+            size: 10
+        model:
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: qwen3.8-flash
+          provider: langgenius/tongyi/tongyi
+        prompt_template:
+        - id: d76e40f8-8f65-472d-8943-bffd8fe4bf6d
+          role: system
+          text: "你是 QQ 消息助手的大脑。你只输出一个 JSON 对象，不输出代码块、不输出解释。\n\n你要在以下动作中选择一个：\n- SEND：直接回复用户\n\
+            - DRAFT：生成需要人工确认后才能发出的回复草稿\n- SILENT：不需要回复（群聊闲聊、误触发、纯表情）\n- MEMO_OP：新建\
+            \ / 修改 / 完成 / 取消一条备忘（写操作由后台执行，你只负责决定做什么）\n- FACT：记录用户稳定事实\n\n输出格式（一个对象只写一次\
+            \ content，不要照抄模板拼出两个同名键）：\n- 说话 / 草稿 / 记录事实：\n  {\"version\":1,\"action\"\
+            :\"SEND|DRAFT|SILENT|FACT\",\"send_kind\":\"TASK|CHAT\",\n   \"content\"\
+            :\"要发出去的话\",\"needs_confirm\":false,\n   \"draft\":{...},\"fact\":{...}}\n\
+            - 动备忘（此时 content 是**备忘正文**，不是你对用户说的话）：\n  {\"version\":1,\"action\":\"\
+            MEMO_OP\",\"op\":\"memo.create|memo.update|memo.close\",\n   \"memoId\"\
+            :\"\",\"title\":\"\",\"content\":\"\",\"importance\":\"\",\"category\"\
+            :\"\",\n   \"dueTime\":\"\",\"clearDueTime\":\"\",\"status\":\"\"}\n\n\
+            每个 SEND 都要带 \"send_kind\"，二选一：\n- \"TASK\"：替主人**办事**的回话——备忘确认、文件填写结果、澄清反问。\n\
+            \  **这是默认值；说不出为什么是 CHAT，就写 TASK。** TASK 永远发得出去。\n- \"CHAT\"：替主人**跟人说话**——闲聊、接话、回应寒暄、回答别人的提问。\n\
+            \  主人的会话开关和每小时限额只管这一类。\n\n**第一步永远先问自己**：这条消息是在动一件**已经记下的事**吗？\n（改时间 /\
+            \ 改地点 / 补细节 / 取消 / 做完了 / “错了”“不是…是…”“改一下”“重新说”）\n是 → MEMO_OP + \"op\"\
+            :\"memo.update\"（或 \"memo.close\"），memoId 从「未关闭的备忘」里选，\n     **绝对不要用 memo.create**\
+            \ —— 那会多出一条和旧的互相矛盾的备忘，是最严重的错误。\n只有在“这不是在动已有的事”时，才允许走下面的 create。\n\n规则：\n\
+            1. 普通聊天 → SEND，content 像真人在 QQ 上说话：简短、自然、1–3 句。\n   群聊不要用 Markdown、不要长篇大论。\n\
+            2. 正式回复（给老师/领导/客户）→ DRAFT：\n   {\"type\":\"REPLY\",\"title\":\"...\",\"\
+            payload\":{\"content\":\"...\"}}\n   content 可以留空，让用户去草稿中心确认。\n3. 要新记一件事\
+            \ → MEMO_OP + \"op\":\"memo.create\"，字段：\n   {\"title\":\"...\",\"content\"\
+            :\"...\",\"importance\":1-5,\n    \"category\":\"学业|社交|健康|财务|日常|其他\",\"\
+            dueTime\":\"YYYY-MM-DDTHH:mm:ss\"}\n   - 不只是“提醒我”：凡是带时间/截止/邀约/需要后续行动的通知，用户自己说的事、\n\
+            \     别人转达的事都算，例如“周五交实验报告”“明天下午开班会”“下周三面试”。\n   - importance 必须按下面标准打分，不要一律给\
+            \ 3：\n     5=有明确时间且不做后果严重（考试/面试/答辩/截止缴费）\n     4=有明确时间且重要但可调整（重要邀约、班委通知）\n\
+            \     3=普通邀约或一般截止（班会、聚餐）\n     2=低价值待办，可做可不做（帮带东西）\n     1=纯信息无行动项（仅存档）\n\
+            \   - category 只能取：学业、社交、健康、财务、日常、其他（不要输出“生活/工作”）\n   - dueTime 必须结合「当前时间」把“明天下午三点”这类相对时间换算成\n\
+            \     YYYY-MM-DDTHH:mm:ss；**确实没有时间就省略整个 dueTime 字段**，\n     不要编造日期。没有\
+            \ dueTime 就不会产生提醒。\n   - content 写这件事的完整信息（时间/地点/要做的事），它是**备忘本身**，\n \
+            \    不是你对用户说的话：不许出现“好的/收到/明白了/已更正/已经帮你”这类应答语，\n     也不许写“提醒你……”。MEMO_OP\
+            \ 的回复文案由后台按真实写入结果生成，\n     你说什么都不算数。\n     反例（错）：content = \"好的，已更正为明晚九点。\"\
+            \n     正例（对）：content = \"明晚21:00 青云楼S109开班会\"\n   - 纯闲聊、没有时间也没有后续行动的话，不要输出\
+            \ MEMO_OP。\n4. 用户陈述稳定个人信息（姓名、学号、专业、常用地址、偏好）→ FACT：\n   {\"factKey\":\"\
+            学号\",\"factValue\":\"2023001\",\"confidence\":0.0-1.0}\n   只有用户明确说出的才记；推断的\
+            \ confidence < 0.85。\n5. 要改 / 完成 / 取消一件**已经记下**的事 → 仍然是 MEMO_OP，绝对不要新建一条：\n\
+            \   - 改时间、改地点、改要求、补充细节 → \"op\":\"memo.update\"，只填真正变化的字段。\n     content\
+            \ 请重写成**改动后的完整状态**（例如“明天下午2点 教学楼 S111”），\n     旧值后台有记录，不要靠正文保留历史。\n  \
+            \ - 做完了 → \"op\":\"memo.close\" + \"status\":\"DONE\"；不办了/取消了 → \"status\"\
+            :\"CANCELLED\"。\n   - memoId **只能取自下方「未关闭的备忘」列表里的 id**，不许编造、不许猜。\n   -\
+            \ 拿不准指的是哪一条（0 条像，或 2 条以上都像）→ 输出 SEND 反问一句“你说的是哪个？”，\n     不要猜 memoId，也不要退化成新建。列表为空时同样不要编\
+            \ id。\n   - 用户明显在**更正**（“错了错了”“不是…是…”“改一下”“重新说一下”），\n     而列表为空或对不上时 →\
+            \ SEND 反问，**绝不新建一条**：那会变成两条互相矛盾的备忘。\n6. 用户说“时间不定了/暂时取消提醒”这类含糊说法，按改动处理：\n\
+            \   不确定要改什么就先 SEND 问一句，不要凭感觉写。\n7. 文件填写由专门流程处理，你不要输出 WAIT_FILE/ASK/FILE_FILL。\n\
+            8. 不确定用户是否在跟你说话 → SILENT。\n9. 不要编造事实、日期、承诺；不知道就说不知道。\n10. 没有的字段直接省略，不要输出\
+            \ null；不要输出 Markdown 代码块。\n11. 闲聊（send_kind=CHAT）时有三份材料，优先级从高到低：\n   \
+            \ - 「自动回复硬性约束」：无论如何都要守。它和主人的额外要求打架时，\n      以硬性约束为准，不要自己挑一个听起来更具体的执行。\n\
+            \    - 「主人的额外要求」：主人的偏好（称呼、语气、口头禅、什么话别接）。\n    - 「最近消息」：这段对话的前文（老→新）。只在需要接上文时参考，\n\
+            \      已经说过的别再重复一遍。\n   「风格要求」是主人平时的说话风格，决定「怎么说话」；不是内容来源。\n12. 拿不准该不该替主人答（要替主人做承诺、涉及钱/时间/见面的答复、\n\
+            \    被点名要求表态）→ send_kind=CHAT + \"needs_confirm\":true。\n    这样的回复会先存成草稿等主人确认，**比你猜一个答案发出去安全**。\n\
+            \    needs_confirm 只对 CHAT 有效；TASK 上写它没有任何用处。\n\n示例：\n用户：明天下午三点提醒我交实验报告\n\
+            → {\"version\":1,\"action\":\"MEMO_OP\",\"op\":\"memo.create\",\"title\"\
+            :\"交实验报告\",\n   \"content\":\"明天下午三点前提交\",\"importance\":4,\"category\"\
+            :\"学业\",\n   \"dueTime\":\"2026-10-27T15:00:00\"}\n\n用户：班会地点改成 S111（未关闭的备忘里有\
+            \ id 12「班会」）\n→ {\"version\":1,\"action\":\"MEMO_OP\",\"op\":\"memo.update\"\
+            ,\"memoId\":\"12\",\n   \"content\":\"明天下午2点 教学楼 S111\"}\n\n用户：错了错了，是明天晚上9点开班会（未关闭的备忘里有\
+            \ id 11「青云楼S109开班会」19:00）\n→ {\"version\":1,\"action\":\"MEMO_OP\",\"\
+            op\":\"memo.update\",\"memoId\":\"11\",\n   \"dueTime\":\"2026-10-30T21:00:00\"\
+            ,\"content\":\"明晚21:00 青云楼S109开班会\"}\n\n用户：明天不开班会了，取消吧（未关闭的备忘里有 id 12「班会」）\n\
+            → {\"version\":1,\"action\":\"MEMO_OP\",\"op\":\"memo.close\",\"memoId\"\
+            :\"12\",\"status\":\"CANCELLED\"}\n\n用户：那个会改一下（未关闭的备忘里有 3 条都像“会”）\n→ {\"\
+            version\":1,\"action\":\"SEND\",\"content\":\"你说的是哪个会？班会、面试还是组会？\"}\n\n\
+            用户：我叫张三，学号2023001\n→ {\"version\":1,\"action\":\"FACT\",\"content\":\"\
+            \",\n   \"fact\":{\"factKey\":\"姓名\",\"factValue\":\"张三\",\"confidence\"\
+            :0.98}}\n\n用户：帮我写一段给导师的请假说明\n→ {\"version\":1,\"action\":\"DRAFT\",\"\
+            content\":\"\",\n   \"draft\":{\"type\":\"REPLY\",\"title\":\"请假说明\",\n\
+            \            \"payload\":{\"content\":\"老师您好，我因……\"}}}\n\n用户：哈哈哈\n→ {\"\
+            version\":1,\"action\":\"SILENT\"}\n"
+        - id: 655b78dd-02df-4126-93d1-3ce289872805
+          role: user
+          text: '当前时间：{{#start.current_time#}}
 
+            会话类型：{{#start.chat_type#}}
 
-            def main() -> dict:
-                """失败分支：只说人话。
+            用户画像事实：{{#start.facts#}}
 
-                故意不接 error_message：代理/内网的原始报错既看不懂也不该外泄，
-                真正的排查线索在 Dify 运行日志的 OP_HTTP 节点里。
-                """
-                return {"decision": json.dumps(
-                    {"version": 1, "action": "SEND",
-                     "text": "刚才没办成，后台没连上，等会儿再说一次？"},
-                    ensure_ascii=False)}
-          code_language: python3
-          desc: 失败分支：固定道歉，不回显原始报错
-          outputs:
-            decision:
-              children: null
-              type: string
-          selected: false
-          title: OP_FAILED
-          type: code
-          variables: []
-        height: 180
-        id: op_failed
-        position:
-          x: 2360
-          y: 1180
-        positionAbsolute:
-          x: 2360
-          y: 1180
+            风格要求：{{#start.style_prompt#}}
+
+            未关闭的备忘（memoId 只能取自这里）：{{#start.open_memos#}}
+
+            最近消息（老→新）：{{#start.recent_messages#}}
+
+            主人的额外要求：{{#start.reply_prompt#}}
+
+            自动回复硬性约束（优先级最高）：{{#start.reply_rules#}}
+
+            用户消息：{{#start.query#}}
+
+            '
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          desc: ''
-          output_type: string
-          selected: false
-          title: MERGE_DECISION
-          type: variable-aggregator
-          variables:
-            - - check_missing
-              - decision
-            - - ask_no_request
-              - decision
-            - - cancel_reply
-              - decision
-            - - check_missing_text
-              - decision
-            - - wait_file_reply
-              - decision
-            # op 结果必须排在 clean_decision 前面：op 分支时 clean_decision
-            # 输出的是空串，聚合器取「第一个非空」，顺序错了就会回 SILENT
-            - - read_op_result
-              - decision
-            - - op_failed
-              - decision
-            - - clean_decision
-              - decision
-        height: 180
-        id: merge_decision
-        position:
-          x: 2760
-          y: 540
-        positionAbsolute:
-          x: 2760
-          y: 540
+        title: CHAT_DECISION
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 86
+      id: chat_decision
+      position:
+        x: 1280
+        y: 1040
+      positionAbsolute:
+        x: 1280
+        y: 1040
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: "import json\n\n# MEMO / MEMO_CLOSE 是回滚路径（提示词已切到 MEMO_OP），保留解析但不再产出\n\
+          ALLOWED = {\"SEND\", \"DRAFT\", \"SILENT\", \"MEMO\", \"FACT\", \"MEMO_CLOSE\"\
+          , \"MEMO_OP\"}\nCATEGORIES = {\"学业\", \"社交\", \"健康\", \"财务\", \"日常\", \"\
+          其他\"}\nOPS = {\"memo.create\", \"memo.update\", \"memo.close\"}\nOP_FIELDS\
+          \ = (\"memoId\", \"title\", \"content\", \"importance\", \"category\",\n\
+          \             \"dueTime\", \"clearDueTime\", \"status\")\nSILENT = {\"version\"\
+          : 1, \"action\": \"SILENT\"}\n\n\ndef _clean_memo(memo):\n    \"\"\"模型偶尔写错枚举/越界分数；这里兜底，否则\
+          \ Spring 侧 400 会把整条备忘丢掉。\"\"\"\n    if not isinstance(memo, dict):\n   \
+          \     memo = {}\n    out = {}\n    title = str(memo.get(\"title\") or \"\
+          \").strip()\n    content = str(memo.get(\"content\") or \"\").strip()\n\
+          \    due = str(memo.get(\"dueTime\") or \"\").strip()\n    out[\"title\"\
+          ] = title or (content[:40] or \"备忘\")\n    if content:\n        out[\"content\"\
+          ] = content\n    if due:\n        out[\"dueTime\"] = due\n    try:\n   \
+          \     importance = int(memo.get(\"importance\"))\n    except (TypeError,\
+          \ ValueError):\n        importance = 3\n    out[\"importance\"] = max(1,\
+          \ min(5, importance))\n    category = str(memo.get(\"category\") or \"\"\
+          ).strip()\n    out[\"category\"] = category if category in CATEGORIES else\
+          \ \"其他\"\n    return out\n\n\ndef _clean(value):\n    return \"\" if value\
+          \ is None else str(value).strip()\n\n\ndef _dump(value):\n    return json.dumps(value,\
+          \ ensure_ascii=False)\n\n\ndef _truthy(value):\n    \"\"\"`needs_confirm`\
+          \ 只认真真假值；模型爱写字符串 \"true\"，那种也算真。\n\n    这里宁可从宽：多一条草稿只是主人多点一次，漏判就是一句该确认的话\n\
+          \    直接发进了群。\n    \"\"\"\n    if isinstance(value, str):\n        return\
+          \ value.strip().lower() in (\"true\", \"1\", \"yes\")\n    return value\
+          \ is True or value == 1\n\n\ndef _normalize(data):\n    \"\"\"把 send_kind\
+          \ / needs_confirm 压成插件一定能读懂的形状。\n\n    - send_kind 缺省或不在词表里一律 TASK：旧提示词、模型的自由发挥都不能\n\
+          \      让门控失效；TASK 永远是「照发」，所以这样兜底只会更保守不会更冒险。\n    - needs_confirm 只对 CHAT\
+          \ 有意义。挂在 TASK 上是模型搞错了对象，\n      保留它会让备忘确认语被塞进草稿箱，用户永远看不到「改好了」。\n    \"\"\
+          \"\n    kind = _clean(data.get(\"send_kind\")).upper()\n    data[\"send_kind\"\
+          ] = kind if kind in (\"TASK\", \"CHAT\") else \"TASK\"\n    if data[\"send_kind\"\
+          ] == \"CHAT\" and _truthy(data.get(\"needs_confirm\")):\n        data[\"\
+          needs_confirm\"] = True\n    else:\n        data.pop(\"needs_confirm\",\
+          \ None)\n    return data\n\n\ndef _op_body(data, sender_id, chat_id, event_id):\n\
+          \    \"\"\"把模型的 op 压成扁平字符串 body。\n\n    身份字段（senderId / chatId / eventId）只从\
+          \ Start 取：\n    模型可以决定「做什么」，但绝不能决定「替谁做」，也不能决定幂等键。\n    \"\"\"\n    if _clean(data.get(\"\
+          op\")) not in OPS:\n        return None\n    body = {\n        \"eventId\"\
+          : _clean(event_id),\n        \"op\": _clean(data.get(\"op\")),\n       \
+          \ \"senderId\": _clean(sender_id),\n        \"chatId\": _clean(chat_id),\n\
+          \    }\n    for key in OP_FIELDS:\n        body[key] = _clean(data.get(key))\n\
+          \    return _dump(body)\n\n\ndef main(text: str, sender_id: str, chat_id:\
+          \ str, event_id: str) -> dict:\n    raw = (text or \"\").strip()\n    if\
+          \ raw.startswith(\"```\"):\n        raw = raw.strip(\"`\")\n        if raw.startswith(\"\
+          json\"):\n            raw = raw[4:].lstrip()\n\n    try:\n        data =\
+          \ json.loads(raw)\n    except Exception:\n        data = None\n\n    if\
+          \ not isinstance(data, dict) or data.get(\"action\") not in ALLOWED:\n \
+          \       return {\"decision\": _dump(SILENT), \"is_op\": \"false\", \"op_body\"\
+          : \"\"}\n\n    if data.get(\"action\") == \"MEMO_OP\":\n        body = _op_body(data,\
+          \ sender_id, chat_id, event_id)\n        if body is None:\n            #\
+          \ 模型给了非法的 op：宁可不写，也不猜\n            return {\"decision\": _dump(SILENT),\
+          \ \"is_op\": \"false\", \"op_body\": \"\"}\n        if not _clean(event_id):\n\
+          \            # 没有幂等键就不写：重复执行一次改期/取消，用户是察觉不到的\n            return {\"decision\"\
+          : _dump({\"version\": 1, \"action\": \"SEND\",\n                       \
+          \                \"send_kind\": \"TASK\",\n                            \
+          \           \"content\": \"刚才没办成，麻烦再说一遍？\"}),\n                    \"is_op\"\
+          : \"false\", \"op_body\": \"\"}\n        return {\"decision\": \"\", \"\
+          is_op\": \"true\", \"op_body\": body}\n\n    data.setdefault(\"version\"\
+          , 1)\n    if data.get(\"action\") == \"MEMO\":\n        data[\"memo\"] =\
+          \ _clean_memo(data.get(\"memo\"))\n    return {\"decision\": _dump(_normalize(data)),\
+          \ \"is_op\": \"false\", \"op_body\": \"\"}\n"
+        code_language: python3
+        desc: ''
+        outputs:
+          decision:
+            children: null
+            type: string
+          is_op:
+            children: null
+            type: string
+          op_body:
+            children: null
+            type: string
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
-      - data:
-          answer: '{{#merge_decision.output#}}'
-          desc: ''
-          selected: false
-          title: 直接回复
-          type: answer
-          variables: []
-        height: 120
-        id: answer
-        position:
-          x: 3000
-          y: 540
-        positionAbsolute:
-          x: 3000
-          y: 540
+        title: CLEAN_DECISION
+        type: code
+        variables:
+        - value_selector:
+          - chat_decision
+          - text
+          variable: text
+        - value_selector:
+          - start
+          - sender_id
+          variable: sender_id
+        - value_selector:
+          - start
+          - chat_id
+          variable: chat_id
+        - value_selector:
+          - start
+          - event_id
+          variable: event_id
+      height: 50
+      id: clean_decision
+      position:
+        x: 1520
+        y: 1040
+      positionAbsolute:
+        x: 1520
+        y: 1040
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: c0000000-0000-4000-8000-000000000002
+            value: 'true'
+            varType: string
+            variable_selector:
+            - clean_decision
+            - is_op
+          id: 'true'
+          logical_operator: and
+        desc: 这条消息是不是一次备忘写操作
         selected: false
-        sourcePosition: right
-        targetPosition: left
-        type: custom
-        width: 244
+        title: IS_OP
+        type: if-else
+      height: 150
+      id: is_op
+      position:
+        x: 1800
+        y: 1040
+      positionAbsolute:
+        x: 1800
+        y: 1040
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        authorization:
+          config: null
+          type: no-auth
+        body:
+          data:
+          - type: text
+            value: '{{#clean_decision.op_body#}}'
+          type: json
+        desc: 备忘写操作。Dify 只决定做什么，校验/归属/状态机/提醒重算全在 Spring
+        error_strategy: fail-branch
+        headers: 'X-Agent-Token: {{#env.AGENT_OPS_TOKEN#}}
+
+          '
+        method: post
+        params: ''
+        retry_config:
+          max_retries: 3
+          retry_enabled: true
+          retry_interval: 100
+        selected: false
+        timeout:
+          max_connect_timeout: 5
+          max_read_timeout: 20
+          max_write_timeout: 20
+        title: OP_HTTP
+        type: http-request
+        url: '{{#env.SPRING_BASE_URL#}}/api/agent/ops'
+        variables: []
+      height: 219
+      id: op_http
+      position:
+        x: 2080
+        y: 960
+      positionAbsolute:
+        x: 2080
+        y: 960
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: "import json\n\nMAX_TEXT = 200\n\n\ndef _send(text):\n    # 键名必须是 content：插件\
+          \ Dispatcher._send 读的是 content，\n    # 写成 text 会「后台写成功、用户一个字都收不到」\n    return\
+          \ json.dumps({\"version\": 1, \"action\": \"SEND\", \"send_kind\": \"TASK\"\
+          ,\n                       \"content\": text[:MAX_TEXT]}, ensure_ascii=False)\n\
+          \n\ndef _payload(body):\n    if isinstance(body, dict):\n        return\
+          \ body\n    try:\n        return json.loads(body or \"\")\n    except Exception:\n\
+          \        return None\n\n\ndef main(status_code: int, body: str) -> dict:\n\
+          \    \"\"\"把 HTTP 结果翻成决策信封（前后端唯一约定）。\n\n    全函数：任何输入都返回 SEND，绝不抛异常——抛了整条工作流会中断，\n\
+          \    用户连「没办成」都收不到。也不回显 body：后端细节不该出现在 QQ 里。\n    \"\"\"\n    try:\n    \
+          \    code = int(status_code or 0)\n    except (TypeError, ValueError):\n\
+          \        code = 0\n    payload = _payload(body)\n    if payload is None\
+          \ or not 200 <= code < 300:\n        return {\"decision\": _send(\"刚才没办成，后台没连上，等会儿再说一次？\"\
+          )}\n\n    message = str(payload.get(\"message\") or \"\").strip()\n    if\
+          \ payload.get(\"code\") != 0:\n        # 业务拒绝（校验/归属/找不到）走这条：把 Spring 给的中文原因原样转达，\n\
+          \        # 别改写成「没连上」，用户会以为重试就能好。\n        return {\"decision\": _send(message\
+          \ or \"这次没改成，换个说法再试试？\")}\n\n    data = payload.get(\"data\") or {}\n  \
+          \  if data.get(\"replayed\"):\n        message = (message or \"这件事已经办过了\"\
+          ) + \"（没有重复执行）\"\n    return {\"decision\": _send(message or \"办好了\")}\n"
+        code_language: python3
+        desc: 成功分支：把 Result 信封翻成 SEND
+        outputs:
+          decision:
+            children: null
+            type: string
+        selected: false
+        title: READ_OP_RESULT
+        type: code
+        variables:
+        - value_selector:
+          - op_http
+          - status_code
+          variable: status_code
+        - value_selector:
+          - op_http
+          - body
+          variable: body
+      height: 78
+      id: read_op_result
+      position:
+        x: 2360
+        y: 900
+      positionAbsolute:
+        x: 2360
+        y: 900
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: "import json\n\n\ndef main() -> dict:\n    \"\"\"失败分支：只说人话。\n\n    故意不接\
+          \ error_message：代理/内网的原始报错既看不懂也不该外泄，\n    真正的排查线索在 Dify 运行日志的 OP_HTTP 节点里。\n\
+          \    \"\"\"\n    return {\"decision\": json.dumps(\n        {\"version\"\
+          : 1, \"action\": \"SEND\", \"send_kind\": \"TASK\",\n         \"content\"\
+          : \"刚才没办成，后台没连上，等会儿再说一次？\"},\n        ensure_ascii=False)}\n"
+        code_language: python3
+        desc: 失败分支：固定道歉，不回显原始报错
+        outputs:
+          decision:
+            children: null
+            type: string
+        selected: false
+        title: OP_FAILED
+        type: code
+        variables: []
+      height: 78
+      id: op_failed
+      position:
+        x: 2360
+        y: 1180
+      positionAbsolute:
+        x: 2360
+        y: 1180
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        desc: ''
+        output_type: string
+        selected: false
+        title: MERGE_DECISION
+        type: variable-aggregator
+        variables:
+        - - check_missing
+          - decision
+        - - ask_no_request
+          - decision
+        - - cancel_reply
+          - decision
+        - - check_missing_text
+          - decision
+        - - wait_file_reply
+          - decision
+        - - read_op_result
+          - decision
+        - - op_failed
+          - decision
+        - - clean_decision
+          - decision
+      height: 290
+      id: merge_decision
+      position:
+        x: 2760
+        y: 540
+      positionAbsolute:
+        x: 2760
+        y: 540
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        answer: '{{#merge_decision.output#}}'
+        desc: ''
+        selected: false
+        title: 直接回复
+        type: answer
+        variables: []
+      height: 101
+      id: answer
+      position:
+        x: 3000
+        y: 540
+      positionAbsolute:
+        x: 3000
+        y: 540
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
     viewport:
-      x: 0
-      y: 0
-      zoom: 0.5
+      x: -69.52039439974692
+      y: 123.96921949203175
+      zoom: 0.6217388650146322
+  rag_pipeline_variables: []

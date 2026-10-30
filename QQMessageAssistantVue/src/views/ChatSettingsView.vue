@@ -24,6 +24,8 @@ const savingPrefs = ref(false)
 const prefsSaved = ref(false)
 
 const groups = computed(() => chats.value.filter((chat) => chat.kind === 'GROUP'))
+// 私聊没有群号，会话键是对方 QQ；私聊不参与整理，只有自动回复一个开关
+const privates = computed(() => chats.value.filter((chat) => chat.kind === 'PRIVATE'))
 const enabledCount = computed(() => groups.value.filter((chat) => chat.digestEnabled).length)
 
 onMounted(() => {
@@ -85,7 +87,7 @@ async function savePrefs() {
 }
 
 function chatLabel(chat: ChatSetting) {
-  return chat.chatName || `群 ${chat.chatId}`
+  return chat.chatName || (chat.kind === 'PRIVATE' ? `QQ ${chat.chatId}` : `群 ${chat.chatId}`)
 }
 </script>
 
@@ -173,6 +175,7 @@ function chatLabel(chat: ChatSetting) {
         </h2>
         <p class="block-hint">
           列表来自机器人见过的群消息；还没配置过的群默认两个开关都是关的。
+          自动回复还有一个总开关，在「设置 → 自动回复」——它关着时这里怎么开都不会说话。
         </p>
 
         <EmptyState
@@ -210,7 +213,41 @@ function chatLabel(chat: ChatSetting) {
             </div>
           </li>
         </ul>
-        <p v-if="groups.length" class="faint note">自动回复要等自动回复那一版上线后才真正生效，现在打开只是先记下选择。</p>
+        <p v-if="groups.length" class="faint note">
+          自动回复管的是<span>替你说日常话</span>；备忘、查资料、文件填写不受这个开关影响，照常工作。
+        </p>
+      </section>
+
+      <section class="block">
+        <h2 class="block-title">私聊</h2>
+        <p class="block-hint">
+          私聊只有自动回复这一个开关，不做整理。开着才替你说日常话，关闭时你说的事照记不误。
+        </p>
+
+        <EmptyState
+          v-if="!privates.length"
+          title="还没人私聊过机器人"
+          hint="有人私聊它一句，这里就会出现。"
+        />
+
+        <ul v-else class="chats">
+          <li v-for="chat in privates" :key="`PRIVATE:${chat.chatId}`" class="chat">
+            <p class="chat-name">{{ chatLabel(chat) }}</p>
+            <div class="chat-switches">
+              <label class="mini">
+                <input
+                  type="checkbox"
+                  class="switch switch-sm"
+                  role="switch"
+                  :checked="chat.autoReplyEnabled"
+                  :aria-checked="chat.autoReplyEnabled"
+                  @change="toggle(chat, 'autoReplyEnabled')"
+                />
+                <span>自动回复</span>
+              </label>
+            </div>
+          </li>
+        </ul>
       </section>
     </template>
   </div>
@@ -268,81 +305,7 @@ function chatLabel(chat: ChatSetting) {
   line-height: 1.55;
 }
 
-.switch-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  cursor: pointer;
-}
-
-.switch-text {
-  display: grid;
-  gap: 3px;
-}
-
-.switch-label {
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.switch-hint {
-  color: var(--ink-3);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-/* 开关本体：原生 checkbox，样式只做外观，键盘与读屏照旧 */
-.switch {
-  flex: none;
-  width: 44px;
-  height: 26px;
-  margin-left: auto;
-  appearance: none;
-  border-radius: var(--r-pill);
-  background: rgba(17, 18, 20, 0.14);
-  cursor: pointer;
-  transition: background 180ms var(--ease-out);
-}
-
-.switch::after {
-  content: '';
-  display: block;
-  width: 20px;
-  height: 20px;
-  margin: 3px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
-  transition: transform 200ms var(--ease-spring);
-}
-
-.switch:checked {
-  background: var(--accent);
-}
-
-.switch:checked::after {
-  transform: translateX(18px);
-}
-
-.switch:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
-}
-
-.switch-sm {
-  width: 38px;
-  height: 22px;
-}
-
-.switch-sm::after {
-  width: 16px;
-  height: 16px;
-  margin: 3px;
-}
-
-.switch-sm:checked::after {
-  transform: translateX(16px);
-}
+/* 开关本体样式在全局 style.css（设置页也用同一套） */
 
 .chats {
   display: grid;

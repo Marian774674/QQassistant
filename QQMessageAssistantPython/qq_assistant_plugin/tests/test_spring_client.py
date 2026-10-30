@@ -68,3 +68,22 @@ async def test_list_open_memos_passes_sender_and_limit():
     params = route.calls[0].request.url.params
     assert params["senderId"] == "1001"
     assert params["limit"] == "20"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_reply_context_passes_the_three_params():
+    route = respx.get("http://sb/api/chat-settings/reply-context").mock(
+        return_value=httpx.Response(200, json={
+            "code": 0, "message": "ok",
+            "data": {"enabled": True, "replyPrompt": "随意点", "rateLimit": 20,
+                     "outLastHour": 3, "recentMessages": []}}))
+    client = SpringClient("http://sb")
+
+    data = await client.reply_context(123, "GROUP", limit=15)
+
+    assert data["enabled"] is True
+    params = route.calls[0].request.url.params
+    assert params["chatId"] == "123"
+    assert params["kind"] == "GROUP"
+    assert params["limit"] == "15"

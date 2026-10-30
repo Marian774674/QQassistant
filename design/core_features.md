@@ -267,13 +267,18 @@ Spring 侧新增 `client/DifyWorkflowClient`（`POST /v1/workflows/run`，blocki
 1. **做**：会话消息照旧送 Dify，Dify 照旧执行 MEMO_OP / 建备忘 / 建草稿。这一层不受开关影响。
 2. **说**：Chatflow 的决策信封多一个字段 `send_kind`：
    - `TASK` —— 备忘/文件/操作结果、要素不全时的反问 → **总是发**（和今天一样）；
-   - `CHAT` —— 日常对话的应答 → 只有 `auto_reply_enabled = 1` 时才发。
+   - `CHAT` —— 日常对话的应答 → 只有 `auto_reply_enabled = 1` **且总开关 `app_setting.reply_enabled` 没被关掉**时才发。
    这个区分是语义判断，属于 Dify；「发了之后怎么记、怎么限流」属于插件和 Spring。
 3. **限流**：只对 `CHAT` 生效。同一会话每小时最多 `app_setting.reply_rate_limit`（默认 20）条，
    统计口径 = `message_log` 里该会话最近一小时 `direction='OUT' AND reply_kind='CHAT'` 的行数。
    超了这条 `CHAT` 不发、写一条 `file_store.debug`，**不影响同一轮的 `TASK` 输出**。
 
 群里只有 `@机器人` 或带前缀才算触发，私聊直接算；**不加「主动插话」**——这条不变。
+
+**总开关**（设置页「自动回复」分区顶部）：一键把 `CHAT` 全停，不用一个个群去关。
+存 `app_setting.reply_enabled`，**没配过 = 开**——它是紧急闸，不能因为升级把已经
+逐个打开的会话顺手关掉。判定在 Spring 的 `reply-context` 里做（`enabled = 总开关 AND 会话开关`），
+插件不用改：它本来就只认一个 `enabled`。`TASK` 照旧不受影响。
 
 `send_kind` 是决策信封的新字段，按仓库规矩**先改 `design/agent_contract.md` 再动代码**
 （`agent_contract.md:5`「任何一侧改字段，先改本文件」）。插件拿不到这个字段时按 `TASK` 处理，
@@ -292,8 +297,17 @@ Spring 侧新增 `client/DifyWorkflowClient`（`POST /v1/workflows/run`，blocki
 | 新输入 | 内容 | 来源 |
 |---|---|---|
 | `reply_prompt` | 你写的那段子提示词 | `app_setting.reply_prompt` |
-| `recent_messages` | 该会话最近 15 条（含别人说的） | 新接口 `GET /api/message-logs/recent` |
-| `reply_rules` | 固定约束的机器可读版（不写进你的子提示词） | 常量 |
+| `recent_messages` | 该会话最近 15 条（含别人说的） | `GET /api/chat-settings/reply-context` |
+| `reply_rules` | 固定约束的机器可读版（不写进你的子提示词） | 插件常量 `core/reply_rules.py` |
+
+三份材料（开关、限流、人设、最近消息）由 `GET /api/chat-settings/reply-context`
+**一次取齐**：它们同属一轮提示词输入，分两次取会出现「开关是新的、计数是旧的」这种
+自相矛盾的快照，还多一个失败点。`reply_rules` 是 Dify 输入拼装的一部分，所以放插件
+（与 `open_memos` 的 `json.dumps` 同一层），不进 Spring。
+
+**私聊按对方 QQ 计**：私聊的 `message_log.chat_id` 是 NULL，`sender_id` 才是会话键；
+`chat_setting` 的私聊行也存对方 QQ。`listAll` 会从日志里把私聊对象一并列出来，
+否则这个开关在界面上无从打开。
 
 `recent_messages` 是自动回复「像人」的关键——现在 Dify 只能看到被 @ 的那几句，
 它根本不知道群里刚才在聊什么。这段数据本来就躺在 `message_log` 里。
@@ -396,6 +410,9 @@ CREATE TABLE `chat_digest_item` (
    这是第一个用户能看见的东西，先让它跑起来。
 4. **F4 历史查询**（夜间归纳 + `/api/ask` + 反问闭环 + Vue 对话框 + 记忆页人物区）。
 5. **F2 自动回复**（`chat_setting` 开关 + 子提示词 + `recent_messages` + 限流 + 草稿降级）。
+   ✅ 已实现（2026-10-30）：插件门控 `core/reply_gate.py`、契约 `send_kind` / `needs_confirm`、
+   `GET /api/chat-settings/reply-context`、设置页子提示词与限流。**上线还差人工把
+   `design/QQAssistant.chatflow.yml` 重新导入 Dify 并发布**，之后才是真机验证。
 6. **文档收敛**：README 的核心功能章节改写成这四件；文件填写标为「冻结」。
 
 每步都能独立验收，做完一步能停。自动回复放最后，是因为它唯一会对外产生副作用。

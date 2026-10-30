@@ -21,6 +21,27 @@ def test_open_memos_is_json_not_repr():
     assert inputs["open_memos"] == '[{"id": 12, "title": "班会"}]'
 
 
+def test_reply_inputs_carry_the_three_new_keys():
+    inputs = build_inputs(None, "text", "group", 123, 1,
+                          reply_prompt="随意点，别提我工作",
+                          recent_messages=[{"senderName": "阿黄", "direction": "IN",
+                                            "content": "明天几点集合"}],
+                          reply_rules="不透露是机器人")
+
+    assert inputs["reply_prompt"] == "随意点，别提我工作"
+    assert inputs["recent_messages"] == (
+        '[{"senderName": "阿黄", "direction": "IN", "content": "明天几点集合"}]')
+    assert inputs["reply_rules"] == "不透露是机器人"
+
+
+def test_reply_inputs_default_to_empty():
+    inputs = build_inputs(None, "text", "group", 123, 1)
+
+    assert inputs["recent_messages"] == "[]"   # 取不到也要是合法 JSON，不能让模型读 null
+    assert inputs["reply_prompt"] == ""
+    assert inputs["reply_rules"] == ""
+
+
 def test_event_id_prefers_platform_message_id():
     # 同一条消息被重投时值必须稳定，后端靠它去重
     assert event_id_of(SimpleNamespace(message_id="m-1")) == "m-1"

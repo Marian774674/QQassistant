@@ -531,6 +531,84 @@ textarea.input {
   line-height: 1.55;
 }
 
+/* ── 开关 ─────────────────────────────────────────────────── */
+
+/* 设置页与会话页共用；开关本体是原生 checkbox，样式只做外观，键盘与读屏照旧 */
+.switch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.switch-text {
+  display: grid;
+  gap: 3px;
+}
+
+.switch-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.switch-hint {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.switch {
+  flex: none;
+  width: 44px;
+  height: 26px;
+  margin-left: auto;
+  appearance: none;
+  border-radius: var(--r-pill);
+  background: rgba(17, 18, 20, 0.14);
+  cursor: pointer;
+  transition: background 180ms var(--ease-out);
+}
+
+.switch::after {
+  content: '';
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: 3px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+  transition: transform 200ms var(--ease-spring);
+}
+
+.switch:checked {
+  background: var(--accent);
+}
+
+.switch:checked::after {
+  transform: translateX(18px);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.switch-sm {
+  width: 38px;
+  height: 22px;
+}
+
+.switch-sm::after {
+  width: 16px;
+  height: 16px;
+  margin: 3px;
+}
+
+.switch-sm:checked::after {
+  transform: translateX(16px);
+}
+
 /* ── 小标签 ───────────────────────────────────────────────── */
 
 .chip {
