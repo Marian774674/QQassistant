@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { CircleDashed } from 'lucide-vue-next'
+import type { Component } from 'vue'
 
 defineProps<{
   title: string
   hint?: string
+  /** 换一个更贴题的图标；不传就用中性的虚线圈 */
+  icon?: Component
 }>()
 </script>
 
 <template>
   <div class="empty">
     <span class="empty-mark" aria-hidden="true">
-      <CircleDashed :size="22" :stroke-width="1.6" />
+      <component :is="icon ?? CircleDashed" :size="22" :stroke-width="1.6" />
     </span>
     <p class="empty-title">{{ title }}</p>
     <p v-if="hint" class="empty-hint">{{ hint }}</p>

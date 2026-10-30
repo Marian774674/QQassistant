@@ -7,8 +7,8 @@ import {
   Home,
   Inbox,
   LayoutGrid,
+  MessageCircleQuestion,
   Plus,
-  Sparkles,
 } from 'lucide-vue-next'
 import { useDraftStore } from '@/composables/useDraftStore'
 import { useFabState } from '@/composables/useFab'
@@ -25,7 +25,7 @@ const navItems = [
   { to: '/home', label: '首页', icon: Home },
   { to: '/memos', label: '备忘', icon: CalendarDays },
   { to: '/drafts', label: '草稿', icon: Inbox, badge: true },
-  { to: '/memory', label: '记忆', icon: Sparkles },
+  { to: '/ask', label: '问一句', icon: MessageCircleQuestion },
   { to: '/more', label: '更多', icon: LayoutGrid },
 ]
 
@@ -37,7 +37,8 @@ const activeIndex = computed(() => {
   if (path.startsWith('/home')) return 0
   if (path.startsWith('/memos')) return 1
   if (path.startsWith('/drafts')) return 2
-  if (path.startsWith('/memory')) return 3
+  if (path.startsWith('/ask')) return 3
+  // 记忆、群设置、日志这些都收在「更多」下面
   return 4
 })
 
@@ -200,7 +201,7 @@ async function onPointerUp() {
       <Plus :size="24" :stroke-width="2" aria-hidden="true" />
     </button>
 
-    <nav class="tabbar" aria-label="主导航">
+    <nav class="tabbar" :style="{ '--tab-n': navItems.length }" aria-label="主导航">
       <span
         class="tab-indicator"
         :style="{ transform: `translateX(${activeIndex * 100}%)` }"
@@ -210,11 +211,12 @@ async function onPointerUp() {
       </span>
 
       <RouterLink
-        v-for="item in navItems"
+        v-for="(item, index) in navItems"
         :key="item.to"
         :to="item.to"
         class="tab"
-        active-class="is-active"
+        :class="{ 'is-active': activeIndex === index }"
+        :aria-current="activeIndex === index ? 'page' : undefined"
       >
         <span class="tab-icon">
           <component :is="item.icon" :size="21" :stroke-width="1.9" aria-hidden="true" />
@@ -343,13 +345,13 @@ async function onPointerUp() {
   z-index: 30;
   flex: none;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(var(--tab-n, 5), 1fr);
   height: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px));
   padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--hairline);
-  background: rgba(255, 255, 255, 0.86);
-  backdrop-filter: saturate(1.6) blur(18px);
-  -webkit-backdrop-filter: saturate(1.6) blur(18px);
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: saturate(1.6) blur(20px);
+  -webkit-backdrop-filter: saturate(1.6) blur(20px);
 }
 
 /* 选中态是一块会滑动的药丸，跟着 tab 走 */
@@ -357,7 +359,7 @@ async function onPointerUp() {
   position: absolute;
   top: 6px;
   left: 10px;
-  width: calc((100% - 20px) / 5);
+  width: calc((100% - 20px) / var(--tab-n, 5));
   height: 27px;
   transition: transform var(--dur-3) var(--ease-spring);
   pointer-events: none;
@@ -367,11 +369,11 @@ async function onPointerUp() {
   position: absolute;
   left: 50%;
   top: 0;
-  width: 40px;
+  width: 42px;
   height: 27px;
-  margin-left: -20px;
+  margin-left: -21px;
   border-radius: var(--r-pill);
-  background: rgba(17, 18, 20, 0.06);
+  background: rgba(17, 18, 20, 0.055);
 }
 
 .tab {

@@ -10,10 +10,12 @@ createApp(App).use(router).mount('#app')
  * 之后点底部 tab 就是本地命中，不用再等一次网络往返。
  */
 const warmRoutes = [
+  () => import('./views/AskView.vue'),
   () => import('./views/DraftsView.vue'),
-  () => import('./views/MemoryView.vue'),
   () => import('./views/MoreView.vue'),
+  () => import('./views/MemoryView.vue'),
   () => import('./views/SettingsView.vue'),
+  () => import('./views/ChatSettingsView.vue'),
   () => import('./views/FilesView.vue'),
   () => import('./views/LogsView.vue'),
   () => import('./views/RulesView.vue'),
