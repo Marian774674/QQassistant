@@ -239,8 +239,10 @@ a {
 }
 
 /*
- * 页头吸顶：滚动后收起 eyebrow 与副标题、标题降到 18px，并压一层毛玻璃。
- * 顶部的安全区留给页头自己，这样滚动后毛玻璃能盖住刘海区域。
+ * 页头吸顶：滚动后收起 eyebrow 与副标题、标题降到 18px。
+ * 背景始终用画布色（不是 transparent）：收起/展开之间那几帧如果背景透明，
+ * 下面的内容会从标题后面透出来，看着像重影。
+ * 也不用 backdrop-filter —— 常驻毛玻璃在移动端滚动时很吃 GPU，而且这里背景不透明，毛玻璃本来也看不出来。
  */
 .page-head {
   position: sticky;
@@ -248,9 +250,8 @@ a {
   z-index: 20;
   margin: 0 calc(var(--pad-x) * -1);
   padding: calc(10px + env(safe-area-inset-top, 0px)) var(--pad-x) 16px;
-  background: transparent;
-  transition: padding var(--dur-2) var(--ease-out),
-    background-color var(--dur-2) var(--ease-out);
+  background: var(--bg);
+  transition: padding var(--dur-2) var(--ease-out);
 }
 
 .page-head .page-title {
@@ -277,9 +278,6 @@ a {
 
 .app[data-scrolled="true"] .page-head {
   padding-bottom: 10px;
-  background: rgba(237, 237, 237, 0.97);
-  backdrop-filter: saturate(1.2) blur(8px);
-  -webkit-backdrop-filter: saturate(1.2) blur(8px);
   box-shadow: 0 1px 0 rgba(17, 18, 20, 0.07);
 }
 

@@ -43,6 +43,14 @@ const activeIndex = computed(() => {
 
 /* ── 滚动：页头收起 + 位置记忆 ────────────────────────────── */
 
+/*
+ * 收起与展开用两个不同的阈值（滞回）：只用一个阈值时，
+ * 顶部回弹（iOS 橡皮筋）或手指微抖会让 scrollTop 在阈值上下反复穿过，
+ * 页头就跟着一亮一暗地闪。两个阈值把这段来回抖动挡在外面。
+ */
+const COLLAPSE_AT = 28
+const EXPAND_AT = 8
+
 const scrolled = ref(false)
 const positions = new Map<string, number>()
 let lastPath = route.path
@@ -52,7 +60,12 @@ function onScroll() {
   if (ticking) return
   ticking = true
   requestAnimationFrame(() => {
-    scrolled.value = (screenEl.value?.scrollTop ?? 0) > 12
+    const top = screenEl.value?.scrollTop ?? 0
+    if (scrolled.value) {
+      if (top < EXPAND_AT) scrolled.value = false
+    } else if (top > COLLAPSE_AT) {
+      scrolled.value = true
+    }
     ticking = false
   })
 }
@@ -78,7 +91,7 @@ watch(
 
     const target = positions.get(path) ?? 0
     el?.scrollTo({ top: target })
-    scrolled.value = target > 12
+    scrolled.value = target > COLLAPSE_AT
 
     if (path === '/memos' || path === '/drafts') void draftStore.refreshPendingDrafts()
   },
@@ -248,6 +261,12 @@ async function onPointerUp() {
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
+  /*
+   * 页头收起时自身高度会从 ~147px 压到 ~70px。默认的滚动锚定会为了「保持视野不动」
+   * 逐帧补偿 scrollTop，而补偿又跨过收起阈值，状态于是在 60fps 下反复横跳——
+   * 表现就是滚动时页头一直在抖。关掉锚定，高度变化就只发生一次。
+   */
+  overflow-anchor: none;
   padding-bottom: calc(var(--tab-h) + 26px + env(safe-area-inset-bottom, 0px));
 }
 
