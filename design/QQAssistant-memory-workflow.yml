@@ -1,0 +1,417 @@
+app:
+  description: 记忆与整理：把群消息归纳成「谁说了什么」的要点。Dify 只做语义判断，证据校验与落库在 Spring。
+  icon: 🧠
+  icon_background: '#E0F2FE'
+  icon_type: emoji
+  mode: workflow
+  name: 记忆与整理
+  use_icon_as_answer_icon: false
+dependencies:
+- current_identifier: null
+  type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: langgenius/tongyi:0.2.26@6c75a6b95954ef3c97f0d3225bad7cbfbff7cdbc82d9425074aae121cc056a64
+    version: null
+kind: app
+version: 0.7.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions: []
+      allowed_file_types: []
+      allowed_file_upload_methods: []
+      enabled: false
+      fileUploadConfig: {}
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: if-else
+      id: e0000000-0000-4000-8000-000000000201
+      source: start
+      sourceHandle: source
+      target: is_digest
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: e0000000-0000-4000-8000-000000000202
+      source: is_digest
+      sourceHandle: 'true'
+      target: digest_llm
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000203
+      source: is_digest
+      sourceHandle: 'false'
+      target: empty_items
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000204
+      source: digest_llm
+      sourceHandle: source
+      target: parse_digest
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: end
+      id: e0000000-0000-4000-8000-000000000205
+      source: parse_digest
+      sourceHandle: source
+      target: end_digest
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: end
+      id: e0000000-0000-4000-8000-000000000206
+      source: empty_items
+      sourceHandle: source
+      target: end_other
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        desc: ''
+        selected: false
+        title: 开始
+        type: start
+        variables:
+        - label: task
+          max_length: 32
+          options: []
+          required: true
+          type: text-input
+          variable: task
+        - label: chat_name
+          max_length: 128
+          options: []
+          required: false
+          type: text-input
+          variable: chat_name
+        - label: messages
+          max_length: 100000
+          options: []
+          required: false
+          type: text-input
+          variable: messages
+        - label: profile
+          max_length: 20000
+          options: []
+          required: false
+          type: text-input
+          variable: profile
+        - label: focus
+          max_length: 4000
+          options: []
+          required: false
+          type: text-input
+          variable: focus
+      height: 180
+      id: start
+      position:
+        x: 80
+        y: 300
+      positionAbsolute:
+        x: 80
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 0
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: c0000000-0000-4000-8000-000000000201
+            value: digest
+            varType: string
+            variable_selector:
+            - start
+            - task
+          id: 'true'
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: 是整理任务
+        type: if-else
+      height: 122
+      id: is_digest
+      position:
+        x: 400
+        y: 300
+      positionAbsolute:
+        x: 400
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        memory:
+          query_prompt_template: ''
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 10
+        model:
+          completion_params:
+            temperature: 0.2
+          mode: chat
+          name: qwen3.8-flash
+          provider: langgenius/tongyi/tongyi
+        prompt_template:
+        - id: 7a1c0000-0000-4000-8000-000000000201
+          role: system
+          text: |
+            你是群聊记录整理器。用户（下称「我」）不在线时群里发生了很多事，你要把值得他知道的挑出来，每条一句话说清「谁说了什么」。
+
+            messages 每行一条消息，格式是：
+            id|[@我]|昵称|时间|内容
+            第二列是 [@我] 表示这条消息点名了我。
+
+            只输出一个 JSON 数组，不要 Markdown 代码块、不要任何解释：
+            [{"summary":"班主任提醒明天下午三点开班会","importance":4,"keywords":"班会,通知","mentions_me":false,"source_msg_ids":[12]}]
+
+            规则：
+            1. summary 不超过 60 字，必须写明是谁说的、说了什么；同一个人围绕同一件事连发的几条合并成一条，source_msg_ids 列出全部证据。
+            2. importance 取 1–5：5=要我立刻处理（时间地点变更、截止时间、点名要我回复）；4=与我直接相关或必须知道；3=一般通知；2=闲聊但有信息；1=可忽略。
+            3. keywords 最多 3 个，逗号分隔，不要带 #。
+            4. mentions_me 为 true 当且仅当这条的证据行里有 [@我]。
+            5. source_msg_ids 只能取输入每行开头的 id（整数数组），不许编造、不许用行号代替；拿不出证据的条目不要输出。
+            6. 带 [@我] 的行必须各自产出一项（同一件事可以合并），mentions_me 为 true，且 importance 不低于 4。
+            7. 没有值得说的内容就输出 []。「哈哈哈」「收到」「+1」这类口水话不要单独成条。
+            8. 不许出现输入里没有的人名、时间、事项；不确定就在 summary 里写「有人提到」，并降低 importance。
+            9. focus 非空时按 focus 关心的点取舍和排序；focus 为空时按「有时间地点的通知 > 要我做的事 > 提到我」取舍。
+        - id: 7a1c0000-0000-4000-8000-000000000202
+          role: user
+          text: |
+            群：{{#start.chat_name#}}
+
+            我的身份与别名：{{#start.profile#}}
+
+            我关注：{{#start.focus#}}
+
+            messages:
+            {{#start.messages#}}
+        selected: false
+        title: 归纳要点
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 98
+      id: digest_llm
+      position:
+        x: 720
+        y: 160
+      positionAbsolute:
+        x: 720
+        y: 160
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: |
+          import json
+
+
+          def main(text: str) -> dict:
+              """把模型输出收成一个纯 JSON 数组字符串；解析不了就返回空，绝不让脏数据流到 Spring。"""
+              raw = (text or "").strip()
+              if raw.startswith("```"):
+                  raw = raw.strip("`")
+                  if raw.startswith("json"):
+                      raw = raw[4:].lstrip()
+              try:
+                  data = json.loads(raw)
+              except Exception:
+                  return {"items": "[]"}
+              if isinstance(data, dict):
+                  data = data.get("items")
+              if not isinstance(data, list):
+                  return {"items": "[]"}
+              cleaned = []
+              for item in data:
+                  if not isinstance(item, dict):
+                      continue
+                  summary = str(item.get("summary") or "").strip()
+                  ids = item.get("source_msg_ids") or []
+                  if not summary or not isinstance(ids, list) or not ids:
+                      continue
+                  cleaned.append({
+                      "summary": summary[:512],
+                      "importance": item.get("importance"),
+                      "keywords": item.get("keywords") or "",
+                      "mentions_me": item.get("mentions_me") is True,
+                      "source_msg_ids": ids,
+                  })
+              return {"items": json.dumps(cleaned, ensure_ascii=False)}
+        code_language: python3
+        desc: ''
+        outputs:
+          items:
+            children: null
+            type: string
+        selected: false
+        title: 解析要点
+        type: code
+        variables:
+        - value_selector:
+          - digest_llm
+          - text
+          variable: text
+      height: 50
+      id: parse_digest
+      position:
+        x: 1040
+        y: 160
+      positionAbsolute:
+        x: 1040
+        y: 160
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: |
+          def main() -> dict:
+              # 非 digest 任务（历史查询、事实抽取等）还没接线，先给个空结果，避免调用方报错
+              return {"items": "[]"}
+        code_language: python3
+        desc: ''
+        outputs:
+          items:
+            children: null
+            type: string
+        selected: false
+        title: 其它任务占位
+        type: code
+        variables: []
+      height: 50
+      id: empty_items
+      position:
+        x: 720
+        y: 480
+      positionAbsolute:
+        x: 720
+        y: 480
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - parse_digest
+          - items
+          variable: items
+        selected: false
+        title: 结束
+        type: end
+      height: 110
+      id: end_digest
+      position:
+        x: 1360
+        y: 160
+      positionAbsolute:
+        x: 1360
+        y: 160
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - empty_items
+          - items
+          # 结束节点的输出变量名在应用内必须唯一，「发布」前的检查清单会卡这个；
+          # Spring 只读 digest 分支的 items，这条占位支路叫什么都不影响调用方
+          variable: placeholder_items
+        selected: false
+        title: 结束（占位）
+        type: end
+      height: 110
+      id: end_other
+      position:
+        x: 1040
+        y: 480
+      positionAbsolute:
+        x: 1040
+        y: 480
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    viewport:
+      x: 0
+      y: 0
+      zoom: 0.7

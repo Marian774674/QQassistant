@@ -15,7 +15,7 @@ from core.dispatch import parse_answer
 from core.event import build_inputs, event_id_of
 from core.reply import reply_text
 from core.rules import task_key
-from core.text import extract_text, has_file, human_delay_seconds, is_at_bot
+from core.text import extract_text, has_file, human_delay_seconds, is_at_bot, peer_names
 
 log = logging.getLogger(__name__)
 
@@ -169,8 +169,11 @@ class DefaultEventListener(EventListener):
         text = extract_text(chain)
 
         # 1. IN 日志：同步入队，永不阻塞、永不抛错（排查依据，最先落）
+        #    昵称/群名只给人看：整理结果要写「谁在哪个群说了什么」，光有 id 读不懂
+        sender_name, chat_name = peer_names(event)
         deps.log_queue.enqueue({
             "senderId": sender_id, "chatId": chat_id, "direction": "IN",
+            "senderName": sender_name, "chatName": chat_name,
             "msgType": "file" if has_file(chain) else "text", "content": text,
         })
         # 插件 worker 的 stdout 不会进 LangBot 日志文件，落盘面包屑才是唯一稳定痕迹

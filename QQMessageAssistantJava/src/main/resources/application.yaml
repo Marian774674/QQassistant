@@ -7,6 +7,11 @@ spring:
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
+  task:
+    scheduling:
+      pool:
+        # 默认只有 1 个线程：整理一个群要等 Dify（最长 60s），期间到点的备忘提醒会被直接跳过
+        size: 2
 
 mybatis-plus:
   configuration:
@@ -25,6 +30,13 @@ langbot:
   # 桥内最坏耗时 = DELAY_MAX_MS(15000) + HTTP_TIMEOUT(10000) = 25s；
   # 读超时必须大于它，否则 Java 先超时回滚、桥随后仍发出 → 用户重试就会重复发送
   read-timeout-ms: 35000
+
+dify:
+  workflow:
+    # 「记忆与整理」Workflow 应用（和对话用的 Chatflow 是两个应用，密钥不通用）
+    base-url: ${DIFY_WORKFLOW_BASE_URL:http://127.0.0.1/v1}
+    api-key: ${DIFY_WORKFLOW_API_KEY:app-bJjkczL6buQyIXvZLsuaCTo9}
+    timeout-ms: 60000
 
 app:
   agent:

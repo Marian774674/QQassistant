@@ -1,20 +1,25 @@
 <script setup lang="ts">
 import { Check, Info, TriangleAlert } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
+import type { ToastItem } from '@/composables/useToast'
 
 const toast = useToast()
+
+function runAction(item: ToastItem) {
+  item.action?.run()
+  toast.dismiss(item.id)
+}
 </script>
 
 <template>
   <div class="toast-host" aria-live="polite" aria-atomic="false">
     <TransitionGroup name="toast">
-      <button
+      <div
         v-for="item in toast.items"
         :key="item.id"
-        type="button"
         class="toast"
         :class="`toast-${item.tone}`"
-        @click="toast.dismiss(item.id)"
+        role="status"
       >
         <span class="toast-icon" aria-hidden="true">
           <Check v-if="item.tone === 'success'" :size="13" :stroke-width="3" />
@@ -22,7 +27,15 @@ const toast = useToast()
           <Info v-else :size="13" :stroke-width="2.4" />
         </span>
         <span class="toast-text">{{ item.message }}</span>
-      </button>
+        <button
+          v-if="item.action"
+          type="button"
+          class="toast-action"
+          @click="runAction(item)"
+        >
+          {{ item.action.label }}
+        </button>
+      </div>
     </TransitionGroup>
   </div>
 </template>
@@ -45,7 +58,6 @@ const toast = useToast()
   gap: 9px;
   width: 100%;
   padding: 11px 14px;
-  border: 0;
   border-radius: var(--r-md);
   background: rgba(16, 16, 17, 0.94);
   backdrop-filter: blur(12px);
@@ -54,9 +66,7 @@ const toast = useToast()
   color: #fff;
   font-size: 13.5px;
   line-height: 1.45;
-  text-align: left;
   pointer-events: auto;
-  cursor: pointer;
 }
 
 .toast-icon {
@@ -81,6 +91,24 @@ const toast = useToast()
 
 .toast-text {
   flex: 1;
+  min-width: 0;
+}
+
+.toast-action {
+  flex: none;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+
+.toast-action:active {
+  background: rgba(255, 255, 255, 0.26);
 }
 
 .toast-enter-active,

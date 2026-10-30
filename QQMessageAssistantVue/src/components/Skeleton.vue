@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+
 withDefaults(
   defineProps<{
     rows?: number
@@ -7,10 +9,24 @@ withDefaults(
   }>(),
   { rows: 3, variant: 'card' },
 )
+
+/**
+ * 请求很快时骨架屏一闪而过，比直接出内容更像故障。
+ * 先留 150ms 的空档：这之内回来的数据根本不显示骨架。
+ */
+const DELAY = 150
+const visible = ref(false)
+let timer = 0
+
+onMounted(() => {
+  timer = window.setTimeout(() => (visible.value = true), DELAY)
+})
+
+onBeforeUnmount(() => window.clearTimeout(timer))
 </script>
 
 <template>
-  <div class="skeleton-list" :class="variant" aria-hidden="true">
+  <div class="skeleton-list" :class="[variant, { visible }]" aria-hidden="true">
     <div v-for="n in rows" :key="n" class="row">
       <template v-if="variant === 'timeline'">
         <span class="dot" />
@@ -48,6 +64,12 @@ withDefaults(
 .skeleton-list {
   display: grid;
   gap: 10px;
+  opacity: 0;
+  transition: opacity 200ms var(--ease-out);
+}
+
+.skeleton-list.visible {
+  opacity: 1;
 }
 
 .row {

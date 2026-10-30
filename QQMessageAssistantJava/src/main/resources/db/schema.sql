@@ -20,11 +20,14 @@ CREATE TABLE IF NOT EXISTS `draft` (
 CREATE TABLE IF NOT EXISTS `message_log` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `sender_id` BIGINT UNSIGNED NOT NULL,
+  `sender_name` VARCHAR(64) NULL COMMENT '发送者昵称',
   `chat_id` BIGINT UNSIGNED NULL,
+  `chat_name` VARCHAR(128) NULL COMMENT '群名；私聊为 NULL',
   `conversation_id` VARCHAR(64) NULL COMMENT 'Dify conversation_id',
   `message_id` VARCHAR(64) NULL COMMENT '平台消息 id',
   `dedupe_key` VARCHAR(128) NULL COMMENT '幂等键，重复写入被忽略',
   `direction` VARCHAR(8) NOT NULL COMMENT 'IN|OUT',
+  `reply_kind` VARCHAR(8) NULL COMMENT 'OUT 专用：TASK|CHAT',
   `msg_type` VARCHAR(16) NOT NULL COMMENT 'text|image|file...',
   `content` TEXT NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -32,7 +35,8 @@ CREATE TABLE IF NOT EXISTS `message_log` (
   UNIQUE KEY `uk_dedupe` (`dedupe_key`),
   KEY `idx_sender_created` (`sender_id`, `created_at`),
   KEY `idx_created` (`created_at`),
-  KEY `idx_conversation` (`conversation_id`)
+  KEY `idx_conversation` (`conversation_id`),
+  KEY `idx_chat_created` (`chat_id`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='统一消息日志';
 
 CREATE TABLE IF NOT EXISTS `memo` (
@@ -189,3 +193,33 @@ CREATE TABLE IF NOT EXISTS `conversation_session` (
   UNIQUE KEY `uk_session` (`bot_uuid`, `chat_type`, `chat_id`, `sender_id`),
   KEY `idx_sender` (`sender_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='QQ会话与Dify conversation_id映射';
+
+CREATE TABLE IF NOT EXISTS `chat_setting` (
+  `id`                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `chat_id`            BIGINT UNSIGNED NOT NULL COMMENT '群号；私聊存对方 sender_id',
+  `kind`               VARCHAR(8)  NOT NULL COMMENT 'GROUP|PRIVATE',
+  `chat_name`          VARCHAR(128) NULL,
+  `auto_reply_enabled` TINYINT(1)  NOT NULL DEFAULT 0,
+  `digest_enabled`     TINYINT(1)  NOT NULL DEFAULT 0,
+  `created_at`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_chat` (`chat_id`, `kind`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='会话开关';
+
+CREATE TABLE IF NOT EXISTS `chat_digest_item` (
+  `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `chat_id`        BIGINT UNSIGNED NOT NULL,
+  `chat_name`      VARCHAR(128) NULL,
+  `period_start`   DATETIME NOT NULL,
+  `period_end`     DATETIME NOT NULL,
+  `summary`        VARCHAR(512) NOT NULL,
+  `importance`     TINYINT      NOT NULL COMMENT '1-5',
+  `keywords`       VARCHAR(255) NULL,
+  `mentions_me`    TINYINT(1)   NOT NULL DEFAULT 0,
+  `source_msg_ids` TEXT         NOT NULL COMMENT 'message_log.id，逗号分隔',
+  `created_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_chat_period` (`chat_id`, `period_start`),
+  KEY `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='消息整理';

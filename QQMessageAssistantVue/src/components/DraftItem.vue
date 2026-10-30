@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { Check, X } from 'lucide-vue-next'
 import StatusPill from '@/components/StatusPill.vue'
 import { confirmDraft, rejectDraft } from '@/api/drafts'
@@ -14,6 +14,8 @@ const emit = defineEmits<{ resolved: [id: number, status: 'confirmed' | 'rejecte
 
 const toast = useToast()
 const busy = ref(false)
+const confirming = ref(false)
+let confirmTimer = 0
 
 /** 每种草稿确认后真正发生的事，写清楚，别让人猜 */
 const ACTION_LABEL: Record<DraftType, string> = {
@@ -23,10 +25,34 @@ const ACTION_LABEL: Record<DraftType, string> = {
   FACT: '记下',
 }
 
+/** 回复和文件是「以你的身份发出去」，发出去就收不回，必须先问一句 */
+const IRREVERSIBLE: DraftType[] = ['REPLY', 'FILE']
+
 const payload = computed<Record<string, unknown>>(() => props.draft.payload ?? {})
 const isPending = computed(() => props.draft.status === 'PENDING')
 const typeIcon = computed(() => draftTypeIcon(props.draft.type))
 const statusMeta = computed(() => draftStatusMeta(props.draft.status))
+const needsConfirm = computed(() => IRREVERSIBLE.includes(props.draft.type))
+const confirmHint = computed(() =>
+  props.draft.type === 'FILE' ? '文件会直接发到对应会话，发出后无法撤回。' : '这条回复会以你的身份发出，发出后无法撤回。',
+)
+
+onBeforeUnmount(() => window.clearTimeout(confirmTimer))
+
+function requestConfirm() {
+  if (!needsConfirm.value) {
+    void resolve('confirm')
+    return
+  }
+  confirming.value = true
+  window.clearTimeout(confirmTimer)
+  confirmTimer = window.setTimeout(() => (confirming.value = false), 6000)
+}
+
+function cancelConfirm() {
+  window.clearTimeout(confirmTimer)
+  confirming.value = false
+}
 
 function field(key: string): string {
   const value = payload.value[key]
@@ -95,8 +121,21 @@ async function resolve(action: 'confirm' | 'reject') {
     <p class="headline">{{ headline }}</p>
     <p v-if="preview" class="preview clamp-3">{{ preview }}</p>
 
-    <div v-if="isPending" class="actions">
-      <button type="button" class="btn btn-sm btn-primary" :disabled="busy" @click="resolve('confirm')">
+    <div v-if="isPending && confirming" class="confirm">
+      <p class="confirm-text">{{ confirmHint }}</p>
+      <div class="actions">
+        <button type="button" class="btn btn-sm btn-ghost" :disabled="busy" @click="cancelConfirm">
+          再想想
+        </button>
+        <button type="button" class="btn btn-sm btn-primary" :disabled="busy" @click="resolve('confirm')">
+          <Check :size="14" :stroke-width="2.6" aria-hidden="true" />
+          确认{{ ACTION_LABEL[draft.type] }}
+        </button>
+      </div>
+    </div>
+
+    <div v-else-if="isPending" class="actions">
+      <button type="button" class="btn btn-sm btn-primary" :disabled="busy" @click="requestConfirm">
         <Check :size="14" :stroke-width="2.6" aria-hidden="true" />
         {{ ACTION_LABEL[draft.type] }}
       </button>
@@ -178,5 +217,22 @@ async function resolve(action: 'confirm' | 'reject') {
   display: flex;
   gap: 8px;
   margin-top: 12px;
+}
+
+.confirm {
+  margin-top: 12px;
+  padding: 11px 12px 12px;
+  border-radius: var(--r-md);
+  background: var(--danger-wash);
+}
+
+.confirm-text {
+  color: var(--danger);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.confirm .actions {
+  margin-top: 10px;
 }
 </style>

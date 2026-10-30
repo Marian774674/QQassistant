@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Search, X } from 'lucide-vue-next'
 import DraftBanner from '@/components/DraftBanner.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
@@ -25,6 +26,9 @@ type TabKey = 'today' | 'all' | 'done'
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六']
 const OPEN_STATUSES = new Set(['ACTIVE', 'REMINDED', 'AWAITING_REPLY', 'OVERDUE'])
 
+/** 勾完给五秒反悔，这段时间只改本地，不发请求 */
+const UNDO_WINDOW = 5000
+
 const toast = useToast()
 
 const memos = ref<Memo[]>([])
@@ -32,24 +36,30 @@ const loading = ref(true)
 const error = ref('')
 const tab = ref<TabKey>('today')
 const now = ref(new Date())
+const query = ref('')
 
 const editorOpen = ref(false)
 const editing = ref<Memo | null>(null)
 const detailOpen = ref(false)
 const detail = ref<Memo | null>(null)
 
-let timer = 0
+let clock = 0
 
 onMounted(() => {
   void load()
-  timer = window.setInterval(() => {
+  clock = window.setInterval(() => {
     now.value = new Date()
   }, 30_000)
 })
 
-onBeforeUnmount(() => window.clearInterval(timer))
+onBeforeUnmount(() => {
+  window.clearInterval(clock)
+  // 还没落地的完成操作，走之前先发出去，别让人以为白点了
+  void flushDone()
+})
 
 async function load() {
+  await flushDone()
   loading.value = true
   error.value = ''
   try {
@@ -67,8 +77,22 @@ function byDue(a: Memo, b: Memo) {
   return at - bt
 }
 
-const openMemos = computed(() => memos.value.filter((memo) => OPEN_STATUSES.has(memo.status)))
-const doneMemos = computed(() => memos.value.filter((memo) => !OPEN_STATUSES.has(memo.status)))
+/* ── 搜索：只在本地过滤，不发请求 ─────────────────────────── */
+
+const normalizedQuery = computed(() => query.value.trim().toLowerCase())
+const searching = computed(() => normalizedQuery.value.length > 0)
+
+const searched = computed(() => {
+  const q = normalizedQuery.value
+  if (!q) return memos.value
+  return memos.value.filter((memo) => {
+    const haystack = `${memo.title} ${memo.content ?? ''} ${memo.category ?? ''}`.toLowerCase()
+    return haystack.includes(q)
+  })
+})
+
+const openMemos = computed(() => searched.value.filter((memo) => OPEN_STATUSES.has(memo.status)))
+const doneMemos = computed(() => searched.value.filter((memo) => !OPEN_STATUSES.has(memo.status)))
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
@@ -165,6 +189,12 @@ const todayEmpty = computed(
   () => !overdueMemos.value.length && !todayMemos.value.length && !undatedMemos.value.length,
 )
 
+const resultCount = computed(() => {
+  if (tab.value === 'today') return overdueMemos.value.length + todayMemos.value.length + undatedMemos.value.length
+  if (tab.value === 'all') return openMemos.value.length
+  return doneMemos.value.length
+})
+
 function openCreate() {
   editing.value = null
   editorOpen.value = true
@@ -215,26 +245,69 @@ async function openDetail(memo: Memo) {
 }
 
 function replaceLocal(updated: Memo) {
+  if (!updated) return
   memos.value = memos.value.map((memo) => (memo.id === updated.id ? updated : memo))
   if (detail.value?.id === updated.id) detail.value = updated
 }
 
-async function complete(memo: Memo) {
-  // 先落界面再发请求：勾下去就该立刻有反应，失败了再滚回来
-  const snapshot = memos.value
+/* ── 完成：先落界面，五秒内可撤销，之后才真发请求 ───────────
+ * 后端 PATCH 只接受 DONE / CANCELLED，撤销只能靠「还没发出去」实现，
+ * 所以这里用延迟提交换一个真正的反悔窗口。 */
+
+interface PendingDone {
+  timer: number
+  original: Memo
+}
+
+const pendingDone = new Map<number, PendingDone>()
+
+function complete(memo: Memo) {
+  if (pendingDone.has(memo.id)) return
+  tapFeedback()
+
   memos.value = memos.value.map((item) =>
     item.id === memo.id ? { ...item, status: 'DONE' as MemoStatus } : item,
   )
-  tapFeedback()
 
+  const timer = window.setTimeout(() => {
+    void commitDone(memo.id)
+  }, UNDO_WINDOW)
+  pendingDone.set(memo.id, { timer, original: memo })
+
+  toast.action(
+    `「${memo.title}」已完成`,
+    { label: '撤销', run: () => undoDone(memo.id) },
+    UNDO_WINDOW,
+  )
+}
+
+function undoDone(id: number) {
+  const pending = pendingDone.get(id)
+  if (!pending) return
+  window.clearTimeout(pending.timer)
+  pendingDone.delete(id)
+  memos.value = memos.value.map((item) => (item.id === id ? pending.original : item))
+  if (detail.value?.id === id) detail.value = pending.original
+  toast.push('已撤销，这条还在待办里')
+}
+
+async function commitDone(id: number) {
+  const pending = pendingDone.get(id)
+  if (!pending) return
+  pendingDone.delete(id)
   try {
-    const updated = await patchMemo(memo.id, { status: 'DONE' })
+    const updated = await patchMemo(id, { status: 'DONE' })
     replaceLocal(updated)
-    toast.success(`「${memo.title}」已完成`)
   } catch (e) {
-    memos.value = snapshot
-    toast.error(e instanceof Error ? e.message : '操作失败')
+    memos.value = memos.value.map((item) => (item.id === id ? pending.original : item))
+    toast.error(e instanceof Error ? e.message : '标记完成失败，已还原')
   }
+}
+
+async function flushDone() {
+  const ids = [...pendingDone.keys()]
+  if (!ids.length) return
+  await Promise.all(ids.map((id) => commitDone(id)))
 }
 
 function onChanged(updated: Memo) {
@@ -253,6 +326,32 @@ useRefresh(load)
     </header>
 
     <DraftBanner />
+
+    <div class="search" :class="{ filled: searching }">
+      <Search :size="15" :stroke-width="2" class="search-icon" aria-hidden="true" />
+      <input
+        v-model="query"
+        type="search"
+        class="search-input"
+        placeholder="搜标题、正文、分类"
+        aria-label="搜索备忘"
+        enterkeyhint="search"
+        autocomplete="off"
+      />
+      <button
+        v-if="searching"
+        type="button"
+        class="search-clear"
+        aria-label="清空搜索"
+        @click="query = ''"
+      >
+        <X :size="13" :stroke-width="2.6" aria-hidden="true" />
+      </button>
+    </div>
+
+    <p v-if="searching" class="search-count" role="status">
+      找到 <span class="num">{{ resultCount }}</span> 条
+    </p>
 
     <Segmented v-model="tab" :items="tabs" label="按状态筛选" />
 
@@ -274,8 +373,8 @@ useRefresh(load)
               v-for="memo in overdueMemos"
               :key="memo.id"
               :memo="memo"
+              :now="now.getTime()"
               :vt-name="vtCardId === memo.id ? VT_NAME : null"
-              show-date
               @open="openDetail"
               @done="complete"
             />
@@ -289,12 +388,13 @@ useRefresh(load)
               v-for="memo in todayPast"
               :key="memo.id"
               :memo="memo"
+              :now="now.getTime()"
               :vt-name="vtCardId === memo.id ? VT_NAME : null"
               @open="openDetail"
               @done="complete"
             />
 
-            <li key="now" class="now" aria-label="当前时间">
+            <li v-if="todayMemos.length" key="now" class="now" aria-label="当前时间">
               <span class="now-time num">{{ formatTime(now) }}</span>
               <span class="now-rule" aria-hidden="true" />
               <span class="now-label">现在</span>
@@ -304,13 +404,16 @@ useRefresh(load)
               v-for="memo in todayUpcoming"
               :key="memo.id"
               :memo="memo"
+              :now="now.getTime()"
               :vt-name="vtCardId === memo.id ? VT_NAME : null"
               :featured="memo.id === featuredId"
               @open="openDetail"
               @done="complete"
             />
 
-            <li v-if="!todayMemos.length" key="empty" class="day-empty">今天没有安排</li>
+            <li v-if="!todayMemos.length" key="empty" class="day-empty">
+              {{ searching ? '今天没有匹配的事' : '今天没有安排' }}
+            </li>
           </TransitionGroup>
         </section>
 
@@ -321,6 +424,7 @@ useRefresh(load)
               v-for="memo in undatedMemos"
               :key="memo.id"
               :memo="memo"
+              :now="now.getTime()"
               :vt-name="vtCardId === memo.id ? VT_NAME : null"
               @open="openDetail"
               @done="complete"
@@ -330,10 +434,19 @@ useRefresh(load)
 
         <EmptyState
           v-if="todayEmpty"
-          title="今天空着"
-          hint="想记点什么就直接写；在 QQ 里说一句，机器人也会替你记下来。"
+          :title="searching ? '没有匹配的备忘' : '今天空着'"
+          :hint="
+            searching
+              ? '换个关键词试试，或者清空搜索框。'
+              : '想记点什么就直接写；在 QQ 里说一句，机器人也会替你记下来。'
+          "
         >
-          <button type="button" class="btn btn-sm btn-quiet" @click="openCreate">新建一条</button>
+          <button v-if="searching" type="button" class="btn btn-sm btn-quiet" @click="query = ''">
+            清空搜索
+          </button>
+          <button v-else type="button" class="btn btn-sm btn-quiet" @click="openCreate">
+            新建一条
+          </button>
         </EmptyState>
       </template>
 
@@ -347,15 +460,30 @@ useRefresh(load)
               v-for="memo in group.memos"
               :key="memo.id"
               :memo="memo"
+              :now="now.getTime()"
               :vt-name="vtCardId === memo.id ? VT_NAME : null"
+              grouped
               @open="openDetail"
               @done="complete"
             />
           </TransitionGroup>
         </section>
 
-        <EmptyState v-if="!allGroups.length" title="没有待办" hint="新建一条，或者等 QQ 里提到的事自动进来。">
-          <button type="button" class="btn btn-sm btn-quiet" @click="openCreate">新建一条</button>
+        <EmptyState
+          v-if="!allGroups.length"
+          :title="searching ? '没有匹配的待办' : '没有待办'"
+          :hint="
+            searching
+              ? '换个关键词试试，或者清空搜索框。'
+              : '新建一条，或者等 QQ 里提到的事自动进来。'
+          "
+        >
+          <button v-if="searching" type="button" class="btn btn-sm btn-quiet" @click="query = ''">
+            清空搜索
+          </button>
+          <button v-else type="button" class="btn btn-sm btn-quiet" @click="openCreate">
+            新建一条
+          </button>
         </EmptyState>
       </template>
 
@@ -365,13 +493,25 @@ useRefresh(load)
             v-for="memo in doneSorted"
             :key="memo.id"
             :memo="memo"
+            :now="now.getTime()"
             :vt-name="vtCardId === memo.id ? VT_NAME : null"
-            show-date
             @open="openDetail"
             @done="complete"
           />
         </TransitionGroup>
-        <EmptyState v-else title="还没有完成的备忘" hint="处理完的事会归档到这里，随时能翻回来看。" />
+        <EmptyState
+          v-else
+          :title="searching ? '没有匹配的记录' : '还没有完成的备忘'"
+          :hint="
+            searching
+              ? '换个关键词试试，或者清空搜索框。'
+              : '处理完的事会归档到这里，随时能翻回来看。'
+          "
+        >
+          <button v-if="searching" type="button" class="btn btn-sm btn-quiet" @click="query = ''">
+            清空搜索
+          </button>
+        </EmptyState>
       </template>
     </div>
 
@@ -390,6 +530,71 @@ useRefresh(load)
 </template>
 
 <style scoped>
+/* ── 搜索 ─────────────────────────────────────────────────── */
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  margin-top: 14px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  background: rgba(17, 18, 20, 0.045);
+  transition: background-color var(--dur-2) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out);
+}
+
+.search.filled {
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+}
+
+.search-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  outline: none;
+}
+
+.search-input::placeholder {
+  color: var(--ink-3);
+}
+
+/* 去掉 Safari / Chrome 自带的清除按钮，用自己的 */
+.search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search-clear {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(17, 18, 20, 0.1);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.search-count {
+  margin-top: 8px;
+  padding-left: 4px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
 .body {
   margin-top: 18px;
 }
