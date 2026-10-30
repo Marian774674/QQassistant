@@ -34,3 +34,31 @@ def test_at_bot_detection():
 def test_delay_formula_bounds():
     s = human_delay_seconds("x" * 200, settings)
     assert s == 15.0          # 上限
+
+
+def test_peer_names_reads_sender_and_group():
+    from types import SimpleNamespace
+    from core.text import peer_names
+
+    event = SimpleNamespace(sender=SimpleNamespace(name="小明"),
+                            group=SimpleNamespace(name="三班群"))
+    assert peer_names(event) == ("小明", "三班群")
+
+
+def test_peer_names_falls_back_to_empty_strings():
+    from types import SimpleNamespace
+    from core.text import peer_names
+
+    assert peer_names(SimpleNamespace()) == ("", "")
+
+
+def test_extract_text_keeps_at_mentions():
+    """有人真的 @ 你时，正文里得留下 @昵称，否则整理时认不出「在叫你」。"""
+    chain = MessageChain([At(target=12345, display="小明"), Plain(text=" 明天来吗")])
+    assert extract_text(chain) == "@小明 明天来吗"
+
+
+def test_extract_text_keeps_at_all():
+    from langbot_plugin.api.entities.builtin.platform.message import AtAll
+    chain = MessageChain([AtAll(), Plain(text=" 开会了")])
+    assert extract_text(chain) == "@全体成员 开会了"

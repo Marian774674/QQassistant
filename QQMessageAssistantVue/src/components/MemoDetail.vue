@@ -131,14 +131,14 @@ watch(
     loadingReminders.value = true
     loadingHistory.value = true
     try {
-      reminders.value = await listReminders(id)
+      reminders.value = (await listReminders(id)) ?? []
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '提醒计划读取失败')
     } finally {
       loadingReminders.value = false
     }
     try {
-      history.value = await listMemoHistory(id)
+      history.value = (await listMemoHistory(id)) ?? []
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '变更记录读取失败')
     } finally {

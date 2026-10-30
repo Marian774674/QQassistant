@@ -14,6 +14,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
@@ -42,6 +43,11 @@ public class MessageLogServiceImpl extends ServiceImpl<MessageLogMapper, Message
             }
             MessageLog messageLog = new MessageLog();
             BeanUtils.copyProperties(item, messageLog);
+            // 别用库里的 CURRENT_TIMESTAMP：那台 MySQL 跑在 UTC，而整理的时间窗来自 JVM 本地钟，
+            // 差 8 小时后每小时都选不中消息。这里给死本地时间，两边同一个轴。
+            if (messageLog.getCreatedAt() == null) {
+                messageLog.setCreatedAt(LocalDateTime.now());
+            }
             try {
                 // 逐条写：dedupeKey 撞唯一键时跳过该条，不影响同批其他日志
                 save(messageLog);

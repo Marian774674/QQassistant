@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import {
   ArrowDown,
   CalendarDays,
+  Home,
   Inbox,
   LayoutGrid,
   Plus,
@@ -21,6 +22,7 @@ const refreshState = useRefreshState()
 const screenEl = ref<HTMLElement | null>(null)
 
 const navItems = [
+  { to: '/home', label: '首页', icon: Home },
   { to: '/memos', label: '备忘', icon: CalendarDays },
   { to: '/drafts', label: '草稿', icon: Inbox, badge: true },
   { to: '/memory', label: '记忆', icon: Sparkles },
@@ -32,10 +34,11 @@ const badgeText = computed(() => (pendingCount.value > 99 ? '99+' : String(pendi
 
 const activeIndex = computed(() => {
   const path = route.path
-  if (path.startsWith('/drafts')) return 1
-  if (path.startsWith('/memory')) return 2
-  if (path.startsWith('/memos')) return 0
-  return 3
+  if (path.startsWith('/home')) return 0
+  if (path.startsWith('/memos')) return 1
+  if (path.startsWith('/drafts')) return 2
+  if (path.startsWith('/memory')) return 3
+  return 4
 })
 
 /* ── 滚动：页头收起 + 位置记忆 ────────────────────────────── */
@@ -321,7 +324,7 @@ async function onPointerUp() {
   z-index: 30;
   flex: none;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   height: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px));
   padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--hairline);
@@ -335,7 +338,7 @@ async function onPointerUp() {
   position: absolute;
   top: 6px;
   left: 10px;
-  width: calc((100% - 20px) / 4);
+  width: calc((100% - 20px) / 5);
   height: 27px;
   transition: transform var(--dur-3) var(--ease-spring);
   pointer-events: none;

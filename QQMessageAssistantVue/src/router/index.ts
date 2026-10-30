@@ -3,7 +3,13 @@ import { createRouter, createWebHistory } from 'vue-router'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/memos' },
+    { path: '/', redirect: '/home' },
+    {
+      path: '/home',
+      name: 'home',
+      component: () => import('@/views/HomeView.vue'),
+      meta: { title: '首页' },
+    },
     {
       path: '/memos',
       name: 'memos',
@@ -29,6 +35,12 @@ const router = createRouter({
       meta: { title: '更多' },
     },
     {
+      path: '/chat-settings',
+      name: 'chat-settings',
+      component: () => import('@/views/ChatSettingsView.vue'),
+      meta: { title: '群设置' },
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),
@@ -52,7 +64,7 @@ const router = createRouter({
       component: () => import('@/views/RulesView.vue'),
       meta: { title: '拦截规则' },
     },
-    { path: '/:pathMatch(.*)*', redirect: '/memos' },
+    { path: '/:pathMatch(.*)*', redirect: '/home' },
   ],
   scrollBehavior() {
     // 滚动容器是 .screen 而不是 window，位置由 AppShell 自己记

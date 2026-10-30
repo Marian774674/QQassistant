@@ -1,0 +1,394 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
+import { ArrowLeft, Check } from 'lucide-vue-next'
+import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
+import Skeleton from '@/components/Skeleton.vue'
+import { listChatSettings, putChatSetting } from '@/api/chatSettings'
+import type { ChatSetting } from '@/api/chatSettings'
+import { getSettings, putSettings } from '@/api/settings'
+import { useRefresh } from '@/composables/useRefresh'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
+
+const chats = ref<ChatSetting[]>([])
+const loading = ref(true)
+const error = ref('')
+
+const digestEnabled = ref(false)
+const aliases = ref('')
+const focus = ref('')
+const savingPrefs = ref(false)
+const prefsSaved = ref(false)
+
+const groups = computed(() => chats.value.filter((chat) => chat.kind === 'GROUP'))
+const enabledCount = computed(() => groups.value.filter((chat) => chat.digestEnabled).length)
+
+onMounted(() => {
+  void load()
+})
+
+async function load() {
+  loading.value = true
+  error.value = ''
+  try {
+    const [list, settings] = await Promise.all([listChatSettings(), getSettings()])
+    chats.value = list
+    digestEnabled.value = settings.digest_enabled === '1'
+    aliases.value = settings.owner_aliases ?? ''
+    focus.value = settings.digest_focus_prompt ?? ''
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '加载失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+useRefresh(load)
+
+/** 先改界面再发请求：失败了滚回去，别让人以为已经生效 */
+async function toggle(chat: ChatSetting, field: 'digestEnabled' | 'autoReplyEnabled') {
+  const before = chat[field]
+  chat[field] = !before
+  prefsSaved.value = false
+  try {
+    const saved = await putChatSetting({
+      chatId: chat.chatId,
+      kind: chat.kind,
+      chatName: chat.chatName,
+      [field]: chat[field],
+    })
+    chat.id = saved.id ?? chat.id
+  } catch (e) {
+    chat[field] = before
+    toast.push(e instanceof Error ? e.message : '没保存上', 'error')
+  }
+}
+
+async function savePrefs() {
+  savingPrefs.value = true
+  try {
+    await putSettings({
+      digest_enabled: digestEnabled.value ? '1' : '0',
+      owner_aliases: aliases.value.trim(),
+      digest_focus_prompt: focus.value.trim(),
+    })
+    prefsSaved.value = true
+    toast.success('整理偏好已保存')
+  } catch (e) {
+    toast.push(e instanceof Error ? e.message : '保存失败', 'error')
+  } finally {
+    savingPrefs.value = false
+  }
+}
+
+function chatLabel(chat: ChatSetting) {
+  return chat.chatName || `群 ${chat.chatId}`
+}
+</script>
+
+<template>
+  <div class="page">
+    <header class="page-head">
+      <RouterLink to="/more" class="back">
+        <ArrowLeft :size="16" :stroke-width="2" aria-hidden="true" />
+        更多
+      </RouterLink>
+      <h1 class="page-title">群设置</h1>
+      <p class="page-sub">
+        选哪些群参与整理；偏好开关决定后端要不要每小时真的去整理。
+      </p>
+    </header>
+
+    <ErrorState v-if="error" :message="error" hint="也可以下拉重试。" @retry="load" />
+    <Skeleton v-else-if="loading" :rows="3" />
+
+    <template v-else>
+      <section class="block">
+        <h2 class="block-title">整理偏好</h2>
+
+        <div class="card card-pad">
+          <label class="switch-row">
+            <span class="switch-text">
+              <span class="switch-label">开启消息整理</span>
+              <span class="switch-hint">
+                关着的时候整段流程不跑，群里的开关也暂时不生效。
+              </span>
+            </span>
+            <input
+              v-model="digestEnabled"
+              type="checkbox"
+              class="switch"
+              role="switch"
+              :aria-checked="digestEnabled"
+            />
+          </label>
+
+          <div class="field">
+            <label for="owner-aliases">我在群里叫什么</label>
+            <input
+              id="owner-aliases"
+              v-model="aliases"
+              class="input"
+              type="text"
+              autocomplete="off"
+              placeholder="小明,明哥"
+            />
+            <p class="field-hint">
+              逗号分隔。这些名字出现在消息里，那条就会被标成「在叫你」，整理时不会漏掉。
+            </p>
+          </div>
+
+          <div class="field">
+            <label for="digest-focus">我想留意什么</label>
+            <textarea
+              id="digest-focus"
+              v-model="focus"
+              class="input textarea"
+              rows="3"
+              placeholder="导师和实习相关的通知优先；游戏群里的活动可以忽略"
+            />
+            <p class="field-hint">写进整理提示词。留空就按「有时间地点的通知 &gt; 要我做的事 &gt; 提到我」取舍。</p>
+          </div>
+
+          <button
+            type="button"
+            class="btn btn-block"
+            :class="prefsSaved ? 'btn-quiet' : 'btn-primary'"
+            :disabled="savingPrefs"
+            @click="savePrefs"
+          >
+            <Check v-if="prefsSaved" :size="15" :stroke-width="2.6" aria-hidden="true" />
+            {{ savingPrefs ? '保存中…' : prefsSaved ? '已保存' : '保存偏好' }}
+          </button>
+        </div>
+      </section>
+
+      <section class="block">
+        <h2 class="block-title">
+          群列表
+          <span class="num faint">{{ enabledCount }}/{{ groups.length }} 已开启整理</span>
+        </h2>
+        <p class="block-hint">
+          列表来自机器人见过的群消息；还没配置过的群默认两个开关都是关的。
+        </p>
+
+        <EmptyState
+          v-if="!groups.length"
+          title="机器人还没在任何群里说过话"
+          hint="先把它拉进群，收到几条消息后这里就会出现。"
+        />
+
+        <ul v-else class="chats">
+          <li v-for="chat in groups" :key="`${chat.kind}:${chat.chatId}`" class="chat">
+            <p class="chat-name">{{ chatLabel(chat) }}</p>
+            <div class="chat-switches">
+              <label class="mini">
+                <input
+                  type="checkbox"
+                  class="switch switch-sm"
+                  role="switch"
+                  :checked="chat.digestEnabled"
+                  :aria-checked="chat.digestEnabled"
+                  @change="toggle(chat, 'digestEnabled')"
+                />
+                <span>整理</span>
+              </label>
+              <label class="mini">
+                <input
+                  type="checkbox"
+                  class="switch switch-sm"
+                  role="switch"
+                  :checked="chat.autoReplyEnabled"
+                  :aria-checked="chat.autoReplyEnabled"
+                  @change="toggle(chat, 'autoReplyEnabled')"
+                />
+                <span>自动回复</span>
+              </label>
+            </div>
+          </li>
+        </ul>
+        <p v-if="groups.length" class="faint note">自动回复要等自动回复那一版上线后才真正生效，现在打开只是先记下选择。</p>
+      </section>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 10px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.block + .block {
+  margin-top: 26px;
+}
+
+.block-title {
+  margin-bottom: 6px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.block-hint {
+  margin-bottom: 10px;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.field {
+  margin-top: 16px;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.field-hint {
+  margin: 6px 0 0;
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.switch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.switch-text {
+  display: grid;
+  gap: 3px;
+}
+
+.switch-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.switch-hint {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* 开关本体：原生 checkbox，样式只做外观，键盘与读屏照旧 */
+.switch {
+  flex: none;
+  width: 44px;
+  height: 26px;
+  margin-left: auto;
+  appearance: none;
+  border-radius: var(--r-pill);
+  background: rgba(17, 18, 20, 0.14);
+  cursor: pointer;
+  transition: background 180ms var(--ease-out);
+}
+
+.switch::after {
+  content: '';
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: 3px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+  transition: transform 200ms var(--ease-spring);
+}
+
+.switch:checked {
+  background: var(--accent);
+}
+
+.switch:checked::after {
+  transform: translateX(18px);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.switch-sm {
+  width: 38px;
+  height: 22px;
+}
+
+.switch-sm::after {
+  width: 16px;
+  height: 16px;
+  margin: 3px;
+}
+
+.switch-sm:checked::after {
+  transform: translateX(16px);
+}
+
+.chats {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+}
+
+.chat-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-switches {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+
+.mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.note {
+  margin: 12px 0 0;
+  line-height: 1.55;
+}
+</style>

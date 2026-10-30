@@ -58,8 +58,8 @@ export function isToday(date: Date): boolean {
 }
 
 /** 给 <input type="datetime-local"> 用的值 */
-export function toDatetimeLocalValue(iso: string | null | undefined): string {
-  const date = parseLocal(iso)
+export function toDatetimeLocalValue(value: string | Date | null | undefined): string {
+  const date = value instanceof Date ? value : parseLocal(value)
   if (!date) return ''
   return `${dayKey(date)}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`
 }

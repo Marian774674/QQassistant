@@ -161,7 +161,9 @@ const tabs = computed(() => [
         <p v-else class="faint tail">已经到最早的一条了</p>
       </template>
 
-      <EmptyState v-else title="没有日志" hint="还没有消息进出，或者筛选条件下没有记录。" />
+      <EmptyState v-else title="没有日志" hint="还没有消息进出，或者筛选条件下没有记录。在 QQ 里给机器人发一句试试。">
+        <button type="button" class="btn btn-sm btn-quiet" @click="load()">重新读取</button>
+      </EmptyState>
     </div>
   </div>
 </template>

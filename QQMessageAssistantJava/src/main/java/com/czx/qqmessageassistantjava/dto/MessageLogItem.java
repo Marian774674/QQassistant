@@ -9,8 +9,12 @@ public class MessageLogItem {
 
     @Schema(description = "发送者ID")
     private Long senderId;
+    @Schema(description = "发送者昵称；拿不到可省")
+    private String senderName;
     @Schema(description = "聊天ID")
     private Long chatId;
+    @Schema(description = "群名；私聊可省")
+    private String chatName;
     @Schema(description = "Dify conversation_id")
     private String conversationId;
     @Schema(description = "平台消息 id")
@@ -23,4 +27,6 @@ public class MessageLogItem {
     private String direction;
     @Schema(description = "消息类型")
     private String msgType;
+    @Schema(description = "仅 OUT：TASK|CHAT", allowableValues = {"TASK", "CHAT"})
+    private String replyKind;
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
@@ -34,6 +34,17 @@ const profile = ref<StyleProfile | null>(null)
 const profileText = ref('')
 const profileError = ref('')
 const savingProfile = ref(false)
+const profileEl = ref<HTMLTextAreaElement | null>(null)
+
+/** 画像通常是一段话，固定 7 行会留一大片空；跟着内容长高，最多到 420px 再滚 */
+function autoGrow() {
+  const el = profileEl.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 420)}px`
+}
+
+watch(profileText, () => void nextTick(autoGrow), { flush: 'post' })
 
 const frequency = ref<Frequency>('DAILY_7D')
 const savingFrequency = ref(false)
@@ -75,6 +86,8 @@ async function loadProfile() {
   try {
     profile.value = await getStyleProfile(senderId.value)
     profileText.value = profile.value?.profilePrompt ?? ''
+    await nextTick()
+    autoGrow()
   } catch {
     // 没生成过画像时后端会报错，这里不是异常，只是还没有内容
     profile.value = null
@@ -269,9 +282,10 @@ async function changeFrequency(value: Frequency) {
         <div class="profile-card">
           <textarea
             id="profile-text"
+            ref="profileEl"
             v-model="profileText"
             class="profile-text"
-            rows="7"
+            rows="4"
             placeholder="例如：说话简短，常用「行」「好嘞」，少用感叹号……"
             aria-label="画像提示词"
           />
@@ -474,12 +488,15 @@ async function changeFrequency(value: Frequency) {
 
 .profile-text {
   width: 100%;
+  min-height: 92px;
+  max-height: 420px;
   padding: 15px;
   border: 0;
   background: transparent;
   font-size: 14px;
   line-height: 1.65;
   resize: none;
+  overflow-y: auto;
   outline: none;
 }
 

@@ -6,7 +6,11 @@ import { CATEGORIES } from '@/api/types'
 import type { Category, Memo, MemoPatchBody } from '@/api/types'
 import { useOwner } from '@/composables/useOwner'
 import { useToast } from '@/composables/useToast'
-import { fromDatetimeLocalValue, toDatetimeLocalValue } from '@/utils/datetime'
+import {
+  formatDateTime,
+  fromDatetimeLocalValue,
+  toDatetimeLocalValue,
+} from '@/utils/datetime'
 import { importanceLabel } from '@/utils/meta'
 
 const props = defineProps<{
@@ -61,9 +65,75 @@ function rejectField(message: string) {
   titleInput.value?.focus({ preventScroll: true })
 }
 
+/* ── 时间快捷块 ─────────────────────────────────────────────
+ * 手机上点 datetime-local 要滚三列滚轮，多数场景其实只是
+ * 「今晚」「明早」这几种。给四个常用档位，剩下的才走自定义。 */
+
+const anchor = ref(new Date())
+const customOpen = ref(false)
+
+function atTime(base: Date, hours: number, minutes = 0) {
+  const next = new Date(base)
+  next.setHours(hours, minutes, 0, 0)
+  return next
+}
+
+const presets = computed(() => {
+  const base = anchor.value
+
+  const tonight = atTime(base, 20)
+  const tonightRolled = tonight.getTime() <= base.getTime()
+  if (tonightRolled) tonight.setDate(tonight.getDate() + 1)
+
+  const tomorrowMorning = atTime(base, 9)
+  tomorrowMorning.setDate(tomorrowMorning.getDate() + 1)
+
+  const tomorrowEvening = atTime(base, 18)
+  tomorrowEvening.setDate(tomorrowEvening.getDate() + 1)
+
+  const nextMonday = atTime(base, 9)
+  const offset = (8 - nextMonday.getDay()) % 7 || 7
+  nextMonday.setDate(nextMonday.getDate() + offset)
+
+  return [
+    {
+      key: 'tonight',
+      label: `${tonightRolled ? '明晚' : '今晚'} 20:00`,
+      value: toDatetimeLocalValue(tonight),
+    },
+    { key: 'tomorrow-morning', label: '明早 09:00', value: toDatetimeLocalValue(tomorrowMorning) },
+    { key: 'tomorrow-evening', label: '明天 18:00', value: toDatetimeLocalValue(tomorrowEvening) },
+    { key: 'next-monday', label: '下周一 09:00', value: toDatetimeLocalValue(nextMonday) },
+  ]
+})
+
+function pickPreset(value: string) {
+  form.due = value
+  customOpen.value = false
+}
+
+function openCustom() {
+  customOpen.value = true
+  if (!form.due) {
+    const next = new Date(anchor.value.getTime() + 60 * 60 * 1000)
+    next.setMinutes(0, 0, 0)
+    form.due = toDatetimeLocalValue(next)
+  }
+}
+
+function pickNone() {
+  form.due = ''
+  customOpen.value = false
+}
+
+const dueText = computed(() => {
+  if (!form.due) return '不设截止时间，只存档'
+  return `${formatDateTime(form.due)} 截止`
+})
+
 const planText = computed(() => {
-  if (!form.due) return '没填截止时间：只存档，不会创建提醒。'
-  return `${PLAN[form.importance]}。`
+  if (!form.due) return '只存档，不会创建提醒'
+  return PLAN[form.importance]
 })
 
 watch(
@@ -71,11 +141,14 @@ watch(
   (open) => {
     if (!open) return
     const memo = props.memo
+    anchor.value = new Date()
     form.title = memo?.title ?? ''
     form.content = memo?.content ?? ''
     form.importance = memo?.importance ?? 3
     form.category = memo?.category ?? '学业'
-    form.due = toDatetimeLocalValue(memo?.dueTime)
+    const dueValue = toDatetimeLocalValue(memo?.dueTime)
+    form.due = dueValue
+    customOpen.value = Boolean(dueValue) && !presets.value.some((item) => item.value === dueValue)
     errors.title = ''
     errors.form = ''
   },
@@ -165,8 +238,43 @@ async function save() {
       </div>
 
       <div class="frow">
-        <label class="frow-label" for="memo-due">截止时间</label>
-        <input id="memo-due" v-model="form.due" class="frow-input" type="datetime-local" />
+        <span class="frow-label">截止时间</span>
+        <div class="presets">
+          <button
+            v-for="preset in presets"
+            :key="preset.key"
+            type="button"
+            class="preset"
+            :aria-pressed="form.due === preset.value"
+            @click="pickPreset(preset.value)"
+          >
+            {{ preset.label }}
+          </button>
+          <button
+            type="button"
+            class="preset"
+            :aria-pressed="customOpen"
+            @click="openCustom"
+          >
+            自定义
+          </button>
+          <button
+            type="button"
+            class="preset"
+            :aria-pressed="!form.due"
+            @click="pickNone"
+          >
+            不设时间
+          </button>
+        </div>
+        <input
+          v-if="customOpen"
+          v-model="form.due"
+          class="frow-input time-input"
+          type="datetime-local"
+          aria-label="自定义截止时间"
+        />
+        <p class="frow-hint">{{ dueText }}</p>
       </div>
 
       <div class="frow">
@@ -192,12 +300,13 @@ async function save() {
             v-for="option in IMPORTANCE_OPTIONS"
             :key="option.value"
             type="button"
-            class="scale-cell num"
+            class="scale-cell"
             :aria-pressed="form.importance === option.value"
             :aria-label="`${option.value} 级 ${option.label}`"
             @click="form.importance = option.value"
           >
-            {{ option.value }}
+            <span class="scale-num num">{{ option.value }}</span>
+            <span class="scale-label">{{ option.label }}</span>
           </button>
         </div>
         <p class="frow-hint">{{ importanceLabel(form.importance) }} · {{ planText }}</p>
@@ -273,12 +382,55 @@ async function save() {
   line-height: 1.5;
 }
 
+/* ── 时间快捷块 ───────────────────────────────────────────── */
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.preset {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-spring);
+}
+
+.preset:active {
+  transform: scale(0.96);
+}
+
+.preset[aria-pressed="true"] {
+  border-color: var(--card-inverse);
+  background: var(--card-inverse);
+  color: #fff;
+}
+
+.time-input {
+  margin-top: 2px;
+  padding: 9px 0 2px;
+  border-top: 1px solid var(--hairline);
+  font-size: 14.5px;
+  color: var(--ink-2);
+}
+
 .grid3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
 
+/* 重要性五档：数字大一点、带文字，比只有 1–5 更容易对上「紧要 / 一般」 */
 .scale {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -286,21 +438,41 @@ async function save() {
 }
 
 .scale-cell {
-  min-height: 38px;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  min-height: 46px;
+  padding: 7px 0 6px;
   border: 1px solid var(--hairline);
   border-radius: 10px;
   background: #fff;
   color: var(--ink-2);
-  font-size: 14px;
   cursor: pointer;
   transition: background-color var(--dur) var(--ease),
     color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+.scale-num {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.scale-label {
+  font-size: 9.5px;
+  font-weight: 500;
+  opacity: 0.72;
+  letter-spacing: 0.01em;
 }
 
 .scale-cell[aria-pressed="true"] {
   border-color: var(--card-inverse);
   background: var(--card-inverse);
   color: #fff;
+}
+
+.scale-cell[aria-pressed="true"] .scale-label {
+  opacity: 0.66;
 }
 
 .pick {

@@ -4,6 +4,7 @@ import com.czx.qqmessageassistantjava.common.BusinessException;
 import com.czx.qqmessageassistantjava.dto.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -20,7 +21,7 @@ public class LangBotClient {
 
     private final RestClient restClient;
 
-    public LangBotClient(RestClient restClient) {
+    public LangBotClient(@Qualifier("langBotRestClient") RestClient restClient) {
         this.restClient = restClient;
     }
 

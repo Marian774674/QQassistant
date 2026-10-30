@@ -50,7 +50,67 @@ function open(task: FileTask) {
   sheetOpen.value = true
 }
 
-const detailText = computed(() => {
+/* ── 状态详情：后端塞的是一坨 JSON，直接摆出来没人看得懂 ──── */
+
+const DETAIL_LABELS: Record<string, string> = {
+  sheet: '工作表',
+  sheetName: '工作表',
+  headerRow: '表头行',
+  totalRows: '总行数',
+  rows: '行数',
+  filled: '已填写',
+  fills: '已填写',
+  rowsFilled: '已填行数',
+  missing: '待补字段',
+  columns: '列',
+  template: '模板',
+  progress: '进度',
+  confidence: '把握',
+  needsConfirm: '待确认',
+  message: '说明',
+  error: '错误',
+  filePath: '文件路径',
+  outputPath: '产物路径',
+  step: '当前步骤',
+  notes: '备注',
+}
+
+interface DetailRow {
+  key: string
+  label: string
+  value: string
+}
+
+function formatDetailValue(key: string, value: unknown): string {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'boolean') return value ? '是' : '否'
+  if (typeof value === 'number') {
+    // 0–1 之间的小数多半是把握 / 进度，直接换算成百分比更好读
+    if (key === 'confidence' || key === 'progress') return `${Math.round(value * 100)}%`
+    return String(value)
+  }
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return value.map((item) => formatDetailValue(key, item)).join('、')
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+const detailRows = computed<DetailRow[]>(() => {
+  const detail = selected.value?.detail
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return []
+  return Object.entries(detail as Record<string, unknown>)
+    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+    .map(([key, value]) => ({
+      key,
+      label: DETAIL_LABELS[key] ?? key,
+      value: formatDetailValue(key, value),
+    }))
+})
+
+const rawDetail = computed(() => {
   const detail = selected.value?.detail
   if (!detail) return ''
   if (typeof detail === 'string') return detail
@@ -108,8 +168,10 @@ const selectedMeta = computed(() => fileStatusMeta(selected.value?.status ?? '')
     <EmptyState
       v-else
       title="还没有文件任务"
-      hint="在 QQ 里发一份 xlsx 或 docx，处理进度会出现在这里。"
-    />
+      hint="在 QQ 里发一份 xlsx 或 docx，处理进度会出现在这里。如果刚发过，先去消息日志看看机器人有没有收到。"
+    >
+      <RouterLink to="/logs" class="btn btn-sm btn-quiet">看消息日志</RouterLink>
+    </EmptyState>
 
     <Sheet
       :open="sheetOpen"
@@ -137,9 +199,23 @@ const selectedMeta = computed(() => fileStatusMeta(selected.value?.status ?? '')
           </div>
         </div>
 
-        <template v-if="detailText">
+        <template v-if="detailRows.length">
           <h3 class="detail-title">状态详情</h3>
-          <pre class="detail-json">{{ detailText }}</pre>
+          <dl class="detail-list">
+            <div v-for="row in detailRows" :key="row.key" class="detail-row">
+              <dt>{{ row.label }}</dt>
+              <dd>{{ row.value }}</dd>
+            </div>
+          </dl>
+          <details class="raw">
+            <summary>原始数据</summary>
+            <pre class="detail-json">{{ rawDetail }}</pre>
+          </details>
+        </template>
+
+        <template v-else-if="rawDetail">
+          <h3 class="detail-title">状态详情</h3>
+          <pre class="detail-json">{{ rawDetail }}</pre>
         </template>
       </template>
 
@@ -280,6 +356,57 @@ const selectedMeta = computed(() => fileStatusMeta(selected.value?.status ?? '')
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
+}
+
+.detail-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: #fff;
+}
+
+.detail-row {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 14px;
+  color: var(--ink);
+}
+
+.detail-row + .detail-row {
+  border-top: 1px solid var(--hairline);
+}
+
+.detail-row dt {
+  color: var(--ink-3);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.detail-row dd {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.raw {
+  margin-top: 10px;
+}
+
+.raw summary {
+  padding: 4px 0;
+  color: var(--on-dark-3);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.raw .detail-json {
+  margin-top: 6px;
 }
 
 .detail-json {

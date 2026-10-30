@@ -8,7 +8,7 @@ import org.springframework.web.client.RestClient;
 @Configuration
 public class LangBotConfig {
 
-    @Bean
+    @Bean("langBotRestClient")
     public RestClient langBotRestClient(LangBotProperties properties){
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(properties.getConnectTimeoutMs());

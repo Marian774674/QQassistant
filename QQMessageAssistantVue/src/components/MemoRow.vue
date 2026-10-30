@@ -2,16 +2,25 @@
 import { computed } from 'vue'
 import { Check } from 'lucide-vue-next'
 import { categoryIcon, importanceLabel } from '@/utils/meta'
-import { formatMonthDay, formatTime, parseLocal, relativeUntil } from '@/utils/datetime'
+import {
+  formatMonthDay,
+  formatTime,
+  isSameDay,
+  parseLocal,
+  relativeUntil,
+} from '@/utils/datetime'
 import type { Memo } from '@/api/types'
 
 const props = defineProps<{
   memo: Memo
   /** 用深色卡突出「接下来这一件」 */
   featured?: boolean
-  showDate?: boolean
   /** View Transitions 的共享元素名，只在点开的那一帧挂上 */
   vtName?: string | null
+  /** 父级统一的时间基准，用来判断「是否已过时」，避免每行各算各的 */
+  now?: number
+  /** 列表已按天分组时，组标题就是日期，行内不必再重复一遍 */
+  grouped?: boolean
 }>()
 
 const emit = defineEmits<{ open: [memo: Memo]; done: [memo: Memo] }>()
@@ -22,11 +31,23 @@ const icon = computed(() => categoryIcon(props.memo.category))
 const isClosed = computed(
   () => props.memo.status === 'DONE' || props.memo.status === 'CANCELLED',
 )
-const isLate = computed(() => props.memo.status === 'OVERDUE')
+
+const nowTs = computed(() => props.now ?? Date.now())
+
+/** 状态没来得及翻成 OVERDUE 也算逾期：只看时间，别等人刷新 */
+const isOverdue = computed(() => {
+  if (isClosed.value || !due.value) return false
+  return due.value.getTime() < nowTs.value
+})
+
+/** 不是今天的截止时间，时间块上方补一个日期，否则只剩 20:00 会误读成今天 */
+const dayText = computed(() => {
+  if (!due.value || props.grouped) return ''
+  return isSameDay(due.value, new Date(nowTs.value)) ? '' : formatMonthDay(due.value)
+})
 
 const metaText = computed(() => {
   const parts: string[] = []
-  if (props.showDate && due.value) parts.push(formatMonthDay(due.value))
   if (props.memo.category) parts.push(props.memo.category)
   if (isClosed.value) {
     parts.push(props.memo.status === 'DONE' ? '已完成' : '已取消')
@@ -44,7 +65,7 @@ const metaText = computed(() => {
     <button
       type="button"
       class="tl-dot"
-      :class="{ done: isClosed }"
+      :class="{ done: isClosed, late: isOverdue }"
       :aria-label="isClosed ? `「${memo.title}」已结束` : `标记完成：${memo.title}`"
       :disabled="isClosed"
       @click="emit('done', memo)"
@@ -55,7 +76,7 @@ const metaText = computed(() => {
     <button
       type="button"
       class="memo"
-      :class="{ featured, closed: isClosed }"
+      :class="{ featured, closed: isClosed, overdue: isOverdue }"
       :style="vtName ? { viewTransitionName: vtName } : undefined"
       @click="emit('open', memo)"
     >
@@ -66,12 +87,15 @@ const metaText = computed(() => {
       <span class="memo-main">
         <span class="memo-title">{{ memo.title }}</span>
         <span class="memo-meta">
-          <span :class="{ late: isLate }">{{ metaText }}</span>
+          <span :class="{ late: isOverdue }">{{ metaText }}</span>
           <span v-if="!isClosed" class="memo-imp">{{ importanceLabel(memo.importance) }}</span>
         </span>
       </span>
 
-      <span v-if="timeText" class="memo-time num">{{ timeText }}</span>
+      <span v-if="timeText" class="memo-time num" :class="{ late: isOverdue }">
+        <span v-if="dayText" class="memo-day">{{ dayText }}</span>
+        {{ timeText }}
+      </span>
     </button>
   </li>
 </template>
@@ -102,6 +126,10 @@ const metaText = computed(() => {
 
 .tl-dot:active:not(:disabled) {
   transform: scale(0.84);
+}
+
+.tl-dot.late {
+  border-color: var(--danger);
 }
 
 .tl-dot.done {
@@ -137,11 +165,17 @@ const metaText = computed(() => {
   text-align: left;
   cursor: pointer;
   transition: transform var(--dur) var(--ease),
-    background-color var(--dur) var(--ease);
+    background-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
 .memo:active {
   transform: scale(0.985);
+}
+
+/* 逾期：左侧一道窄红边，扫一眼就知道哪条欠着 */
+.memo.overdue {
+  box-shadow: inset 3px 0 0 var(--danger), var(--shadow-card);
 }
 
 .memo.featured {
@@ -211,13 +245,37 @@ const metaText = computed(() => {
 
 .memo-time {
   align-self: start;
+  display: grid;
+  justify-items: end;
+  gap: 1px;
   padding-top: 1px;
   color: var(--ink-3);
   font-size: 12.5px;
   letter-spacing: 0;
 }
 
+.memo-time.late {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.memo-day {
+  color: var(--ink-3);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.memo-time.late .memo-day {
+  color: var(--danger);
+  opacity: 0.75;
+}
+
 .featured .memo-time {
   color: var(--on-dark-2);
+}
+
+.featured .memo-day {
+  color: var(--on-dark-3);
 }
 </style>
