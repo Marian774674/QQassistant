@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
-import { ArrowUp, Quote } from 'lucide-vue-next'
+import { ArrowUp, MessageCircleQuestion } from 'lucide-vue-next'
+import EmptyState from '@/components/EmptyState.vue'
 import { ask, type ClarifyCandidate, type ClarifyState, type Evidence } from '@/api/ask'
 import { useToast } from '@/composables/useToast'
 
@@ -146,7 +147,7 @@ async function confirmUnknown(bubble: Bubble) {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page ask-page">
     <header class="page-head">
       <p class="eyebrow">历史查询</p>
       <h1 class="page-title">问一句</h1>
@@ -154,6 +155,12 @@ async function confirmUnknown(bubble: Bubble) {
     </header>
 
     <form class="ask" @submit.prevent="submit">
+      <MessageCircleQuestion
+        :size="17"
+        :stroke-width="1.9"
+        class="ask-icon"
+        aria-hidden="true"
+      />
       <input
         ref="inputEl"
         v-model="question"
@@ -165,22 +172,29 @@ async function confirmUnknown(bubble: Bubble) {
         aria-label="要问的问题"
       />
       <button type="submit" class="ask-send" :disabled="!canSend" aria-label="发送">
-        <ArrowUp :size="17" :stroke-width="2.4" aria-hidden="true" />
+        <ArrowUp :size="16" :stroke-width="2.6" aria-hidden="true" />
       </button>
     </form>
 
-    <div v-if="!bubbles.length" class="examples">
-      <p class="examples-hint">可以先试试：</p>
-      <button
-        v-for="example in EXAMPLES"
-        :key="example"
-        type="button"
-        class="example"
-        @click="useExample(example)"
-      >
-        {{ example }}
-      </button>
-    </div>
+    <EmptyState
+      v-if="!bubbles.length"
+      :icon="MessageCircleQuestion"
+      class="ask-empty"
+      title="问一句，翻给你看"
+      hint="谁哪天说过什么、班会在哪开、我学号是多少——都能翻到原文。"
+    >
+      <div class="examples">
+        <button
+          v-for="example in EXAMPLES"
+          :key="example"
+          type="button"
+          class="example"
+          @click="useExample(example)"
+        >
+          {{ example }}
+        </button>
+      </div>
+    </EmptyState>
 
     <ol ref="flowEl" class="flow" aria-live="polite">
       <li v-for="bubble in bubbles" :key="bubble.id" class="turn" :class="bubble.role">
@@ -247,10 +261,7 @@ async function confirmUnknown(bubble: Bubble) {
               <span class="ev-type">{{ EVIDENCE_LABELS[item.type] ?? item.type }}</span>
               <span class="ev-label">{{ item.label }}</span>
             </div>
-            <p class="ev-body">
-              <Quote :size="12" class="ev-quote" aria-hidden="true" />
-              {{ item.content }}
-            </p>
+            <p class="ev-body">{{ item.content }}</p>
           </li>
         </ul>
       </li>
@@ -263,26 +274,51 @@ async function confirmUnknown(bubble: Bubble) {
 </template>
 
 <style scoped>
+/* 空态时把提示放在剩余空间里居中，别让它挤在顶部留一大片空白 */
+.ask-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.ask-empty {
+  flex: 1;
+  align-content: center;
+  padding-bottom: 48px;
+}
+
 /* ── 输入 ─────────────────────────────────────────────────── */
 
 .ask {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 6px 6px 16px;
+  gap: 10px;
+  padding: 7px 7px 7px 15px;
   border-radius: var(--r-xl);
   background: var(--card);
   box-shadow: var(--shadow-card);
+  transition: box-shadow var(--dur-2) var(--ease-out);
+}
+
+.ask:focus-within {
+  box-shadow: 0 0 0 1px rgba(17, 18, 20, 0.14),
+    0 14px 34px -26px rgba(17, 18, 20, 0.55);
+}
+
+.ask-icon {
+  flex: none;
+  color: var(--ink-3);
 }
 
 .ask-input {
   flex: 1;
   min-width: 0;
-  min-height: 40px;
+  min-height: 42px;
   border: 0;
   background: transparent;
   color: var(--ink);
-  font-size: 15.5px;
+  font-size: 15px;
+  letter-spacing: -0.01em;
   outline: none;
 }
 
@@ -293,19 +329,24 @@ async function confirmUnknown(bubble: Bubble) {
 .ask-send {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border: 0;
   border-radius: var(--r-pill);
   background: var(--card-inverse);
   color: var(--on-dark);
   cursor: pointer;
-  transition: opacity var(--dur-1) var(--ease-out);
+  transition: opacity var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-spring);
   flex: none;
 }
 
+.ask-send:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
 .ask-send:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: default;
 }
 
@@ -314,24 +355,26 @@ async function confirmUnknown(bubble: Bubble) {
 .examples {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 8px;
-  margin-top: 16px;
-}
-
-.examples-hint {
-  width: 100%;
-  color: var(--ink-3);
-  font-size: 12px;
+  max-width: 290px;
 }
 
 .example {
-  padding: 7px 13px;
-  border: 0;
+  padding: 8px 14px;
+  border: 1px solid var(--hairline);
   border-radius: var(--r-pill);
-  background: var(--surface);
+  background: transparent;
   color: var(--ink-2);
   font-size: 12.5px;
   cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out);
+}
+
+.example:active {
+  background: var(--surface);
+  border-color: transparent;
 }
 
 /* ── 消息流 ───────────────────────────────────────────────── */
@@ -474,37 +517,36 @@ async function confirmUnknown(bubble: Bubble) {
 
 .evidence {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   width: 100%;
-  margin: 0;
+  margin: 2px 0 0;
   padding: 0;
   list-style: none;
 }
 
+/* 证据不套卡片，改成一条细竖线引出，像引文；气泡已经够白了，再堆盒子会吵 */
 .ev {
-  padding: 10px 12px;
-  border-radius: var(--r-md);
-  background: var(--surface);
+  padding: 1px 0 1px 12px;
+  border-left: 2px solid rgba(17, 18, 20, 0.08);
 }
 
 .ev-head {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
+  align-items: baseline;
+  gap: 7px;
+  margin-bottom: 3px;
 }
 
 .ev-type {
-  padding: 1px 7px;
-  border-radius: var(--r-pill);
-  background: var(--card);
   color: var(--ink-2);
   font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
 }
 
 .ev-label {
   color: var(--ink-3);
-  font-size: 11.5px;
+  font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -512,14 +554,8 @@ async function confirmUnknown(bubble: Bubble) {
 
 .ev-body {
   color: var(--ink-2);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 12.8px;
+  line-height: 1.6;
   overflow-wrap: anywhere;
-}
-
-.ev-quote {
-  margin-right: 3px;
-  color: var(--ink-3);
-  vertical-align: -1px;
 }
 </style>

@@ -4,9 +4,10 @@ import {
   ChevronRight,
   FileSpreadsheet,
   MessagesSquare,
-  Search,
+  ScrollText,
   Settings,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-vue-next'
 import { listMemos } from '@/api/memos'
 import type { Memo } from '@/api/types'
@@ -23,42 +24,70 @@ const memos = ref<Memo[]>([])
 const loading = ref(true)
 const syncedAt = ref<Date | null>(null)
 
-const items = [
+/**
+ * 入口按「这是什么」分组，不再是一条条平铺：
+ * 记忆是自己的人设，群与规则是机器人在哪儿做事，运行记录是出问题时看的地方。
+ */
+const groups = [
   {
-    to: '/ask',
-    label: '问一句',
-    hint: '用大白话回查聊天记录与事实',
-    icon: Search,
+    key: 'memory',
+    label: '关于我',
+    items: [
+      {
+        to: '/memory',
+        label: '记忆',
+        hint: '事实、认识的人和说话风格',
+        icon: Sparkles,
+      },
+    ],
   },
   {
-    to: '/chat-settings',
-    label: '群设置',
-    hint: '哪些群参与整理、要不要自动回复',
-    icon: MessagesSquare,
+    key: 'chats',
+    label: '群与规则',
+    items: [
+      {
+        to: '/chat-settings',
+        label: '群设置',
+        hint: '哪些群参与整理、要不要自动回复',
+        icon: MessagesSquare,
+      },
+      {
+        to: '/rules',
+        label: '拦截规则',
+        hint: '关键词与正则，热更新',
+        icon: ShieldCheck,
+      },
+    ],
   },
   {
-    to: '/files',
-    label: '文件任务',
-    hint: '表格填写进度与产物',
-    icon: FileSpreadsheet,
+    key: 'records',
+    label: '运行记录',
+    items: [
+      {
+        to: '/files',
+        label: '文件任务',
+        hint: '表格填写进度与产物',
+        icon: FileSpreadsheet,
+      },
+      {
+        to: '/logs',
+        label: '消息日志',
+        hint: '收发流水，排查用',
+        icon: ScrollText,
+      },
+    ],
   },
   {
-    to: '/logs',
-    label: '消息日志',
-    hint: '收发流水，排查用',
-    icon: MessagesSquare,
-  },
-  {
-    to: '/rules',
-    label: '拦截规则',
-    hint: '关键词与正则，热更新',
-    icon: ShieldCheck,
-  },
-  {
-    to: '/settings',
-    label: '设置',
-    hint: '身份、提醒策略与后端配置',
-    icon: Settings,
+    key: 'system',
+    label: '系统',
+    items: [
+      {
+        to: '/settings',
+        label: '设置',
+        hint: '身份、自动回复与后端配置',
+        icon: Settings,
+      },
+    ],
   },
 ]
 
@@ -103,12 +132,12 @@ const pendingCount = computed(() => draftStore.pendingCount.value)
 <template>
   <div class="page">
     <header class="page-head">
-      <p class="eyebrow">更多</p>
-      <h1 class="page-title">{{ owner.senderId ? `QQ ${owner.senderId}` : '还没绑定身份' }}</h1>
+      <p class="eyebrow">{{ owner.senderId ? `QQ ${owner.senderId}` : '还没绑定身份' }}</p>
+      <h1 class="page-title">更多</h1>
       <p class="page-sub">
         {{
           owner.senderId
-            ? '一眼看今天的量，下面是排查与配置入口，日常用不到。'
+            ? '记忆、群与规则、运行记录都收在这里，日常用不到。'
             : '先去设置里填上你的 QQ 号，备忘和记忆才会归到你名下。'
         }}
       </p>
@@ -134,18 +163,23 @@ const pendingCount = computed(() => draftStore.pendingCount.value)
       {{ syncedAt ? `数据更新于 ${formatTime(syncedAt)}` : loading ? '正在读取…' : '没读到数据，下拉可重试' }}
     </p>
 
-    <nav class="rows" aria-label="更多功能">
-      <RouterLink v-for="item in items" :key="item.to" :to="item.to" class="row">
-        <span class="row-icon" aria-hidden="true">
-          <component :is="item.icon" :size="17" :stroke-width="1.8" />
-        </span>
-        <span class="row-text">
-          <span class="row-label">{{ item.label }}</span>
-          <span class="row-hint">{{ item.hint }}</span>
-        </span>
-        <ChevronRight :size="16" :stroke-width="2" class="row-arrow" aria-hidden="true" />
-      </RouterLink>
-    </nav>
+    <section v-for="group in groups" :key="group.key" class="group" :aria-label="group.label">
+      <h2 class="group-label">{{ group.label }}</h2>
+      <ul class="rows">
+        <li v-for="item in group.items" :key="item.to">
+          <RouterLink :to="item.to" class="row">
+            <span class="row-icon" aria-hidden="true">
+              <component :is="item.icon" :size="17" :stroke-width="1.8" />
+            </span>
+            <span class="row-text">
+              <span class="row-label">{{ item.label }}</span>
+              <span class="row-hint">{{ item.hint }}</span>
+            </span>
+            <ChevronRight :size="15" :stroke-width="2" class="row-arrow" aria-hidden="true" />
+          </RouterLink>
+        </li>
+      </ul>
+    </section>
 
     <p class="version">值守台 · 本地单实例</p>
   </div>
@@ -161,13 +195,14 @@ const pendingCount = computed(() => draftStore.pendingCount.value)
   border-radius: var(--r-xl);
   background: var(--card-inverse);
   color: var(--on-dark);
+  box-shadow: 0 14px 34px -26px rgba(17, 18, 20, 0.7);
 }
 
 .stat {
   display: grid;
   justify-items: center;
-  gap: 2px;
-  padding: 18px 4px 16px;
+  gap: 3px;
+  padding: 17px 4px 15px;
   color: inherit;
   text-decoration: none;
   transition: background-color var(--dur-1) var(--ease-out);
@@ -182,10 +217,10 @@ const pendingCount = computed(() => draftStore.pendingCount.value)
 }
 
 .stat-num {
-  font-size: 27px;
+  font-size: 25px;
   font-weight: 600;
   line-height: 1.1;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.035em;
 }
 
 .stat-num.alert {
@@ -194,30 +229,45 @@ const pendingCount = computed(() => draftStore.pendingCount.value)
 
 .stat-label {
   color: var(--on-dark-3);
-  font-size: 11.5px;
-  letter-spacing: 0.02em;
+  font-size: 11px;
+  letter-spacing: 0.03em;
 }
 
 .sync {
-  margin: 8px 2px 20px;
+  margin: 9px 2px 22px;
   color: var(--ink-3);
   font-size: 11px;
 }
 
-/* ── 入口 ─────────────────────────────────────────────────── */
+/* ── 分组入口 ─────────────────────────────────────────────── */
+
+.group + .group {
+  margin-top: 20px;
+}
+
+.group-label {
+  padding: 0 4px 8px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
 
 .rows {
-  display: block;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .row {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 62px;
-  padding: 12px 14px;
+  min-height: 60px;
+  padding: 12px 15px;
   color: var(--ink);
   text-decoration: none;
+  transition: background-color var(--dur-1) var(--ease-out);
 }
 
 .row:active {
@@ -227,9 +277,9 @@ const pendingCount = computed(() => draftStore.pendingCount.value)
 .row-icon {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 11px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   background: var(--surface);
   color: var(--ink-2);
   flex: none;
@@ -238,29 +288,36 @@ const pendingCount = computed(() => draftStore.pendingCount.value)
 .row-text {
   flex: 1;
   display: grid;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
 }
 
 .row-label {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .row-hint {
   color: var(--ink-3);
   font-size: 11.5px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .row-arrow {
   color: var(--ink-3);
+  opacity: 0.7;
   flex: none;
 }
 
 .version {
-  margin-top: 26px;
+  margin-top: 30px;
   color: var(--ink-3);
-  font-size: 11.5px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
   text-align: center;
 }
 </style>

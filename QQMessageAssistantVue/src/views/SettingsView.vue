@@ -332,14 +332,14 @@ const otherSettings = computed(() =>
 }
 
 .block + .block {
-  margin-top: 26px;
+  margin-top: 28px;
 }
 
 .block-title {
   margin-bottom: 6px;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
 }
 
 .block-hint {

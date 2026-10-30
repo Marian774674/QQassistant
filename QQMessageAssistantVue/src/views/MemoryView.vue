@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
-import { Pencil, Plus, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import Segmented from '@/components/Segmented.vue'
@@ -296,6 +296,10 @@ async function changeFrequency(value: Frequency) {
 <template>
   <div class="page">
     <header class="page-head">
+      <RouterLink to="/more" class="back">
+        <ArrowLeft :size="16" :stroke-width="2" aria-hidden="true" />
+        更多
+      </RouterLink>
       <p class="eyebrow">记忆总控台</p>
       <h1 class="page-title">记忆</h1>
       <p class="page-sub">事实是即时生效的硬信息；风格画像只在手动保存或定时总结时更新。</p>
@@ -559,6 +563,15 @@ async function changeFrequency(value: Frequency) {
 </template>
 
 <style scoped>
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 10px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
 .block + .block {
   margin-top: 30px;
 }
