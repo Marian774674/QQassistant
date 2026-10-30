@@ -4,6 +4,7 @@ import {
   ChevronRight,
   FileSpreadsheet,
   MessagesSquare,
+  Search,
   Settings,
   ShieldCheck,
 } from 'lucide-vue-next'
@@ -23,6 +24,12 @@ const loading = ref(true)
 const syncedAt = ref<Date | null>(null)
 
 const items = [
+  {
+    to: '/ask',
+    label: '问一句',
+    hint: '用大白话回查聊天记录与事实',
+    icon: Search,
+  },
   {
     to: '/chat-settings',
     label: '群设置',

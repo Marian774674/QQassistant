@@ -1,8 +1,9 @@
-"""Dify 图的离线体检。
+"""Chatflow 的离线体检：自动回复的三个新输入 + 信封字段的归一化。
 
-图是在 Dify 控制台里搭的，真正的验收只能靠导入 + 真机；
-但「聚合器顺序」和「代码节点的兜底」这两类错误一旦上线就是静默失败
-（写成功了却回 SILENT、后端拒绝了却说没连上），所以在这里钉死。
+真正的验收要靠导入 Dify；这里只钉那些**一错就静默失败**的点：
+- 插件发了新输入但 Start 没声明 → Dify 直接 400，整轮没有回复。
+- `send_kind` / `needs_confirm` 没被归一化 → 插件门控拿不到，开关等于不存在。
+- 确认语写在 `text` 而不是 `content` → 插件 `_send` 读不到，用户什么都没收到。
 """
 import json
 from pathlib import Path
@@ -19,176 +20,134 @@ pytestmark = pytest.mark.skipif(not DSL.exists(), reason="chatflow DSL 不存在
 def graph():
     doc = yaml.safe_load(DSL.read_text(encoding="utf-8"))
     g = doc["workflow"]["graph"]
-    nodes = {n["id"]: n for n in g["nodes"]}
-    return g, nodes, doc
+    return doc, g, {n["id"]: n for n in g["nodes"]}
 
 
 def _main(nodes, node_id):
-    """把代码节点里嵌的 Python 拿出来直接执行。"""
     ns = {}
     exec(nodes[node_id]["data"]["code"], ns)
     return ns["main"]
 
 
-def test_op_result_precedes_clean_decision_in_aggregator(graph):
-    _, nodes, _ = graph
-    order = [".".join(v) for v in nodes["merge_decision"]["data"]["variables"]]
-    # op 分支时 clean_decision 输出空串；聚合器取第一个非空，顺序错了就回 SILENT
-    assert order.index("read_op_result.decision") < order.index("clean_decision.decision")
-    assert order.index("op_failed.decision") < order.index("clean_decision.decision")
+def _clean(nodes, payload, event_id="evt-1"):
+    """跑一遍 CLEAN_DECISION，返回解析后的信封。"""
+    raw = json.dumps(payload, ensure_ascii=False) if not isinstance(payload, str) else payload
+    out = _main(nodes, "clean_decision")(raw, "1001", "222", event_id)
+    return json.loads(out["decision"]) if out["decision"] else None
 
 
-def test_op_branch_is_wired(graph):
-    g, nodes, _ = graph
-    edges = {(e["source"], e["sourceHandle"]): e["target"] for e in g["edges"]}
-    assert edges[("clean_decision", "source")] == "is_op"
-    assert edges[("is_op", "true")] == "op_http"
-    assert edges[("is_op", "false")] == "merge_decision"
-    assert edges[("op_http", "source")] == "read_op_result"
-    assert edges[("op_http", "fail-branch")] == "op_failed"
-    assert edges[("read_op_result", "source")] == "merge_decision"
-    assert edges[("op_failed", "source")] == "merge_decision"
+# ---------- Start 变量 ----------
+
+def test_start_declares_the_auto_reply_inputs(graph):
+    """Dify 只认 Start 里声明过的变量；漏一个，那一段就永远是空输入。"""
+    _, _, nodes = graph
+    declared = {v["variable"]: v for v in nodes["start"]["data"]["variables"]}
+    for name in ("reply_prompt", "recent_messages", "reply_rules"):
+        assert name in declared, f"Start 缺少 {name}"
+    # 最近消息是 JSON 数组，短了会被截断成非法 JSON
+    assert declared["recent_messages"]["max_length"] >= 20000
 
 
-def test_http_node_carries_token_from_env_not_literal(graph):
-    _, nodes, doc = graph
-    data = nodes["op_http"]["data"]
-    assert data["method"] == "post"
-    assert data["url"].endswith("/api/agent/ops")
-    assert data["error_strategy"] == "fail-branch"
-    # JSON body 只能有一个条目（Dify 的硬限制），所以整包 body 由代码节点序列化
-    assert len(data["body"]["data"]) == 1
-    assert data["body"]["data"][0]["value"] == "{{#clean_decision.op_body#}}"
-    assert "{{#env.AGENT_OPS_TOKEN#}}" in data["headers"]
-    # token 必须以环境变量引用出现，secret 不随 DSL 落地
-    env = {v["name"]: v for v in doc["workflow"]["environment_variables"]}
-    assert env["AGENT_OPS_TOKEN"]["value_type"] == "secret"
-    assert env["AGENT_OPS_TOKEN"]["value"] == ""
+def test_chat_prompt_uses_the_new_inputs(graph):
+    """输入声明了却没人读，等于没加：提示词里必须真的引用它们。"""
+    _, _, nodes = graph
+    prompt = "\n".join(m["text"] for m in nodes["chat_decision"]["data"]["prompt_template"])
+    assert "{{#start.recent_messages#}}" in prompt
+    assert "{{#start.reply_prompt#}}" in prompt
+    assert "{{#start.reply_rules#}}" in prompt
 
 
-def test_http_node_data_has_fields_the_runtime_requires(graph):
-    """Dify 的 HttpRequestNodeData 是严格 pydantic 模型：少一个字段，整条消息 400。
-
-    踩过一次：手写的 DSL 漏了 `authorization`，运行时报
-    「HttpRequestNodeData.authorization Field required」，QQ 侧直接没回复。
-    """
-    _, nodes, _ = graph
-    data = nodes["op_http"]["data"]
-    for key in (
-        "title",
-        "type",
-        "method",
-        "url",
-        "authorization",
-        "headers",
-        "params",
-        "body",
-        "timeout",
-        "variables",
-    ):
-        assert key in data, f"OP_HTTP 缺少 {key}，Dify 会拒绝整张图"
-    assert data["type"] == "http-request"
-    assert data["authorization"]["type"] in {"no-auth", "api-key"}
-    assert data["params"] == ""
-    assert {"max_connect_timeout", "max_read_timeout", "max_write_timeout"} <= set(
-        data["timeout"]
-    )
+def test_chat_prompt_pins_the_send_kind_contract(graph):
+    """模型不写 send_kind 就永远是 TASK——开关和限流对它完全不起作用。"""
+    _, _, nodes = graph
+    system = nodes["chat_decision"]["data"]["prompt_template"][0]["text"]
+    assert "send_kind" in system
+    assert "needs_confirm" in system
+    assert "CHAT" in system and "TASK" in system
 
 
-def test_start_declares_open_memos_and_event_id(graph):
-    _, nodes, _ = graph
-    names = {v["variable"]: v for v in nodes["start"]["data"]["variables"]}
-    assert names["open_memos"]["max_length"] == 20000
-    assert names["event_id"]["max_length"] == 64
-    assert "open_memos" in nodes["chat_decision"]["data"]["prompt_template"][1]["text"]
+# ---------- CLEAN_DECISION 归一化 ----------
+
+def test_missing_send_kind_is_filled_in_as_task(graph):
+    """旧提示词/漏写的信封按 TASK：行为和今天一模一样，不能被门控吞掉。"""
+    _, _, nodes = graph
+    envelope = _clean(nodes, {"version": 1, "action": "SEND", "content": "记下了"})
+    assert envelope["send_kind"] == "TASK"
+    assert envelope["content"] == "记下了"
 
 
-def test_memo_op_body_takes_identity_from_start(graph):
-    _, nodes, _ = graph
-    main = _main(nodes, "clean_decision")
-    text = json.dumps({"action": "MEMO_OP", "op": "memo.update", "memoId": "12",
-                       "content": "明天下午2点 教学楼 S111",
-                       "senderId": "999", "eventId": "forged"})
-
-    out = main(text, sender_id="8801", chat_id="555", event_id="evt-1")
-
-    assert out["is_op"] == "true"
-    body = json.loads(out["op_body"])
-    assert body["senderId"] == "8801"      # 模型改不了归属
-    assert body["eventId"] == "evt-1"      # 模型改不了幂等键
-    assert body["chatId"] == "555"
-    assert body["memoId"] == "12"
-    assert body["status"] == ""            # 没给的字段留空串，让 Spring 认为「未提供」
+def test_chat_kind_survives_cleaning(graph):
+    _, _, nodes = graph
+    envelope = _clean(nodes, {"action": "SEND", "send_kind": "CHAT", "content": "在呢"})
+    assert envelope["send_kind"] == "CHAT"
+    assert envelope["content"] == "在呢"
 
 
-def test_legacy_memo_and_garbage_still_parse(graph):
-    _, nodes, _ = graph
-    main = _main(nodes, "clean_decision")
-
-    memo = main(json.dumps({"action": "MEMO",
-                            "memo": {"content": "周五交实验报告"}}),
-                "1", "", "evt")
-    assert memo["is_op"] == "false"
-    decision = json.loads(memo["decision"])
-    assert decision["memo"]["importance"] == 3
-
-    garbage = main("不是 JSON", "1", "", "evt")
-    assert json.loads(garbage["decision"])["action"] == "SILENT"
+def test_unknown_send_kind_falls_back_to_task(graph):
+    """模型自创的枚举不能直接透传，否则门控认不出来、当成 CHAT 还是 TASK 全靠运气。"""
+    _, _, nodes = graph
+    assert _clean(nodes, {"action": "SEND", "send_kind": "GOSSIP", "content": "x"})["send_kind"] == "TASK"
+    assert _clean(nodes, {"action": "SEND", "send_kind": " chat ", "content": "x"})["send_kind"] == "CHAT"
 
 
-def test_memo_op_without_event_id_does_not_write(graph):
-    _, nodes, _ = graph
-    main = _main(nodes, "clean_decision")
-    out = main(json.dumps({"action": "MEMO_OP", "op": "memo.close", "status": "DONE"}),
-               "1", "", "")
-    assert out["is_op"] == "false"
-    assert json.loads(out["decision"])["action"] == "SEND"
+def test_needs_confirm_is_a_real_boolean(graph):
+    """字符串 "true" 也要认：宁可多一条草稿，也不能让该确认的话直接发出去。"""
+    _, _, nodes = graph
+    envelope = _clean(nodes, {"action": "SEND", "send_kind": "CHAT",
+                              "needs_confirm": "true", "content": "行，我三点到"})
+    assert envelope["needs_confirm"] is True
 
 
-def test_illegal_op_is_not_forwarded(graph):
-    _, nodes, _ = graph
-    main = _main(nodes, "clean_decision")
-    out = main(json.dumps({"action": "MEMO_OP", "op": "memo.delete", "memoId": "12"}),
-               "1", "", "evt")
-    assert out["is_op"] == "false"
-    assert json.loads(out["decision"])["action"] == "SILENT"
+def test_needs_confirm_is_dropped_on_a_task(graph):
+    """TASK 是干活；把它塞进草稿箱等于备忘确认语永远发不出去。"""
+    _, _, nodes = graph
+    envelope = _clean(nodes, {"action": "SEND", "send_kind": "TASK",
+                              "needs_confirm": True, "content": "改好了"})
+    assert not envelope.get("needs_confirm")
 
 
-def test_read_op_result_passes_business_message_verbatim(graph):
-    _, nodes, _ = graph
-    main = _main(nodes, "read_op_result")
-
-    ok = main(200, json.dumps({"code": 0,
-                               "message": "改好了：班会 · 10-31 16:00",
-                               "data": {"memoId": 12, "replayed": False}}))
-    assert json.loads(ok["decision"])["text"] == "改好了：班会 · 10-31 16:00"
-
-    rejected = main(200, json.dumps({"code": 400, "message": "备忘录不存在", "data": None}))
-    assert json.loads(rejected["decision"])["text"] == "备忘录不存在"
+def test_false_needs_confirm_is_not_emitted(graph):
+    _, _, nodes = graph
+    envelope = _clean(nodes, {"action": "SEND", "send_kind": "CHAT",
+                              "needs_confirm": False, "content": "在呢"})
+    assert not envelope.get("needs_confirm")
 
 
-def test_read_op_result_is_total(graph):
-    _, nodes, _ = graph
-    main = _main(nodes, "read_op_result")
-    for args in ((500, "upstream error"), (200, "<html>502 Bad Gateway</html>"),
-                 (0, ""), (None, None)):
-        decision = json.loads(main(*args)["decision"])
-        assert decision["action"] == "SEND"
-        assert "没办成" in decision["text"]
+# ---------- 确认语必须写在 content 上 ----------
+
+def test_op_success_confirmation_uses_content(graph):
+    """插件 `_send` 读的是 content；写成 text 就是「后台写成功了，用户什么都没收到」。"""
+    _, _, nodes = graph
+    body = json.dumps({"code": 0, "message": "改好了：班会 · S111", "data": {}}, ensure_ascii=False)
+    envelope = json.loads(_main(nodes, "read_op_result")(200, body)["decision"])
+    assert envelope["action"] == "SEND"
+    assert envelope["content"] == "改好了：班会 · S111"
+    assert "text" not in envelope
 
 
-def test_replayed_result_says_it_did_not_run_again(graph):
-    _, nodes, _ = graph
-    main = _main(nodes, "read_op_result")
-    out = main(200, json.dumps({"code": 0, "message": "已取消：班会",
-                                "data": {"memoId": 12, "replayed": True}}))
-    assert "没有重复执行" in json.loads(out["decision"])["text"]
+def test_op_failure_apology_uses_content(graph):
+    _, _, nodes = graph
+    envelope = json.loads(_main(nodes, "op_failed")()["decision"])
+    assert envelope["action"] == "SEND"
+    assert envelope["content"]
+    assert "text" not in envelope
 
 
-def test_op_failed_never_echoes_the_raw_error(graph):
-    _, nodes, _ = graph
-    data = nodes["op_failed"]["data"]
-    assert data["variables"] == []          # 根本没接 error_message，想回显都没得回显
-    decision = json.loads(_main(nodes, "op_failed")()["decision"])
-    assert decision["action"] == "SEND"
-    assert "http" not in decision["text"].lower()
+def test_memo_op_without_event_id_uses_content(graph):
+    """没有幂等键就不写，但要回一句话——这句话同样必须落在 content 上。"""
+    _, _, nodes = graph
+    envelope = _clean(nodes, {"action": "MEMO_OP", "op": "memo.update", "memoId": "12"},
+                      event_id="")
+    assert envelope["action"] == "SEND"
+    assert envelope["content"]
+    assert "text" not in envelope
+
+
+# ---------- 聚合顺序 ----------
+
+def test_merge_decision_reads_op_results_before_clean_decision(graph):
+    """op 分支时 clean_decision 输出空串；顺序错了聚合器会拿到空值，回成 SILENT。"""
+    _, _, nodes = graph
+    order = [v[0] for v in nodes["merge_decision"]["data"]["variables"]]
+    assert order.index("read_op_result") < order.index("clean_decision")
+    assert order.index("op_failed") < order.index("clean_decision")

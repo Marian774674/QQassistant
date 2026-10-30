@@ -29,6 +29,12 @@ const router = createRouter({
       meta: { title: '记忆' },
     },
     {
+      path: '/ask',
+      name: 'ask',
+      component: () => import('@/views/AskView.vue'),
+      meta: { title: '问一句' },
+    },
+    {
       path: '/more',
       name: 'more',
       component: () => import('@/views/MoreView.vue'),

@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import traceback
 
 from langbot_plugin.api.definition.components.common.event_listener import EventListener
 from langbot_plugin.api.entities import context, events
 
-from core import conversation_store, file_store
+from core import conversation_store, file_store, reply_gate, reply_rules
 from core.dispatch import parse_answer
 from core.event import build_inputs, event_id_of
 from core.reply import reply_text
@@ -18,6 +19,25 @@ from core.rules import task_key
 from core.text import extract_text, has_file, human_delay_seconds, is_at_bot, peer_names
 
 log = logging.getLogger(__name__)
+
+# Dify 的 Start 只认声明过的变量：插件先上、Chatflow 还没重导入时，多发的三个输入
+# 会让 /chat-messages 直接 400，群里所有消息静默没人管。
+# 撞上一次就退回旧口径并在本进程内记住，别每条消息都先撞一次。
+_legacy_chatflow = False
+_legacy_since = 0.0
+
+# 但「记住」必须会过期：DSL 重导入之后，插件若还一直丢那三个输入，
+# 自动回复的开关就永远不生效，用户只能重启 LangBot 自救。
+LEGACY_PROBE_SECONDS = 600
+
+
+def _drop_new_inputs(inputs: dict) -> dict:
+    return {k: v for k, v in inputs.items() if k not in reply_rules.NEW_INPUTS}
+
+
+def _is_bad_request(error: Exception) -> bool:
+    """400 = 参数不被接受。Dify 对未声明输入、坏 query 都回 400，措辞不稳定，只判状态码。"""
+    return "HTTP 400" in str(error)
 
 
 def _file_task():
@@ -38,6 +58,15 @@ def _file_task():
 async def _respond(deps, ctx, is_group, sender_id, chat_id, text,
                    event_type: str, file_ctx: dict | None = None):
     """统一出口：画像 → Chatflow → 机械分发。任何异常只记日志，不回复。"""
+    # 本函数下面的降级分支要写这个模块级开关；global 必须在读它之前声明
+    global _legacy_chatflow, _legacy_since
+
+    # 到期的「旧 Chatflow」标记先撤掉：接下来这一轮用完整输入再探一次，
+    # DSL 若已重新导入，自动回复就自己活过来了
+    if _legacy_chatflow and time.monotonic() - _legacy_since > LEGACY_PROBE_SECONDS:
+        _legacy_chatflow = False
+        file_store.debug("legacy chatflow mark expired, probing with full inputs")
+
     settings = deps.settings
     chat_type = "group" if is_group else "private"
     query = text.removeprefix(settings.group_prefix) if is_group else text
@@ -61,6 +90,16 @@ async def _respond(deps, ctx, is_group, sender_id, chat_id, text,
             open_memos = await deps.spring.list_open_memos(sender_id) or []
         except Exception as e:
             file_store.debug(f"open memos failed, continue with []: {e!r}")
+        # 自动回复的开关 / 限流 / 人设 / 最近消息，一次取齐。
+        # 私聊没有群号，拿对方 QQ 当会话键——和 chat_setting 的存法保持一致。
+        reply_ctx = reply_rules.normalize(None)
+        try:
+            reply_ctx = reply_rules.normalize(await deps.spring.reply_context(
+                chat_id if chat_id is not None else sender_id,
+                "GROUP" if is_group else "PRIVATE"))
+        except Exception as e:
+            # 取不到就当没开：宁可闭嘴，也不能拿不到限流快照还照说
+            file_store.debug(f"reply context failed, auto reply stays off: {e!r}")
 
         pending = await file_store.load_pending(deps, key) or {}
         # 幂等键在此生成一次：下面「会话丢失重试」必须复用同一个值，
@@ -72,7 +111,10 @@ async def _respond(deps, ctx, is_group, sender_id, chat_id, text,
             pending_request_hint=pending.get("request", ""),
             last_task_ref=pending.get("taskRef", ""),
             open_memos=open_memos,
-            event_id=event_id)
+            event_id=event_id,
+            reply_prompt=reply_ctx["replyPrompt"],
+            recent_messages=reply_ctx["recentMessages"],
+            reply_rules=reply_rules.RULES)
         file_store.debug(
             f"profile ok facts={len(profile.get('facts') or {})} "
             f"open_memos={len(open_memos)} event_id={event_id[:12]} "
@@ -83,19 +125,33 @@ async def _respond(deps, ctx, is_group, sender_id, chat_id, text,
         conversation_id = await conversation_store.resolve(
             deps, settings.bot_uuid, chat_type, chat_id, sender_id)
         user = conversation_store.dify_user(chat_type, chat_id, sender_id)
+        if _legacy_chatflow:
+            inputs = _drop_new_inputs(inputs)
         try:
             result = await deps.dify.chat(
                 query, user=user, conversation_id=conversation_id, inputs=inputs)
         except Exception as e:
             # Dify 应用重建/会话过期后，旧 ID 会返回 400 Conversation Not Exists；
             # 清掉映射后用新会话重试一次，避免用户从此永久收不到回复。
-            if not (conversation_id and conversation_store.is_missing_conversation(e)):
+            if conversation_id and conversation_store.is_missing_conversation(e):
+                file_store.debug(
+                    f"conversation {conversation_id} missing, retry with new session")
+                await conversation_store.reset(
+                    deps, settings.bot_uuid, chat_type, chat_id, sender_id)
+                result = await deps.dify.chat(query, user=user, inputs=inputs)
+            elif not _legacy_chatflow and _is_bad_request(e):
+                # 旧 Chatflow：Start 没声明自动回复那三个变量 → 400。
+                # 撤掉它们再试一次；成功就记住，这一版插件对着旧 Chatflow 也能跑。
+                _legacy_chatflow = True
+                _legacy_since = time.monotonic()
+                log.warning("Dify 400 with the auto-reply inputs, retry without them "
+                            "(Chatflow 尚未按最新 DSL 重新导入)")
+                file_store.debug(f"dify 400, retry without new inputs: {e!r}")
+                result = await deps.dify.chat(
+                    query, user=user, conversation_id=conversation_id,
+                    inputs=_drop_new_inputs(inputs))
+            else:
                 raise
-            file_store.debug(
-                f"conversation {conversation_id} missing, retry with new session")
-            await conversation_store.reset(
-                deps, settings.bot_uuid, chat_type, chat_id, sender_id)
-            result = await deps.dify.chat(query, user=user, inputs=inputs)
 
         new_conversation_id = result.get("conversation_id")
         if new_conversation_id and new_conversation_id != conversation_id:
@@ -118,14 +174,39 @@ async def _respond(deps, ctx, is_group, sender_id, chat_id, text,
         file_store.debug(
             f"dify ok conversation={new_conversation_id or conversation_id} "
             f"answer={result.get('answer', '')[:40]!r} action={data.get('action')}")
+
+        # 出口门控：说得成不成看开关与限流；要不要改成人来确认是一条 CHAT 的语义判断
+        gate = reply_gate.decide(data, reply_ctx)
+        if gate.suppressed:
+            file_store.debug(f"reply suppressed reason={gate.suppressed} "
+                             f"kind={gate.send_kind} chat={chat_id}")
+        if gate.draft:
+            try:
+                await deps.spring.create_draft(
+                    "REPLY", sender_id, chat_id,
+                    gate.draft["content"][:20], {"content": gate.draft["content"]})
+                file_store.debug(f"reply draft created for chat={chat_id}")
+            except Exception as e:
+                # 草稿没建成 = 这条回复彻底没了。宁可让用户等一句「没办成」，也别假装发过
+                log.warning("create reply draft failed: %s", e)
+                file_store.debug(f"create reply draft failed chat={chat_id}: {e!r}")
+                apology = "这句我拿不准，先不替你说了。"
+                await reply_text(ctx, apology)
+                # 道歉语也走统一日志：不进 message_log，网页上就只剩「什么都没发生」
+                deps.log_queue.enqueue({
+                    "senderId": sender_id, "chatId": chat_id, "direction": "OUT",
+                    "msgType": "text", "content": apology, "replyKind": "TASK",
+                    "conversationId": new_conversation_id or conversation_id or "",
+                })
+
         sent = await deps.dispatcher.handle(
-            data, ctx, sender_id, chat_id, file_ctx=file_ctx,
+            gate.data, ctx, sender_id, chat_id, file_ctx=file_ctx,
             conversation_key=key, deps=deps)
         file_store.debug(f"dispatch sent={bool(sent)} text={(sent or '')[:40]!r}")
         if sent:
             deps.log_queue.enqueue({
                 "senderId": sender_id, "chatId": chat_id, "direction": "OUT",
-                "msgType": "text", "content": sent,
+                "msgType": "text", "content": sent, "replyKind": gate.send_kind,
                 "conversationId": new_conversation_id or conversation_id or "",
             })
     except Exception as e:
@@ -247,6 +328,8 @@ class DefaultEventListener(EventListener):
             deps.log_queue.enqueue({
                 "senderId": sender_id, "chatId": chat_id, "direction": "OUT",
                 "msgType": "text", "content": template,
+                # 拦截回复是「干活」，不该占用自动回复的每小时额度
+                "replyKind": "TASK",
             })
         except Exception as e:
             log.warning("intercept reply failed (rule=%s): %s", rule.get("name"), e)

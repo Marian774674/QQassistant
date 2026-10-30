@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ArrowLeft, Check } from 'lucide-vue-next'
 import ErrorState from '@/components/ErrorState.vue'
 import Skeleton from '@/components/Skeleton.vue'
-import { getSettings } from '@/api/settings'
+import { getSettings, putSettings } from '@/api/settings'
 import { loadOwner, saveOwner, useOwner } from '@/composables/useOwner'
 import { useRefresh } from '@/composables/useRefresh'
 import { useToast } from '@/composables/useToast'
@@ -18,6 +18,23 @@ const ownerError = ref('')
 const settings = ref<Record<string, string>>({})
 const loadingSettings = ref(true)
 const settingsError = ref('')
+
+// 自动回复：子提示词是「额外要求」，限流只约束替主人闲聊的条数
+const REPLY_PROMPT_KEY = 'reply_prompt'
+const REPLY_LIMIT_KEY = 'reply_rate_limit'
+const REPLY_ENABLED_KEY = 'reply_enabled'
+const DEFAULT_LIMIT = 20
+const PROMPT_HINTS = ['语气随便点，别太客气', '别提我的工作', '群聊里别人 @ 我才回']
+
+const replyPrompt = ref('')
+const replyLimit = ref(DEFAULT_LIMIT)
+const savingReply = ref(false)
+const replyError = ref('')
+const replyDirty = ref(false)
+
+// 总开关：一键闭嘴。缺省是开——没配过时保持各会话自己的开关说了算
+const replyEnabled = ref(true)
+const savingGlobal = ref(false)
 
 const ownerSaved = computed(
   () => owner.senderId !== null && String(owner.senderId) === qqInput.value.trim(),
@@ -36,11 +53,22 @@ async function loadSettings() {
   settingsError.value = ''
   try {
     settings.value = await getSettings()
+    hydrateReply(settings.value)
   } catch (e) {
     settingsError.value = e instanceof Error ? e.message : '设置读取失败'
   } finally {
     loadingSettings.value = false
   }
+}
+
+function hydrateReply(snapshot: Record<string, string>) {
+  // 总开关是点一下就存的，刷新时永远以服务端为准
+  replyEnabled.value = (snapshot[REPLY_ENABLED_KEY] ?? 'true').trim().toLowerCase() !== 'false'
+  // 下拉刷新别把正在敲的字冲掉：只有没动过这两个字段时才回填
+  if (replyDirty.value) return
+  replyPrompt.value = snapshot[REPLY_PROMPT_KEY] ?? ''
+  const limit = Number(snapshot[REPLY_LIMIT_KEY])
+  replyLimit.value = Number.isFinite(limit) && limit > 0 ? limit : DEFAULT_LIMIT
 }
 
 onMounted(async () => {
@@ -74,9 +102,53 @@ function onSave() {
   void saveMine()
 }
 
+async function toggleReplyEnabled() {
+  const next = !replyEnabled.value
+  // 先翻过去给反馈，写失败再翻回来——这个开关要能「立刻相信」
+  replyEnabled.value = next
+  savingGlobal.value = true
+  try {
+    await putSettings({ [REPLY_ENABLED_KEY]: next ? 'true' : 'false' })
+    settings.value = { ...settings.value, [REPLY_ENABLED_KEY]: next ? 'true' : 'false' }
+    toast.success(next ? '已打开自动回复' : '已关掉自动回复')
+  } catch (e) {
+    replyEnabled.value = !next
+    toast.push(e instanceof Error ? e.message : '没保存上', 'error')
+  } finally {
+    savingGlobal.value = false
+  }
+}
+
+async function saveReply() {
+  const limit = Number(replyLimit.value)
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+    replyError.value = '每小时上限要是 1–200 的整数'
+    return
+  }
+  replyError.value = ''
+  savingReply.value = true
+  try {
+    await putSettings({
+      [REPLY_PROMPT_KEY]: replyPrompt.value.trim(),
+      [REPLY_LIMIT_KEY]: String(limit),
+    })
+    replyDirty.value = false
+    await loadSettings()
+    toast.success('自动回复设置已保存')
+  } catch (e) {
+    replyError.value = e instanceof Error ? e.message : '保存失败'
+  } finally {
+    savingReply.value = false
+  }
+}
+
 const otherSettings = computed(() =>
   Object.entries(settings.value)
-    .filter(([key]) => key !== 'owner_sender_id')
+    // 这几项在上面有专属编辑区，别再当成只读的「后端配置」重复列一遍
+    .filter(
+      ([key]) =>
+        !['owner_sender_id', REPLY_PROMPT_KEY, REPLY_LIMIT_KEY, REPLY_ENABLED_KEY].includes(key),
+    )
     .sort(([a], [b]) => a.localeCompare(b)),
 )
 </script>
@@ -123,6 +195,85 @@ const otherSettings = computed(() =>
         >
           <Check v-if="ownerSaved" :size="15" :stroke-width="2.6" aria-hidden="true" />
           {{ savingOwner ? '保存中…' : ownerSaved ? '已保存' : '保存' }}
+        </button>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2 class="block-title">自动回复</h2>
+      <p class="block-hint">
+        机器人替你说日常话时，会参考下面这段要求。哪些群、哪些私聊允许它开口，在「群设置」里按会话开关。
+        备忘、查资料、文件填写不受这里影响，照常工作。
+      </p>
+
+      <div class="card card-pad">
+        <label class="switch-row">
+          <span class="switch-text">
+            <span class="switch-label">总开关</span>
+            <span class="switch-hint">
+              关掉后所有群和私聊都立刻闭嘴，「群设置」里那些开关全部暂停。
+              备忘、查资料、文件填写照常，不受影响。
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            class="switch"
+            role="switch"
+            :checked="replyEnabled"
+            :aria-checked="replyEnabled"
+            :disabled="savingGlobal"
+            @change="toggleReplyEnabled"
+          />
+        </label>
+
+        <div class="field">
+          <label for="reply-prompt">额外要求</label>
+          <textarea
+            id="reply-prompt"
+            v-model="replyPrompt"
+            class="input textarea"
+            rows="4"
+            maxlength="500"
+            placeholder="例如：语气随便点；别提我的工作；群里被 @ 才回"
+            @input="replyDirty = true"
+          ></textarea>
+          <p class="field-hint">
+            大白话写就行，比如：
+            <span v-for="(hint, i) in PROMPT_HINTS" :key="hint">
+              {{ hint }}<span v-if="i < PROMPT_HINTS.length - 1">、</span>
+            </span>。
+            不替你承诺、不说自己是机器人这些底线，写在这里也改不掉。
+            <span class="faint">{{ replyPrompt.length }}/500</span>
+          </p>
+        </div>
+
+        <div class="field">
+          <label for="reply-limit">每小时最多替你说几句</label>
+          <input
+            id="reply-limit"
+            v-model.number="replyLimit"
+            class="input limit"
+            type="number"
+            min="1"
+            max="200"
+            step="1"
+            inputmode="numeric"
+            :aria-invalid="Boolean(replyError)"
+            @input="replyDirty = true"
+          />
+          <p v-if="replyError" class="error" role="alert">{{ replyError }}</p>
+          <p v-else class="field-hint">说得太多容易露馅。超过这个数就只做事、不说话。默认 20。</p>
+        </div>
+
+        <button
+          type="button"
+          class="btn btn-block save"
+          :class="replyDirty ? 'btn-primary' : 'btn-quiet'"
+          :disabled="savingReply || !replyDirty"
+          @click="saveReply"
+        >
+          <Check v-if="!replyDirty" :size="15" :stroke-width="2.6" aria-hidden="true" />
+          {{ savingReply ? '保存中…' : replyDirty ? '保存' : '已保存' }}
         </button>
       </div>
     </section>
@@ -200,6 +351,25 @@ const otherSettings = computed(() =>
 
 .save {
   margin-top: 16px;
+}
+
+/* 总开关与下面的输入框拉开距离，别挤成一行 */
+.switch-row {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.field + .field {
+  margin-top: 16px;
+}
+
+.textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.limit {
+  max-width: 140px;
 }
 
 .rows .row-value {

@@ -28,7 +28,7 @@ Dify 的会话变量只是**对话内的快捷状态**，不是数据库。插�
 ### 1.1 Start 变量
 
 Chatflow 的 Start 节点必须**预先定义**下列变量；插件发送未声明的变量会被 Dify 判 400。
-插件每轮都发全部 15 个键（缺值发空串），因此 Start 必须与下表一一对应。
+插件每轮都发全部 19 个键（缺值发空串），因此 Start 必须与下表一一对应。
 
 | 变量 | 类型 | 必填 | 说明 |
 |---|---|---|---|
@@ -48,6 +48,9 @@ Chatflow 的 Start 节点必须**预先定义**下列变量；插件发送未声
 | `last_task_ref` | text | 否 | 上一轮文件任务引用，便于“把第二行也填上” |
 | `open_memos` | text | 否 | 未终结备忘的紧凑 JSON 数组（见 1.4）；Dify 只能从这里取 `memoId` |
 | `event_id` | text | 否 | 写操作的幂等键；插件在调 Dify 前生成，重试复用 |
+| `reply_prompt` | text | 否 | 主人写的额外要求（`app_setting.reply_prompt`）；空串=没写 |
+| `recent_messages` | text | 否 | 本会话最近 N 条的 JSON 数组（正序，见 1.5）；取不到发 `[]` |
+| `reply_rules` | text | 否 | 固定约束的机器可读版，**优先级高于 `reply_prompt`** |
 
 `open_memos` / `event_id` 取不到时发 `[]` / `""`——**宁可让模型反问一句，也不能让它猜**。
 `event_id` 为空时 Dify 侧不发起写操作（`CLEAN_DECISION` 直接回一句“再说一遍”）。
@@ -123,6 +126,20 @@ pdf：
 
 **这是模型唯一被允许取 `memoId` 的地方**：服务端会再校验归属，编造的 id 一律“备忘录不存在”。
 
+### 1.5 `recent_messages` 的格式
+
+来自插件调用的 `GET /api/chat-settings/reply-context`（该接口一次把开关、限流快照、子提示词与
+最近消息一起返回，见 `api_contract.md` 十四.6），插件 `json.dumps(ensure_ascii=False)` 后整包发送：
+
+```json
+[{"senderName":"阿黄","direction":"IN","content":"明天几点集合","createdAt":"2026-10-30T21:14:00"},
+ {"senderName":"","direction":"OUT","content":"八点半东门","createdAt":"2026-10-30T21:15:00"}]
+```
+
+- 已按时间正序；`content` 压掉换行、截 200 字。
+- `senderName` 为空 = 机器人自己说的（`direction=OUT`）或插件没拿到昵称。
+- **这是模型唯一被允许取「刚才在聊什么」的地方**：不许从 `facts` / `open_memos` 里推断群里的对话。
+
 ---
 
 ## 2. 决策输出（Dify → 插件）
@@ -136,6 +153,8 @@ Chatflow 的 **Answer 节点只输出纯 JSON 文本**，不要 Markdown 代码�
 {
   "version": 1,
   "action": "SEND | DRAFT | SILENT | MEMO_OP | MEMO | FACT | MEMO_CLOSE | WAIT_FILE | ASK | FILE_FILL",
+  "send_kind": "TASK | CHAT",
+  "needs_confirm": false,
   "content": "给用户看的文字，可为空",
   "draft": {},
   "memo": {},
@@ -147,6 +166,20 @@ Chatflow 的 **Answer 节点只输出纯 JSON 文本**，不要 Markdown 代码�
 }
 ```
 
+`send_kind`（缺省 `TASK`）：
+
+| 值 | 含义 | 插件行为 |
+|---|---|---|
+| `TASK` | 干活的结果：备忘确认、文件任务、要素不全时的反问、拦截回复 | **总是发**，不受会话开关与限流影响 |
+| `CHAT` | 日常对话的应答：接话、寒暄、群里的闲聊 | 仅 `chat_setting.auto_reply_enabled=1` 且未超限时才发 |
+
+> **缺这个字段一定按 `TASK`**：新插件 + 旧 Chatflow、或模型漏写时，宁可多发一条，
+> 也不能把「改好了：班会 · 10-31 16:00」这种确认语静默吞掉。
+
+`needs_confirm`（缺省 `false`，**仅对 `CHAT` 有意义**）：`true` 时插件不发，
+改写 `draft(type=REPLY)` 进草稿中心，等人在 Vue 里点确认。判定属语义（Dify），
+落库与确认属 Spring。`TASK` 出现 `true` 一律忽略——否则一条备忘确认语会被莫名其妙地塞进草稿箱。
+
 ### 2.2 各动作
 
 #### SEND
@@ -156,6 +189,7 @@ Chatflow 的 **Answer 节点只输出纯 JSON 文本**，不要 Markdown 代码�
 ```
 
 插件：私聊拟人延迟后发送；群聊直接发送。`content` 为空视为 SILENT。
+发送前先过 §2.1 的 `send_kind` / `needs_confirm` 门控：`action` 与副作用照跑，只是 `content` 可能被清空。
 
 #### DRAFT
 
@@ -372,3 +406,20 @@ Dify 返回的错误体保留前 500 字符；QQ 签名 URL 必须脱敏（只�
 - `MEMO_OP` 与 §3 的写接口属于**新增**，未升级 `version`：不认识 `MEMO_OP` 的旧插件
   只会把它当未知 action 记日志并静默，不会误发——所以只能配合“图与提示词一起切换”，
   不能只换提示词。
+
+---
+
+## 8. 「记忆与整理」Workflow 契约（另一个应用）
+
+本文件 §1–§7 描述的是**对话应用** `QQAssistant`（`mode: advanced-chat`，走 `/v1/chat-messages`）。
+整理、归纳、查询走的是**另一个应用**「记忆与整理」（`mode: workflow`，走 `/v1/workflows/run`），
+DSL 在 `design/QQAssistant-memory-workflow.yml`，契约在 **`design/memory_workflow.md`**。
+
+这里只记两条边界，免得两边混着读：
+
+1. **同一个应用的四种活靠 `inputs.task` + `inputs.stage` 分派**：`digest`（离线消息整理）、
+   `extract`（夜间事实归纳）、`ask`+`stage=resolve`（认人）、`ask`+`stage=answer`（候选集内作答）。
+   调用方是 Spring 的 `DifyWorkflowClient`，不是插件——插件只碰对话应用。
+2. **Workflow 的 outputs 全部是字符串**（JSON 也是字符串），而且模型给的东西一律当**不可信的草稿**：
+   证据 id、sender_id、`used_ids` 都要回到 Spring 做集合校验；校验不过就丢弃或降级。
+   这与本文件 §4「校验与降级」是同一条原则，只是换了个应用。
