@@ -11,8 +11,10 @@ import {
 } from 'lucide-vue-next'
 import { listMemos } from '@/api/memos'
 import type { Memo } from '@/api/types'
+import PageHead from '@/components/PageHead.vue'
 import { useDraftStore } from '@/composables/useDraftStore'
 import { useOwner } from '@/composables/useOwner'
+import { useRefresh } from '@/composables/useRefresh'
 import { formatTime, parseLocal } from '@/utils/datetime'
 
 const owner = useOwner()
@@ -91,7 +93,10 @@ const groups = [
   },
 ]
 
-onMounted(async () => {
+onMounted(load)
+
+async function load() {
+  // 不在刷新时把数字清成「—」，否则下拉刷新会闪一下
   void draftStore.refreshPendingDrafts()
   try {
     memos.value = await listMemos()
@@ -101,7 +106,9 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+useRefresh(load)
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
@@ -127,21 +134,21 @@ const overdueCount = computed(() => {
 })
 
 const pendingCount = computed(() => draftStore.pendingCount.value)
+
+const headSub = computed(() =>
+  owner.senderId
+    ? '记忆、群与规则、运行记录都收在这里，日常用不到。'
+    : '先去设置里填上你的 QQ 号，备忘和记忆才会归到你名下。',
+)
 </script>
 
 <template>
   <div class="page">
-    <header class="page-head">
-      <p class="eyebrow">{{ owner.senderId ? `QQ ${owner.senderId}` : '还没绑定身份' }}</p>
-      <h1 class="page-title">更多</h1>
-      <p class="page-sub">
-        {{
-          owner.senderId
-            ? '记忆、群与规则、运行记录都收在这里，日常用不到。'
-            : '先去设置里填上你的 QQ 号，备忘和记忆才会归到你名下。'
-        }}
-      </p>
-    </header>
+    <PageHead
+      :eyebrow="owner.senderId ? `QQ ${owner.senderId}` : '还没绑定身份'"
+      title="More"
+      :sub="headSub"
+    />
 
     <section class="overview" aria-label="今日概览">
       <RouterLink to="/memos" class="stat">
@@ -188,69 +195,78 @@ const pendingCount = computed(() => draftStore.pendingCount.value)
 <style scoped>
 /* ── 今日概览 ─────────────────────────────────────────────── */
 
+/*
+ * 原来是「一块深色圆角矩形里放三个数字」，那是仪表盘插件的形状语言：
+ * 一块黑板把三个数圈起来，和周围的纸感完全脱节，而且是整页最响的一块。
+ *
+ * v3 换成「年报里的数字栏」：上下各一条发丝线，三列之间用竖线分隔，
+ * 数字用 34px 衬线、左对齐，标签是 10px 宽字距微标签。
+ * 不加底色、不加圆角、不投影——它靠的是排版，不是容器。
+ */
 .overview {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  overflow: hidden;
-  border-radius: var(--r-xl);
-  background: var(--card-inverse);
-  color: var(--on-dark);
-  box-shadow: 0 14px 34px -26px rgba(17, 18, 20, 0.7);
+  margin-top: 6px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
 }
 
 .stat {
   display: grid;
-  justify-items: center;
-  gap: 3px;
-  padding: 17px 4px 15px;
+  justify-items: start;
+  gap: 7px;
+  padding: 17px 0 15px;
   color: inherit;
   text-decoration: none;
   transition: background-color var(--dur-1) var(--ease-out);
 }
 
 .stat:active {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(46, 38, 26, 0.035);
 }
 
 .stat + .stat {
-  border-left: 1px solid var(--hairline-dark);
+  padding-left: 16px;
+  border-left: 1px solid var(--rule);
 }
 
 .stat-num {
-  font-size: 25px;
-  font-weight: 600;
-  line-height: 1.1;
-  letter-spacing: -0.035em;
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 400;
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  font-variant-numeric: lining-nums tabular-nums;
 }
 
 .stat-num.alert {
-  color: #ff9d92;
+  color: var(--accent-ink);
 }
 
 .stat-label {
-  color: var(--on-dark-3);
-  font-size: 11px;
-  letter-spacing: 0.03em;
+  color: var(--ink-3);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
 }
 
 .sync {
-  margin: 9px 2px 22px;
+  margin: 10px 0 24px;
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
 }
 
 /* ── 分组入口 ─────────────────────────────────────────────── */
 
 .group + .group {
-  margin-top: 20px;
+  margin-top: 22px;
 }
 
+/* 栏目线由 style.css 统一实现，这里只补「标题到卡片」的间距 */
 .group-label {
-  padding: 0 4px 8px;
-  color: var(--ink-3);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  padding-bottom: 10px;
 }
 
 .rows {
@@ -274,13 +290,15 @@ const pendingCount = computed(() => draftStore.pendingCount.value)
   background: var(--surface);
 }
 
+/* 图标框也是发丝线描边，和卡片、输入框同一套「压边」语言，不再是一块灰底 */
 .row-icon {
   display: grid;
   place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 10px;
-  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: transparent;
   color: var(--ink-2);
   flex: none;
 }
@@ -313,11 +331,12 @@ const pendingCount = computed(() => draftStore.pendingCount.value)
   flex: none;
 }
 
+/* 版权行当「刊尾」处理：更小、更宽字距、居中，像书末的版本记录 */
 .version {
-  margin-top: 30px;
+  margin-top: 32px;
   color: var(--ink-3);
-  font-size: 11px;
-  letter-spacing: 0.02em;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
   text-align: center;
 }
 </style>

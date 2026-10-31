@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { ArrowLeft, Check } from 'lucide-vue-next'
+import { Check } from 'lucide-vue-next'
 import ErrorState from '@/components/ErrorState.vue'
+import PageHead from '@/components/PageHead.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import { getSettings, putSettings } from '@/api/settings'
 import { loadOwner, saveOwner, useOwner } from '@/composables/useOwner'
@@ -48,14 +49,19 @@ watch(
   { immediate: true },
 )
 
-async function loadSettings() {
-  loadingSettings.value = true
-  settingsError.value = ''
+/** silent = 下拉刷新：保留当前内容，不闪骨架屏 */
+async function loadSettings(silent = false) {
+  if (!silent) {
+    loadingSettings.value = true
+    settingsError.value = ''
+  }
   try {
     settings.value = await getSettings()
     hydrateReply(settings.value)
   } catch (e) {
-    settingsError.value = e instanceof Error ? e.message : '设置读取失败'
+    const message = e instanceof Error ? e.message : '设置读取失败'
+    if (silent) toast.error(message)
+    else settingsError.value = message
   } finally {
     loadingSettings.value = false
   }
@@ -76,7 +82,7 @@ onMounted(async () => {
   await loadSettings()
 })
 
-useRefresh(loadSettings)
+useRefresh(() => loadSettings(true))
 
 async function saveMine() {
   const raw = qqInput.value.trim()
@@ -155,13 +161,7 @@ const otherSettings = computed(() =>
 
 <template>
   <div class="page">
-    <header class="page-head">
-      <RouterLink to="/more" class="back">
-        <ArrowLeft :size="16" :stroke-width="2" aria-hidden="true" />
-        更多
-      </RouterLink>
-      <h1 class="page-title">设置</h1>
-    </header>
+    <PageHead :back="{ to: '/more', label: '更多' }" title="Settings" />
 
     <section class="block">
       <h2 class="block-title">我的 QQ 号</h2>
@@ -322,24 +322,15 @@ const otherSettings = computed(() =>
 </template>
 
 <style scoped>
-.back {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 10px;
-  color: var(--ink-2);
-  font-size: 13px;
-}
 
+/* 分节标题由 style.css 的「栏目线」统一实现，这里只管块间距 */
 .block + .block {
   margin-top: 28px;
 }
 
+/* 栏目线自带 10px 的 gap，标题和下面的说明之间再补一点，别让线贴着正文 */
 .block-title {
-  margin-bottom: 6px;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  margin-bottom: 8px;
 }
 
 .block-hint {

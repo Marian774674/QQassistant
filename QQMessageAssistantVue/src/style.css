@@ -1,58 +1,83 @@
 /* ─────────────────────────────────────────────────────────────
-   值守台 · 移动端设计系统 v2
-   冷白灰画布 + 纯白圆角卡 + 极柔扩散阴影 + 近黑强调面。
-   强调色只出现在极小面积（链接 / 选中 / 新增），其余全部灰阶。
+   值守台 · 移动端设计系统 v3「纸与墨」
+   ─────────────────────────────────────────────────────────────
+   一版冷灰 + 纯白卡的系统，干净，但也通用：卡和卡之间只有间距的差别，
+   字号一拉平，整页就像一串同质的方块。
+
+   v3 换掉的是「材质」而不是「配色倾向」：
+   1. 底色从冷灰换成暖纸（#f4f1ec），卡片是更白一点的纸片，靠 1px 发丝线压边，
+      几乎不投影——印刷品是贴在纸上的，不是浮在空中的。
+   2. 标题与数字用衬线（Georgia / Noto Serif）。英文标题是展示级拉丁文，
+      衬线一上，页面立刻从「App」变成「刊物」。中文仍走无衬线：宋体在 15px 下会糊。
+   3. 微标签（10px / 大写 / 0.18em 字距）承担所有「栏目名、日期、序号」，
+      它和衬线大数字一起构成版面的骨架。
+   4. 一层 3% 的纸纹铺在整屏上，压掉数字界面那种「真空」感。
+   5. 强调色 #d92e73 只出现在圆点、序号、逾期与选中，面积仍然 <2%。
    ───────────────────────────────────────────────────────────── */
 
 :root {
-  /* 表面 */
-  --bg: #ededed;
-  --bg-deep: #e3e3e4;
-  --surface: #f5f5f6;
-  --card: #ffffff;
-  --card-inverse: #101011;
+  /* 表面：暖纸，不是冷灰 */
+  --bg: #f4f1ec;
+  --bg-deep: #eae5dd;
+  /* 画布顶部的那层光：页头用它做底色，和页面渐变接得上 */
+  --bg-top: #fbf9f5;
+  --bg-bottom: #ece7df;
+  --surface: #efece5;
+  --card: #fffdfa;
+  --card-inverse: #17161a;
 
   /* 文字
-   * 灰阶层级：正文 17:1、次级 7.3:1、辅助 4.6:1，小字也过 AA。
-   * 之前 --ink-3 太浅（约 2.5:1），11px 的元信息在户外几乎看不清。 */
-  --ink: #111214;
-  --ink-2: #4b4c51;
-  --ink-3: #696a6f;
-  --on-dark: #ffffff;
-  --on-dark-2: rgba(255, 255, 255, 0.72);
-  --on-dark-3: rgba(255, 255, 255, 0.48);
+   * 灰阶层级：正文 17:1、次级 7.3:1、辅助 4.9:1，小字也过 AA。
+   * 暖底上的灰要偏褐，纯灰会显脏。 */
+  --ink: #16151a;
+  --ink-2: #4a484e;
+  --ink-3: #6b686e;
+  --on-dark: #fbf8f3;
+  --on-dark-2: rgba(251, 248, 243, 0.72);
+  --on-dark-3: rgba(251, 248, 243, 0.46);
 
-  /* 线 */
-  --hairline: #e7e7e8;
+  /* 线：暖发丝线。1px 的暖褐比冷灰更像印刷的压痕 */
+  --hairline: #e5e0d6;
   --hairline-dark: rgba(255, 255, 255, 0.1);
-  --dot: #c7c7ca;
+  --rule: #dcd6c9;
+  --dot: #beb9ae;
 
   /* 语义 */
-  --accent: #e5387f;
+  --accent: #d92e73;
+  /*
+   * 强调色有两种用法，别混：
+   * --accent 是「面」——圆点、角标、色块，4.06:1 的对比在 4px 的方块上完全够；
+   * --accent-ink 是「字」——凡是强调色当文字用（时间、@你、逾期数字），
+   * 必须换这一支，它在纸底上是 4.71:1，过 AA。
+   */
+  --accent-ink: #c92668;
+  --accent-soft: rgba(217, 46, 115, 0.12);
   --ok: #2f7a55;
   --warn: #a06a12;
   --danger: #bf3a2b;
   --danger-wash: #fbecea;
 
-  /* 形状 */
-  --r-xs: 8px;
-  --r-sm: 12px;
-  --r-md: 14px;
-  --r-lg: 18px;
-  --r-xl: 22px;
-  --r-sheet: 28px;
+  /* 形状：比 v2 更收一点。大圆角是「消费级」，小圆角是「编辑级」 */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-sheet: 26px;
   --r-pill: 999px;
 
   /*
-   * 阴影：先一圈 1px 的极淡描边把边缘「收」住，再叠两层扩散。
-   * 纯阴影的卡片在冷灰底上边缘会发虚，加描边之后更利落，也更像印刷品。
+   * 阴影：几乎只留「纸片厚度」。
+   * 印刷品不投影——所以 v3 的卡片靠 1px 发丝线立边界，阴影只负责把边缘
+   * 从底纸上轻轻托起来一点点。层数从三层减到两层。
    */
-  --shadow-card: 0 0 0 1px rgba(17, 18, 20, 0.035),
-    0 1px 2px rgba(17, 18, 20, 0.03),
-    0 10px 26px -22px rgba(17, 18, 20, 0.34);
-  --shadow-lift: 0 0 0 1px rgba(17, 18, 20, 0.05),
-    0 2px 8px rgba(17, 18, 20, 0.08),
-    0 26px 56px -28px rgba(17, 18, 20, 0.46);
+  --shadow-card: 0 1px 2px rgba(46, 38, 26, 0.035),
+    0 10px 22px -20px rgba(46, 38, 26, 0.28);
+  --shadow-lift: 0 2px 6px rgba(46, 38, 26, 0.06),
+    0 24px 48px -26px rgba(46, 38, 26, 0.42);
+
+  /* 纸纹：feTurbulence 生成，140px 平铺。铺在整屏最上层，压掉数字界面的「真空感」 */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
 
   /* 间距 */
   --sp-1: 4px;
@@ -65,11 +90,18 @@
 
   /* 尺寸 */
   --frame-w: 430px;
-  --tab-h: 64px;
-  --pad-x: 20px;
+  --tab-h: 62px;
+  --pad-x: 22px;
 
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
     "HarmonyOS Sans SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  /*
+   * 展示级衬线：只给英文标题与大数字。
+   * Georgia 在 Win / macOS 的 Chrome 上一定有；Android 落到 Noto Serif；
+   * 再往后的宋体只在大标题里出现中文时才会命中（正文永远不用它）。
+   */
+  --font-display: Georgia, "Times New Roman", "Noto Serif", "Source Han Serif SC",
+    "Songti SC", serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
     monospace;
 
@@ -107,6 +139,12 @@ body {
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
+}
+
+/* 下拉刷新时别让浏览器顺手选中文字 */
+body.pulling {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 h1,
@@ -162,42 +200,170 @@ a {
     place-items: center;
     background: radial-gradient(
         120% 90% at 50% 0%,
-        #f4f4f5 0%,
-        #e3e3e4 55%,
-        #dcdcdd 100%
+        #f7f4ee 0%,
+        #e9e4db 55%,
+        #ded8cd 100%
       );
   }
 
   #app {
     height: min(884px, calc(100dvh - 40px));
-    border-radius: 42px;
-    box-shadow: 0 40px 90px -50px rgba(17, 18, 20, 0.55),
-      0 0 0 1px rgba(17, 18, 20, 0.06), 0 2px 4px rgba(17, 18, 20, 0.04);
+    border-radius: 40px;
+    box-shadow: 0 40px 90px -50px rgba(46, 38, 26, 0.5),
+      0 0 0 1px rgba(46, 38, 26, 0.07), 0 2px 4px rgba(46, 38, 26, 0.04);
   }
 }
 
 /* ── 排版 ─────────────────────────────────────────────────── */
 
-.eyebrow {
+/*
+ * 微标签：全站所有「栏目名 / 日期 / 序号」共用这一套。
+ * 10px、大写、0.18em 字距——字距拉宽是为了让几个小字母自己站成一行「印刷行」，
+ * 而不是缩成一小坨灰字。它是版面骨架里最便宜也最有效的一层。
+ */
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   color: var(--ink-3);
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-/* 大标题收紧字距，字面更「实」，比放大字号更显质感 */
+/*
+ * 大数字：衬线的灵魂在这一处。
+ * 一个 30px 的 Georgia 数字放在 10px 的微标签旁边，版面立刻有了「排版」的意图，
+ * 而不是「把字号调大」。
+ */
+.display-num {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-variant-numeric: lining-nums tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+/*
+ * 印章标签：日期、栏目、身份。
+ *
+ * v2 是一枚圆角药丸 + 玻璃底。v3 改成方形小戳：4px 圆角、发丝线、纸白底，
+ * 前面一颗 4px 的强调色方块。药丸是「消费级」的形状语言，方戳是「刊物」的——
+ * 它更像盖在纸上的一个印记，而不是一颗按钮。
+ */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--rule);
+  background: var(--card);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.eyebrow::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--accent);
+  flex: none;
+}
+
+/*
+ * 大标题：衬线，32px。
+ *
+ * 用户两次嫌大，所以字号没有回去——变的是字体。
+ * 无衬线 32px 是「粗」，衬线 32px 是「雅」：笔画有粗细对比，
+ * 同样字号下视觉重量轻一档，但存在感更强。英文标题是展示级拉丁文，
+ * 衬线本来就是它的正装。
+ */
 .page-title {
-  font-size: 31px;
-  font-weight: 600;
-  line-height: 1.12;
-  letter-spacing: -0.034em;
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
 }
 
-.section-title {
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+/* 360dp 及以下的安卓机再退一档 */
+@media (max-width: 380px) {
+  .page-title {
+    font-size: 28px;
+  }
 }
+
+/*
+ * 栏目线 —— 全站分节标题的唯一实现。
+ *
+ * 之前每个页面各写一套：备忘页是 12px 灰字、设置页是 17px 粗黑、更多页是 11.5px，
+ * 同一种「小节」在三个页面长三个样，整站的秩序就散了。
+ * 现在统一成：10.5px 微标签 + 一条撑满的引导线 + 右端一枚衬线数字。
+ * 它同时解决了「空屏怎么显得不空」——一条横线就能把版面切出层次。
+ *
+ * 用 flex + order 是为了不改各页模板：标签是文本节点（order 0），
+ * 引导线插在中间（order 1），计数 .num 排到最右（order 2）。
+ */
+.section-title,
+.block-title,
+.group-title,
+.group-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.section-title::after,
+.block-title::after,
+.group-title::after,
+.group-label::after {
+  content: '';
+  order: 1;
+  flex: 1;
+  min-width: 10px;
+  height: 1px;
+  background: var(--rule);
+}
+
+.section-title .num,
+.block-title .num,
+.group-title .num,
+.group-label .num {
+  order: 2;
+  color: var(--ink-2);
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+/*
+ * 版式零件：发丝引导线。
+ * 注意别把它命名成 .rule —— 拦截规则页的卡片本来就叫 .rule，
+ * 全局工具类和页面语义类撞名会把卡片压成 1px。引导线一律用各分节标题的 ::after。
+ */
 
 .muted {
   color: var(--ink-2);
@@ -244,63 +410,135 @@ a {
 }
 
 /*
- * 页头吸顶：滚动后收起 eyebrow 与副标题、标题降到 18px。
- * 背景始终用画布色（不是 transparent）：收起/展开之间那几帧如果背景透明，
- * 下面的内容会从标题后面透出来，看着像重影。
- * 也不用 backdrop-filter —— 常驻毛玻璃在移动端滚动时很吃 GPU，而且这里背景不透明，毛玻璃本来也看不出来。
+ * 刊头（masthead）。
+ *
+ * 底色是三层叠出来的：右上角一团强调色的余晖、左上角一片暖白，最后沉到画布色。
+ * 参考稿里页头之所以「有空气」，靠的就是这层有方向的光——不是投影，也不是边框。
+ *
+ * 曾经在右上角放过一道圆弧做装饰，但标题一长（「你不在的时候」）就会被它穿过，
+ * 而且弧在页头底边被裁断，看着像渲染错误。装饰一旦和内容打架就是噪音，去掉了。
+ * v3 换了个不会打架的做法：装饰交给「发丝引导线 + 衬线标题」，全部在文字流里。
  */
 .page-head {
   position: sticky;
   top: 0;
   z-index: 20;
   margin: 0 calc(var(--pad-x) * -1);
-  padding: calc(10px + env(safe-area-inset-top, 0px)) var(--pad-x) 16px;
-  background: var(--bg);
-  transition: padding var(--dur-2) var(--ease-out);
+  padding: calc(16px + env(safe-area-inset-top, 0px)) var(--pad-x) 20px;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      70% 50% at 98% -18%,
+      rgba(217, 46, 115, 0.11) 0%,
+      rgba(217, 46, 115, 0) 64%
+    ),
+    radial-gradient(120% 76% at -6% -32%, #fffdf9 0%, rgba(255, 253, 249, 0) 58%),
+    linear-gradient(180deg, #fbf8f3 0%, #f6f2ea 58%, var(--bg) 100%);
+  transition: padding var(--dur-2) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out);
 }
 
 .page-head .page-title {
-  margin-top: 6px;
   transition: font-size var(--dur-2) var(--ease-out),
-    margin-top var(--dur-2) var(--ease-out);
+    letter-spacing var(--dur-2) var(--ease-out);
 }
 
-.page-head .eyebrow,
-.page-head .page-sub {
+/*
+ * 说明文字：比正文小半号、颜色压到三级灰。
+ * 标题是黑的、说明是灰的——层级差一半靠字号、一半靠颜色。
+ * 衬线标题下面是衬线还是无衬线，决定了整页是「刊物」还是「怪」：
+ * 说明必须回到无衬线，中文在衬线 14px 下会糊成一团。
+ */
+.page-sub {
+  margin-top: 12px;
+  max-width: 24em;
+  color: var(--ink-3);
+  font-size: 13.5px;
+  line-height: 1.7;
+  letter-spacing: 0;
+  text-wrap: pretty;
+  max-height: 110px;
+  overflow: hidden;
   transition: opacity var(--dur-2) var(--ease-out),
     max-height var(--dur-2) var(--ease-out),
     margin var(--dur-2) var(--ease-out);
-  overflow: hidden;
 }
 
-.page-sub {
-  margin-top: 8px;
-  color: var(--ink-2);
-  font-size: 13.5px;
-  line-height: 1.6;
-  max-height: 80px;
-}
-
+/*
+ * 收起态：整条压成一行，只剩 17px 的标题。
+ * 胶囊标签和返回钮一起退场——粘性条要压到一行，32px 的圆钮留着会把窄条撑成两行；
+ * 目标平台是 Android，系统返回手势始终在，这个取舍可以接受。
+ */
 .app[data-scrolled="true"] .page-head {
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
   padding-bottom: 10px;
-  box-shadow: 0 1px 0 rgba(17, 18, 20, 0.07);
+  box-shadow: 0 1px 0 rgba(46, 38, 26, 0.07);
+}
+
+.app[data-scrolled="true"] .page-head .head-bar {
+  min-height: 0;
+  margin-bottom: 0;
+}
+
+.app[data-scrolled="true"] .page-head .back,
+.app[data-scrolled="true"] .page-head .eyebrow,
+.app[data-scrolled="true"] .page-head .head-rule {
+  display: none;
+}
+
+/* 只有拦截规则页在页头放了动作钮；收起时给它留一点下边距，别贴着标题 */
+.app[data-scrolled="true"] .page-head .head-actions {
+  margin-bottom: 8px;
+}
+
+.app[data-scrolled="true"] .page-head .head-actions > * {
+  width: 32px;
+  height: 32px;
 }
 
 .app[data-scrolled="true"] .page-head .page-title {
-  margin-top: 0;
-  font-size: 18px;
+  font-size: 17px;
   letter-spacing: -0.02em;
-}
-
-.app[data-scrolled="true"] .page-head .eyebrow {
-  opacity: 0;
-  max-height: 0;
 }
 
 .app[data-scrolled="true"] .page-head .page-sub {
   opacity: 0;
   max-height: 0;
   margin-top: 0;
+}
+
+/*
+ * 带动作钮的页头，收起时必须换成横排：标题在左、动作钮在右。
+ * 竖排时动作钮独占一行，标题被顶到下面，中间空出一条 40px 的白带，
+ * 收起后反而比不收还高（79px vs 39px），"省空间"的初衷就反了。
+ * 说明文字直接 display:none —— max-height:0 的 flex 子项仍然占宽度，会把标题挤扁。
+ */
+.app[data-scrolled="true"] .page-head.has-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: calc(8px + env(safe-area-inset-top, 0px));
+  padding-bottom: 8px;
+}
+
+.app[data-scrolled="true"] .page-head.has-actions .page-title {
+  order: 1;
+  flex: 1;
+  min-width: 0;
+}
+
+.app[data-scrolled="true"] .page-head.has-actions .head-bar {
+  order: 2;
+  margin-bottom: 0;
+  flex: none;
+}
+
+.app[data-scrolled="true"] .page-head.has-actions .head-actions {
+  margin-bottom: 0;
+}
+
+.app[data-scrolled="true"] .page-head.has-actions .page-sub {
+  display: none;
 }
 
 .stack {
@@ -315,8 +553,15 @@ a {
 
 /* ── 卡片 ─────────────────────────────────────────────────── */
 
+/*
+ * v3 的卡片是「纸片」不是「浮层」：
+ * 1px 暖发丝线压边 + 几乎看不见的投影。它和底纸的差别只有一点点亮度，
+ * 但因为边界清楚，读起来是「一张纸压在另一张纸上」，而不是「一个白块浮在空中」。
+ * 想强调的时候不是加投影，而是换材质——深色面（.card-inverse）才是这一版唯一的「响」。
+ */
 .card {
   background: var(--card);
+  border: 1px solid var(--hairline);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-card);
 }
@@ -326,12 +571,20 @@ a {
 }
 
 .card-inverse {
-  background: var(--card-inverse);
+  background: linear-gradient(158deg, #221f26 0%, #16151a 62%, #121116 100%);
+  border-color: transparent;
   color: var(--on-dark);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), var(--shadow-lift);
 }
 
 /* ── 按钮 ─────────────────────────────────────────────────── */
 
+/*
+ * 按钮是「章」不是「药丸」。
+ * 全站已经有三种形状语言：圆（返回 / 圆点 / 勾选）、方（卡片 / 标签 / 图标框）、
+ * 轨道（分段控件 / 开关）。按钮如果还是药丸，就多出第四种，而且和满页的方角卡片打架。
+ * 收成 10px 圆角之后，深色主按钮看起来像盖在纸上的一枚章，而不是一颗糖果。
+ */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -340,7 +593,7 @@ a {
   min-height: 48px;
   padding: 0 20px;
   border: 1px solid var(--hairline);
-  border-radius: var(--r-pill);
+  border-radius: var(--r-sm);
   background: var(--card);
   color: var(--ink);
   font-size: 15px;
@@ -373,10 +626,18 @@ a {
   color: var(--ink-2);
 }
 
+/*
+ * 次级按钮：发丝线描边的「空章」，而不是一块灰底药丸。
+ * 灰底药丸在纸底上会显得像「被禁用」，描边章才和卡片、输入框是同一套材质。
+ */
 .btn-quiet {
-  border-color: transparent;
-  background: var(--surface);
+  border-color: var(--rule);
+  background: transparent;
   color: var(--ink);
+}
+
+.btn-quiet:active {
+  background: var(--surface);
 }
 
 .btn-danger {
@@ -437,10 +698,12 @@ a {
   display: flex;
   padding: 3px;
   border-radius: var(--r-pill);
-  background: rgba(17, 18, 20, 0.055);
+  background: rgba(46, 38, 26, 0.05);
+  /* 一道内阴影把轨道压成「凹槽」，比单纯一块灰底更像可以塞东西进去的容器 */
+  box-shadow: inset 0 1px 2px rgba(46, 38, 26, 0.05);
 }
 
-/* 选中背景是一块会滑动的白片，而不是每个按钮各画一块 */
+/* 选中背景是一块会滑动的纸片，而不是每个按钮各画一块 */
 .seg-indicator {
   position: absolute;
   top: 3px;
@@ -449,7 +712,7 @@ a {
   width: calc((100% - 6px) / var(--seg-n, 1));
   border-radius: var(--r-pill);
   background: var(--card);
-  box-shadow: 0 1px 3px rgba(17, 18, 20, 0.1);
+  box-shadow: 0 0 0 1px var(--hairline), 0 1px 3px rgba(46, 38, 26, 0.07);
   transition: transform var(--dur-3) var(--ease-spring);
   pointer-events: none;
 }
@@ -534,6 +797,105 @@ textarea.input {
   line-height: 1.55;
 }
 
+/*
+ * ── 纸面表单 ────────────────────────────────────────────────
+ *
+ * 备忘、拦截规则、记忆三处的编辑抽屉原来各写了一份 `.form / .frow / .frow-input`，
+ * 于是三处一起变旧：深色抽屉里塞五块纯白卡，标签是 11.5px 灰字，输入框没有边界。
+ * 提到全局之后只有一套，改一次三处一起走。
+ *
+ * 三条规则：
+ * 1. 字段之间不画分节线——输入框自己有一条书写线，再叠一条就是「双线」噪音。
+ * 2. 单行字段只给底线，多行字段给四边（空的多行框只给底线会缺三边，像渲染坏了）。
+ * 3. 标签是 10.5px / 0.16em 的微标签，和页面的栏目线同一套字号。
+ */
+.form {
+  display: grid;
+  gap: 0;
+}
+
+.frow {
+  display: grid;
+  gap: 5px;
+  padding: 13px 0;
+  color: var(--ink);
+}
+
+.frow:first-child {
+  padding-top: 4px;
+}
+
+.frow:last-child {
+  padding-bottom: 4px;
+}
+
+.frow-label {
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+
+.frow-input {
+  width: 100%;
+  padding: 2px 0 7px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  background: transparent;
+  font-size: 16px;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  outline: none;
+  resize: none;
+  transition: border-color var(--dur-2) var(--ease-out);
+}
+
+.frow-input:focus {
+  border-bottom-color: var(--ink);
+}
+
+.frow-input::placeholder {
+  color: var(--ink-3);
+  opacity: 0.72;
+}
+
+/* 正则这类代码串压小一档，否则 16px 等宽在窄屏上三行都放不下 */
+.frow-input.mono {
+  font-size: 13px;
+}
+
+textarea.frow-input {
+  min-height: 66px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-xs);
+}
+
+textarea.frow-input:focus {
+  border-color: var(--ink);
+}
+
+.frow-hint {
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.frow-hint.bad {
+  color: var(--danger);
+}
+
+.form-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(191, 58, 43, 0.22);
+  border-radius: var(--r-sm);
+  background: var(--danger-wash);
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
 /* ── 开关 ─────────────────────────────────────────────────── */
 
 /* 设置页与会话页共用；开关本体是原生 checkbox，样式只做外观，键盘与读屏照旧 */
@@ -567,7 +929,7 @@ textarea.input {
   margin-left: auto;
   appearance: none;
   border-radius: var(--r-pill);
-  background: rgba(17, 18, 20, 0.14);
+  background: rgba(46, 38, 26, 0.14);
   cursor: pointer;
   transition: background 180ms var(--ease-out);
 }
@@ -651,6 +1013,7 @@ textarea.input {
   margin: 0;
   padding: 0;
   list-style: none;
+  border: 1px solid var(--hairline);
   border-radius: var(--r-lg);
   background: var(--card);
   box-shadow: var(--shadow-card);
@@ -706,7 +1069,7 @@ textarea.input {
 .skeleton-line {
   height: 12px;
   border-radius: var(--r-pill);
-  background: rgba(17, 18, 20, 0.06);
+  background: rgba(46, 38, 26, 0.06);
 }
 
 @keyframes shimmer {

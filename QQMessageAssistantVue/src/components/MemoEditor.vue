@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { CalendarClock } from 'lucide-vue-next'
 import Sheet from '@/components/Sheet.vue'
+import DateTimePicker from '@/components/DateTimePicker.vue'
 import { createMemo, patchMemo } from '@/api/memos'
 import { CATEGORIES } from '@/api/types'
 import type { Category, Memo, MemoPatchBody } from '@/api/types'
 import { useOwner } from '@/composables/useOwner'
 import { useToast } from '@/composables/useToast'
 import {
-  formatDateTime,
+  formatHeadDate,
+  formatTime,
   fromDatetimeLocalValue,
+  parseLocal,
+  relativeUntil,
   toDatetimeLocalValue,
 } from '@/utils/datetime'
 import { importanceLabel } from '@/utils/meta'
@@ -71,6 +76,7 @@ function rejectField(message: string) {
 
 const anchor = ref(new Date())
 const customOpen = ref(false)
+const pickerOpen = ref(false)
 
 function atTime(base: Date, hours: number, minutes = 0) {
   const next = new Date(base)
@@ -114,11 +120,11 @@ function pickPreset(value: string) {
 
 function openCustom() {
   customOpen.value = true
-  if (!form.due) {
-    const next = new Date(anchor.value.getTime() + 60 * 60 * 1000)
-    next.setMinutes(0, 0, 0)
-    form.due = toDatetimeLocalValue(next)
-  }
+  if (form.due) return
+  // 默认「一小时后、向上取整点」：直接 setMinutes(0) 会落到刚好几分钟后这种奇怪的值
+  const next = new Date(anchor.value.getTime() + 60 * 60 * 1000)
+  next.setHours(next.getHours() + (next.getMinutes() ? 1 : 0), 0, 0, 0)
+  form.due = toDatetimeLocalValue(next)
 }
 
 function pickNone() {
@@ -126,9 +132,30 @@ function pickNone() {
   customOpen.value = false
 }
 
+/* ── 自定义时间的显示 ───────────────────────────────────────
+ * 原生 datetime-local 的文本是 UA 渲染的「2026/10/31 15:00」，
+ * 斜杠加等宽空格，和纸面这套衬线数字不是一种语言。所以把原生文本
+ * 设成透明，盖一层自己排的「今天 · 15:00」；点整行仍然由原生控件
+ * 接住（指示器被拉到整行大小、透明度 0），弹的还是系统日期选择器。 */
+
+function dayDiff(a: Date, b: Date) {
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  return Math.round((startOf(a) - startOf(b)) / 86_400_000)
+}
+
+const customParts = computed(() => {
+  const date = parseLocal(form.due)
+  if (!date) return null
+  const days = dayDiff(date, new Date())
+  const relative = days === 0 ? '今天' : days === 1 ? '明天' : days === 2 ? '后天' : ''
+  if (relative) return { day: relative, week: '', time: formatTime(date) }
+  const [day, week] = formatHeadDate(date).split(' ')
+  return { day, week, time: formatTime(date) }
+})
+
 const dueText = computed(() => {
   if (!form.due) return '不设截止时间，只存档'
-  return `${formatDateTime(form.due)} 截止`
+  return relativeUntil(fromDatetimeLocalValue(form.due))
 })
 
 const planText = computed(() => {
@@ -139,7 +166,11 @@ const planText = computed(() => {
 watch(
   () => props.open,
   (open) => {
-    if (!open) return
+    // 抽屉关掉时把选择器一起收走，别留一个孤儿弹层
+    if (!open) {
+      pickerOpen.value = false
+      return
+    }
     const memo = props.memo
     anchor.value = new Date()
     form.title = memo?.title ?? ''
@@ -206,6 +237,8 @@ async function save() {
 <template>
   <Sheet
     :open="open"
+    tone="light"
+    height="94%"
     :title="isEdit ? '编辑备忘' : '新建备忘'"
     :description="isEdit ? '改重要性或时间会重算提醒计划' : '写清楚要做的事，再决定什么时候提醒你'"
     @close="emit('close')"
@@ -267,13 +300,19 @@ async function save() {
             不设时间
           </button>
         </div>
-        <input
+        <button
           v-if="customOpen"
-          v-model="form.due"
-          class="frow-input time-input"
-          type="datetime-local"
-          aria-label="自定义截止时间"
-        />
+          type="button"
+          class="time-line"
+          aria-label="选择具体日期和时间"
+          @click="pickerOpen = true"
+        >
+          <span class="time-day num">{{ customParts?.day }}</span>
+          <span v-if="customParts?.week" class="time-week">{{ customParts.week }}</span>
+          <span class="time-dot" aria-hidden="true"></span>
+          <span class="time-clock num">{{ customParts?.time }}</span>
+          <CalendarClock :size="15" :stroke-width="1.7" class="time-icon" aria-hidden="true" />
+        </button>
         <p class="frow-hint">{{ dueText }}</p>
       </div>
 
@@ -322,7 +361,7 @@ async function save() {
       <button type="button" class="btn btn-ghost" @click="emit('close')">取消</button>
       <button
         type="button"
-        class="btn btn-on-dark"
+        class="btn btn-primary"
         :disabled="saving || !owner.senderId"
         @click="save"
       >
@@ -331,55 +370,25 @@ async function save() {
       </button>
     </template>
   </Sheet>
+
+  <DateTimePicker
+    :open="pickerOpen"
+    :model-value="form.due"
+    @confirm="form.due = $event"
+    @close="pickerOpen = false"
+  />
 </template>
 
 <style scoped>
-.form {
-  display: grid;
-  gap: 10px;
-}
-
-.frow {
-  display: grid;
-  gap: 6px;
-  padding: 12px 14px;
-  border-radius: var(--r-md);
-  background: #fff;
-  color: var(--ink);
-}
-
-.frow-label {
-  color: var(--ink-3);
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-}
-
-.frow-input {
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-size: 15.5px;
-  line-height: 1.45;
-  color: var(--ink);
-  outline: none;
-  resize: none;
-}
-
-.frow-input::placeholder {
-  color: var(--ink-3);
-}
+/*
+ * 表单骨架（.form / .frow / .frow-input / .frow-hint / .form-error）在 style.css 里，
+ * 备忘、规则、记忆三处共用一套。这里只放这一张表独有的东西：
+ * 时间快捷块、分类三列、重要性五档。
+ */
 
 .frow-error {
   color: var(--danger);
   font-size: 12px;
-}
-
-.frow-hint {
-  color: var(--ink-3);
-  font-size: 11.5px;
-  line-height: 1.5;
 }
 
 /* ── 时间快捷块 ───────────────────────────────────────────── */
@@ -388,14 +397,19 @@ async function save() {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  padding-top: 3px;
 }
 
+/*
+ * 选项统一是「小戳」：6px 圆角、发丝线、透明底，选中才落墨。
+ * 全站的圆角语言只剩三种（圆 / 方 / 轨道），这里必须归到「方」。
+ */
 .preset {
   min-height: 32px;
-  padding: 0 11px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-pill);
-  background: #fff;
+  padding: 0 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-xs);
+  background: transparent;
   color: var(--ink-2);
   font-size: 12.5px;
   white-space: nowrap;
@@ -413,39 +427,98 @@ async function save() {
 .preset[aria-pressed="true"] {
   border-color: var(--card-inverse);
   background: var(--card-inverse);
-  color: #fff;
+  color: var(--card);
 }
 
-.time-input {
+/*
+ * 自定义时间：一条「账面」行 —— 日期衬线、星期微标签、时间等宽数字，
+ * 右端一枚细日历。整行都是原生控件的点击区（见 .time-native）。
+ */
+.time-line {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
   margin-top: 2px;
-  padding: 9px 0 2px;
-  border-top: 1px solid var(--hairline);
-  font-size: 14.5px;
+  padding: 7px 2px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+
+.time-line:focus-visible {
+  outline: none;
+  border-bottom-color: var(--ink);
+}
+
+.time-line:active {
+  border-bottom-color: var(--ink);
+}
+
+.time-day {
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--ink);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.time-week {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.time-dot {
+  width: 3px;
+  height: 3px;
+  margin: 0 1px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+
+.time-clock {
   color: var(--ink-2);
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.005em;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.time-icon {
+  margin-left: auto;
+  color: var(--ink-3);
 }
 
 .grid3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
+  padding-top: 3px;
 }
 
-/* 重要性五档：数字大一点、带文字，比只有 1–5 更容易对上「紧要 / 一般」 */
+/* 重要性五档：数字用衬线，和页头、统计栏是同一套「大数字」语言 */
 .scale {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
+  padding-top: 3px;
 }
 
 .scale-cell {
   display: grid;
   justify-items: center;
-  gap: 1px;
-  min-height: 46px;
+  gap: 2px;
+  min-height: 48px;
   padding: 7px 0 6px;
-  border: 1px solid var(--hairline);
-  border-radius: 10px;
-  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-xs);
+  background: transparent;
   color: var(--ink-2);
   cursor: pointer;
   transition: background-color var(--dur) var(--ease),
@@ -453,26 +526,28 @@ async function save() {
 }
 
 .scale-num {
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.1;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -0.01em;
 }
 
 .scale-label {
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 500;
-  opacity: 0.72;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
 }
 
 .scale-cell[aria-pressed="true"] {
   border-color: var(--card-inverse);
   background: var(--card-inverse);
-  color: #fff;
+  color: var(--card);
 }
 
 .scale-cell[aria-pressed="true"] .scale-label {
-  opacity: 0.66;
+  opacity: 0.74;
 }
 
 .pick {
@@ -480,11 +555,11 @@ async function save() {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-height: 34px;
+  min-height: 32px;
   padding: 0 11px;
-  border: 1px solid var(--hairline);
-  border-radius: 10px;
-  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-xs);
+  background: transparent;
   color: var(--ink-2);
   font-size: 13px;
   cursor: pointer;
@@ -495,14 +570,16 @@ async function save() {
 .pick[aria-pressed="true"] {
   border-color: var(--card-inverse);
   background: var(--card-inverse);
-  color: #fff;
+  color: var(--card);
 }
 
 .form-error {
-  padding: 10px 14px;
-  border-radius: var(--r-md);
-  background: rgba(191, 58, 43, 0.18);
-  color: #ffb4ab;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(191, 58, 43, 0.22);
+  border-radius: var(--r-sm);
+  background: var(--danger-wash);
+  color: var(--danger);
   font-size: 12.5px;
 }
 </style>

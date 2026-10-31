@@ -7,6 +7,7 @@ import ErrorState from '@/components/ErrorState.vue'
 import MemoDetail from '@/components/MemoDetail.vue'
 import MemoEditor from '@/components/MemoEditor.vue'
 import MemoRow from '@/components/MemoRow.vue'
+import PageHead from '@/components/PageHead.vue'
 import Segmented from '@/components/Segmented.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import { listMemos, patchMemo } from '@/api/memos'
@@ -58,14 +59,19 @@ onBeforeUnmount(() => {
   void flushDone()
 })
 
-async function load() {
+/** silent = 下拉刷新：保留当前列表，不闪骨架屏 */
+async function load(silent = false) {
   await flushDone()
-  loading.value = true
-  error.value = ''
+  if (!silent) {
+    loading.value = true
+    error.value = ''
+  }
   try {
     memos.value = await listMemos()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '备忘读取失败'
+    const message = e instanceof Error ? e.message : '备忘读取失败'
+    if (silent) toast.error(message)
+    else error.value = message
   } finally {
     loading.value = false
   }
@@ -180,9 +186,9 @@ const tabs = computed(() => [
 ])
 
 const pageTitle = computed(() => {
-  if (tab.value === 'today') return '今天'
-  if (tab.value === 'all') return '全部待办'
-  return '已完成'
+  if (tab.value === 'today') return 'Today'
+  if (tab.value === 'all') return 'Open'
+  return 'Done'
 })
 
 const todayEmpty = computed(
@@ -315,15 +321,12 @@ function onChanged(updated: Memo) {
 }
 
 useFab('新建备忘', openCreate)
-useRefresh(load)
+useRefresh(() => load(true))
 </script>
 
 <template>
   <div class="page">
-    <header class="page-head">
-      <p class="eyebrow">{{ formatHeadDate(now) }}</p>
-      <h1 class="page-title">{{ pageTitle }}</h1>
-    </header>
+    <PageHead :eyebrow="formatHeadDate(now)" :title="pageTitle" />
 
     <DraftBanner />
 
@@ -382,7 +385,7 @@ useRefresh(load)
         </section>
 
         <section class="group">
-          <h2 class="group-title">今天</h2>
+          <h2 class="group-title">今天 <span class="num">{{ todayMemos.length }}</span></h2>
           <TransitionGroup name="list" tag="ul" class="timeline" appear>
             <MemoRow
               v-for="memo in todayPast"
@@ -532,21 +535,38 @@ useRefresh(load)
 <style scoped>
 /* ── 搜索 ─────────────────────────────────────────────────── */
 
+/*
+ * 搜索框是一枚「纸上的输入行」，不是一颗灰药丸：
+ * 发丝线压边 + 半透明纸底，和卡片同一套材质语言。
+ * 有内容时底变实白、浮起来一点——状态变化靠材质，不靠颜色。
+ */
 .search {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 38px;
+  gap: 9px;
+  height: 44px;
   margin-top: 14px;
-  padding: 0 12px;
-  border-radius: var(--r-pill);
-  background: rgba(17, 18, 20, 0.045);
+  padding: 0 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: rgba(255, 253, 250, 0.6);
   transition: background-color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out),
     box-shadow var(--dur-2) var(--ease-out);
+}
+
+/*
+ * 搜索框与分段控件原来贴着（0 间距），两枚灰药丸叠在一起像同一块控件里的两行。
+ * 拉开 16px 之后它们才是「两个各自独立的筛选器」，而不是一个坏掉的组合件。
+ */
+.search + .seg,
+.search-count + .seg {
+  margin-top: 16px;
 }
 
 .search.filled {
   background: var(--card);
+  border-color: var(--rule);
   box-shadow: var(--shadow-card);
 }
 
@@ -583,13 +603,13 @@ useRefresh(load)
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: rgba(17, 18, 20, 0.1);
+  background: rgba(46, 38, 26, 0.1);
   color: var(--ink-2);
   cursor: pointer;
 }
 
 .search-count {
-  margin-top: 8px;
+  margin-top: 10px;
   padding-left: 4px;
   color: var(--ink-3);
   font-size: 12px;
@@ -603,24 +623,18 @@ useRefresh(load)
   margin-top: 24px;
 }
 
+/*
+ * 备忘页的分组标题只需要「吸顶」这一件事——字号、引导线、衬线计数
+ * 全部由 style.css 的「栏目线」统一给。左侧 34px 是为了让栏目线
+ * 和下方时间轴的勾选圆点对齐。
+ */
 .group-title {
   position: sticky;
-  top: calc(44px + env(safe-area-inset-top, 0px));
+  top: calc(38px + env(safe-area-inset-top, 0px));
   z-index: 10;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin-bottom: 2px;
-  padding: 8px 0 8px 34px;
+  margin-bottom: 8px;
+  padding: 9px 0 9px 34px;
   background: var(--bg);
-  color: var(--ink-3);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-.group-title .num {
-  font-weight: 400;
 }
 
 /* ── 时间轴 ───────────────────────────────────────────────── */
@@ -634,27 +648,51 @@ useRefresh(load)
   list-style: none;
 }
 
+/*
+ * 脊柱从「点线」改成「两端渐隐的实线」。
+ * 点线是手账的语言，实线渐隐是印刷的语言——而且渐隐之后，它不会在首尾两条之间
+ * 硬生生戳出来一截，视觉上只存在于卡片之间。
+ * 颜色用暖灰 34%：--dot 在纸底上的对比只有 1.5:1，1px 的线基本看不见，
+ * 一根看不见的脊柱等于没有脊柱。
+ *
+ * 只有一条时干脆不画：线藏在圆点背后，露出来的只有上下各一截小短杠，
+ * 看着像渲染残留。脊柱的职责是「把几条连起来」，一条不需要连。
+ */
 .timeline::before {
   content: "";
   position: absolute;
-  left: 10.25px;
-  top: 20px;
-  bottom: 20px;
-  border-left: 1.5px dotted var(--dot);
+  left: 10.5px;
+  top: 24px;
+  bottom: 24px;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    rgba(122, 112, 96, 0) 0%,
+    rgba(122, 112, 96, 0.34) 7%,
+    rgba(122, 112, 96, 0.34) 93%,
+    rgba(122, 112, 96, 0) 100%
+  );
   pointer-events: none;
+  display: none;
+}
+
+.timeline:has(> li + li)::before {
+  display: block;
 }
 
 .now {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   padding-left: 34px;
-  height: 22px;
+  height: 26px;
 }
 
 .now-time {
-  color: var(--ink-2);
-  font-size: 11px;
+  color: var(--accent-ink);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-variant-numeric: lining-nums tabular-nums;
   letter-spacing: 0;
 }
 
@@ -662,18 +700,18 @@ useRefresh(load)
   flex: 1;
   height: 1px;
   background: linear-gradient(
-    to right,
-    var(--dot) 0%,
-    var(--dot) 60%,
-    transparent 100%
+    90deg,
+    rgba(217, 46, 115, 0.5) 0%,
+    rgba(217, 46, 115, 0.16) 70%,
+    rgba(217, 46, 115, 0) 100%
   );
-  opacity: 0.8;
 }
 
 .now-label {
-  color: var(--ink-3);
-  font-size: 11px;
-  letter-spacing: 0.06em;
+  color: var(--accent-ink);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
 }
 
 .day-empty {

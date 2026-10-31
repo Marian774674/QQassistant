@@ -87,7 +87,7 @@
 QQ ──► NapCat（QQ 协议）──► LangBot + QQ 助手插件（路由 / 拦截 / 拟人延迟 / 文件 I/O）
                                   ├──► Dify Chatflow（意图、对话状态、决策「填什么 / 发不发」）
                                   └──► Spring Boot（状态机、持久化、定时调度、草稿中心）
-                                              └──► Vue3（草稿中心、备忘录、记忆总控台、设置）
+                                              └──► Vue3（首页 / 备忘 / 草稿 / 问一句 / 记忆与设置）
 Spring Boot ──► 发送桥 send_bridge ──► LangBot / NapCat（主动发文本、发文件）
 ```
 
@@ -433,7 +433,7 @@ Dify Chatflow 的 Start 节点共 **14 个变量**，且必须与插件发送的
 | FR-8 草稿中心 | ✅ | — | ⬜ |
 | FR-9 消息日志 | ✅ | — | ✅ |
 | FR-10 部署运维 | ✅ | — | 🟡 |
-| Vue 前端（FR-6.5 / FR-8 界面） | ✅ 8 页：备忘 / 草稿 / 记忆 / 更多 / 文件任务 / 消息日志 / 拦截规则 / 设置 | — | 🟡 |
+| Vue 前端（FR-6.5 / FR-8 界面） | ✅ 11 页：首页 / 备忘 / 草稿 / 问一句 / 更多（记忆、群设置、拦截规则、文件任务、消息日志、设置） | — | 🟡 |
 
 **当前已知阻塞**：Dify Chatflow 的 `CLOCK` Code 节点代码首行带缩进，运行时报
 `IndentationError: unexpected indent`（`File "<fd3>", line 1`），导致所有消息返回 400。修法：该节点 Ctrl+A 全删后重新粘贴顶格代码，或导入清理版 DSL。详见 `dify_chatflow.md` §12。

@@ -2,6 +2,7 @@
 import { computed, nextTick, ref } from 'vue'
 import { ArrowUp, MessageCircleQuestion } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
+import PageHead from '@/components/PageHead.vue'
 import { ask, type ClarifyCandidate, type ClarifyState, type Evidence } from '@/api/ask'
 import { useToast } from '@/composables/useToast'
 
@@ -148,11 +149,11 @@ async function confirmUnknown(bubble: Bubble) {
 
 <template>
   <div class="page ask-page">
-    <header class="page-head">
-      <p class="eyebrow">历史查询</p>
-      <h1 class="page-title">问一句</h1>
-      <p class="page-sub">只在聊天记录、事实、备忘和文件里找答案；找不到就说找不到，不编。</p>
-    </header>
+    <PageHead
+      eyebrow="历史查询"
+      title="Ask"
+      sub="只在聊天记录、事实、备忘和文件里找答案；找不到就说找不到，不编。"
+    />
 
     <form class="ask" @submit.prevent="submit">
       <MessageCircleQuestion
@@ -289,20 +290,29 @@ async function confirmUnknown(bubble: Bubble) {
 
 /* ── 输入 ─────────────────────────────────────────────────── */
 
+/*
+ * 输入条和搜索框、卡片共用一套材质：发丝线压边 + 半透明纸底。
+ * 原来是「白色大药丸 + 圆形发送键」，那是聊天 App 的形状语言——
+ * 但这一页不是聊天，是「查档」：一条纸上的查询行更贴题。
+ * 聚焦时才变实白、浮起来一点。
+ */
 .ask {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 7px 7px 15px;
-  border-radius: var(--r-xl);
-  background: var(--card);
-  box-shadow: var(--shadow-card);
-  transition: box-shadow var(--dur-2) var(--ease-out);
+  padding: 6px 6px 6px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: rgba(255, 253, 250, 0.6);
+  transition: background-color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out);
 }
 
 .ask:focus-within {
-  box-shadow: 0 0 0 1px rgba(17, 18, 20, 0.14),
-    0 14px 34px -26px rgba(17, 18, 20, 0.55);
+  background: var(--card);
+  border-color: var(--rule);
+  box-shadow: var(--shadow-card);
 }
 
 .ask-icon {
@@ -329,11 +339,11 @@ async function confirmUnknown(bubble: Bubble) {
 .ask-send {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border: 0;
-  border-radius: var(--r-pill);
-  background: var(--card-inverse);
+  border-radius: var(--r-sm);
+  background: linear-gradient(158deg, #221f26 0%, #16151a 70%);
   color: var(--on-dark);
   cursor: pointer;
   transition: opacity var(--dur-1) var(--ease-out),
@@ -360,13 +370,15 @@ async function confirmUnknown(bubble: Bubble) {
   max-width: 290px;
 }
 
+/* 示例是「小戳」不是「药丸」：和页头印章标签同一形状，全站的圆角语言只留两种 */
 .example {
-  padding: 8px 14px;
+  padding: 7px 11px;
   border: 1px solid var(--hairline);
-  border-radius: var(--r-pill);
+  border-radius: var(--r-xs);
   background: transparent;
   color: var(--ink-2);
-  font-size: 12.5px;
+  font-size: 12px;
+  letter-spacing: 0.01em;
   cursor: pointer;
   transition: background-color var(--dur-1) var(--ease-out),
     border-color var(--dur-1) var(--ease-out);
@@ -527,7 +539,7 @@ async function confirmUnknown(bubble: Bubble) {
 /* 证据不套卡片，改成一条细竖线引出，像引文；气泡已经够白了，再堆盒子会吵 */
 .ev {
   padding: 1px 0 1px 12px;
-  border-left: 2px solid rgba(17, 18, 20, 0.08);
+  border-left: 2px solid rgba(46, 38, 26, 0.08);
 }
 
 .ev-head {

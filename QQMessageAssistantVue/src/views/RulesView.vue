@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ArrowLeft, Plus, ShieldCheck, Trash2 } from 'lucide-vue-next'
+import { Plus, ShieldCheck, Trash2 } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
+import PageHead from '@/components/PageHead.vue'
 import Sheet from '@/components/Sheet.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import { createRule, deleteRule, listRules, updateRule } from '@/api/rules'
@@ -33,13 +34,18 @@ const form = reactive({
   enabled: true,
 })
 
-async function load() {
-  loading.value = true
-  error.value = ''
+/** silent = 下拉刷新：保留当前列表，不闪骨架屏 */
+async function load(silent = false) {
+  if (!silent) {
+    loading.value = true
+    error.value = ''
+  }
   try {
     rules.value = await listRules()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '规则读取失败'
+    const message = e instanceof Error ? e.message : '规则读取失败'
+    if (silent) toast.error(message)
+    else error.value = message
   } finally {
     loading.value = false
   }
@@ -47,7 +53,7 @@ async function load() {
 
 onMounted(load)
 
-useRefresh(load)
+useRefresh(() => load(true))
 
 const sorted = computed(() =>
   [...rules.value].sort((a, b) => a.priority - b.priority || a.id - b.id),
@@ -189,21 +195,17 @@ async function remove() {
 
 <template>
   <div class="page">
-    <header class="page-head">
-      <RouterLink to="/more" class="back">
-        <ArrowLeft :size="16" :stroke-width="2" aria-hidden="true" />
-        更多
-      </RouterLink>
-      <div class="head-row">
-        <div>
-          <h1 class="page-title">拦截规则</h1>
-          <p class="page-sub">命中就绕过模型直接回复。保存后插件 60 秒内热更新。</p>
-        </div>
+    <PageHead
+      :back="{ to: '/more', label: '更多' }"
+      title="Rules"
+      sub="命中就绕过模型直接回复。保存后插件 60 秒内热更新。"
+    >
+      <template #actions>
         <button type="button" class="add-btn" aria-label="新建规则" @click="openCreate">
-          <Plus :size="18" :stroke-width="2.2" aria-hidden="true" />
+          <Plus :size="16" :stroke-width="2.4" aria-hidden="true" />
         </button>
-      </div>
-    </header>
+      </template>
+    </PageHead>
 
     <ErrorState v-if="error" :message="error" hint="也可以下拉重试。" @retry="load" />
 
@@ -250,6 +252,7 @@ async function remove() {
 
     <Sheet
       :open="sheetOpen"
+      tone="light"
       :title="editing ? '编辑规则' : '新建规则'"
       description="关键词与正则满足其一即命中；命中后仍会先查防重再发送。"
       height="92%"
@@ -373,7 +376,7 @@ async function remove() {
 
       <template #footer>
         <button type="button" class="btn btn-ghost" @click="sheetOpen = false">取消</button>
-        <button type="button" class="btn btn-on-dark" :disabled="saving" @click="save">
+        <button type="button" class="btn btn-primary" :disabled="saving" @click="save">
           {{ saving ? '保存中…' : '保存' }}
         </button>
       </template>
@@ -382,28 +385,18 @@ async function remove() {
 </template>
 
 <style scoped>
-.back {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 10px;
-  color: var(--ink-2);
-  font-size: 13px;
-}
-
-.head-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-}
-
+/*
+ * 页头右侧的新建入口：和返回圆同一排，直径必须对齐（32px），
+ * 否则一排里两个圆一大一小，看着像没对齐。
+ * 强调靠的是"这一页唯一的深色实心"，不是靠放大。
+ * 视觉 32px、可点 44px —— 用伪元素把热区撑开，安卓手指够得着。
+ */
 .add-btn {
+  position: relative;
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  margin-top: 4px;
+  width: 32px;
+  height: 32px;
   border: 0;
   border-radius: 50%;
   background: var(--card-inverse);
@@ -411,6 +404,18 @@ async function remove() {
   box-shadow: var(--shadow-card);
   cursor: pointer;
   flex: none;
+  transition: transform var(--dur-1) var(--ease-spring);
+}
+
+.add-btn::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+}
+
+.add-btn:active {
+  transform: scale(0.92);
 }
 
 .clamp-1 {
@@ -461,8 +466,9 @@ async function remove() {
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: 10px;
-  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: transparent;
   color: var(--ink-2);
 }
 
@@ -503,7 +509,7 @@ async function remove() {
   padding: 0;
   border: 0;
   border-radius: var(--r-pill);
-  background: rgba(17, 18, 20, 0.14);
+  background: rgba(46, 38, 26, 0.14);
   cursor: pointer;
   flex: none;
   transition: background-color var(--dur) var(--ease);
@@ -534,59 +540,17 @@ async function remove() {
 }
 
 /* ── 抽屉表单 ─────────────────────────────────────────────── */
-
-.form {
-  display: grid;
-  gap: 10px;
-}
-
-.frow {
-  display: grid;
-  gap: 6px;
-  padding: 12px 14px;
-  border-radius: var(--r-md);
-  background: #fff;
-  color: var(--ink);
-}
+/* 表单骨架在 style.css 里，和备忘、记忆共用一套；这里只剩规则页独有的「试一下」标签 */
 
 .row-inline {
   grid-template-columns: 1fr auto;
   align-items: center;
 }
 
-.frow-label {
-  color: var(--ink-3);
-  font-size: 11.5px;
-  font-weight: 500;
-}
-
-.frow-input {
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-size: 15px;
-  outline: none;
-  resize: none;
-}
-
-.frow-input::placeholder {
-  color: var(--ink-3);
-}
-
-.frow-hint {
-  color: var(--ink-3);
-  font-size: 11px;
-}
-
-.frow-hint.bad {
-  color: var(--danger);
-}
-
 .test {
   padding: 6px 9px;
   border-radius: var(--r-xs);
-  background: rgba(17, 18, 20, 0.05);
+  background: rgba(46, 38, 26, 0.05);
   color: var(--ink-2);
   font-size: 11.5px;
 }
@@ -594,14 +558,6 @@ async function remove() {
 .test.hit {
   background: rgba(47, 122, 85, 0.12);
   color: var(--ok);
-}
-
-.form-error {
-  padding: 10px 14px;
-  border-radius: var(--r-md);
-  background: rgba(191, 58, 43, 0.18);
-  color: #ffb4ab;
-  font-size: 12.5px;
 }
 
 .delete-zone {
@@ -615,7 +571,7 @@ async function remove() {
   padding: 8px 0;
   border: 0;
   background: transparent;
-  color: rgba(255, 140, 128, 0.9);
+  color: var(--danger);
   font-size: 12.5px;
   cursor: pointer;
 }
@@ -623,8 +579,9 @@ async function remove() {
 .confirm {
   padding: 14px;
   border-radius: var(--r-md);
-  background: rgba(191, 58, 43, 0.16);
-  color: #ffc3ba;
+  background: var(--danger-wash);
+  border: 1px solid rgba(191, 58, 43, 0.2);
+  color: var(--danger);
   font-size: 12.5px;
   line-height: 1.55;
 }

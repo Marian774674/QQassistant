@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ArrowLeft, FileSpreadsheet } from 'lucide-vue-next'
+import { FileSpreadsheet } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
+import PageHead from '@/components/PageHead.vue'
 import Sheet from '@/components/Sheet.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import { listFileTasks } from '@/api/files'
 import type { FileTask } from '@/api/types'
 import { useRefresh } from '@/composables/useRefresh'
+import { useToast } from '@/composables/useToast'
 import { formatDateTime } from '@/utils/datetime'
 import { FILE_GROUPS, fileStatusMeta } from '@/utils/meta'
+
+const toast = useToast()
 
 const tasks = ref<FileTask[]>([])
 const loading = ref(true)
@@ -19,13 +23,18 @@ const error = ref('')
 const selected = ref<FileTask | null>(null)
 const sheetOpen = ref(false)
 
-async function load() {
-  loading.value = true
-  error.value = ''
+/** silent = 下拉刷新：保留当前列表，不闪骨架屏 */
+async function load(silent = false) {
+  if (!silent) {
+    loading.value = true
+    error.value = ''
+  }
   try {
     tasks.value = await listFileTasks()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '文件任务读取失败'
+    const message = e instanceof Error ? e.message : '文件任务读取失败'
+    if (silent) toast.error(message)
+    else error.value = message
   } finally {
     loading.value = false
   }
@@ -33,7 +42,7 @@ async function load() {
 
 onMounted(load)
 
-useRefresh(load)
+useRefresh(() => load(true))
 
 const groups = computed(() =>
   FILE_GROUPS.map((group) => ({
@@ -126,14 +135,11 @@ const selectedMeta = computed(() => fileStatusMeta(selected.value?.status ?? '')
 
 <template>
   <div class="page">
-    <header class="page-head">
-      <RouterLink to="/more" class="back">
-        <ArrowLeft :size="16" :stroke-width="2" aria-hidden="true" />
-        更多
-      </RouterLink>
-      <h1 class="page-title">文件任务</h1>
-      <p class="page-sub">LangBot 那边每处理一份表格都会镜像到这里，只读。</p>
-    </header>
+    <PageHead
+      :back="{ to: '/more', label: '更多' }"
+      title="Files"
+      sub="LangBot 那边每处理一份表格都会镜像到这里，只读。"
+    />
 
     <ErrorState v-if="error" :message="error" hint="也可以下拉重试。" @retry="load" />
 
@@ -227,32 +233,14 @@ const selectedMeta = computed(() => fileStatusMeta(selected.value?.status ?? '')
 </template>
 
 <style scoped>
-.back {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 10px;
-  color: var(--ink-2);
-  font-size: 13px;
-}
 
 .group + .group {
   margin-top: 22px;
 }
 
+/* 分节标题由 style.css 的「栏目线」统一实现，这里只管块间距 */
 .group-title {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
   margin-bottom: 10px;
-  color: var(--ink-3);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-.group-title .num {
-  font-weight: 400;
 }
 
 .stack {
@@ -286,8 +274,9 @@ const selectedMeta = computed(() => fileStatusMeta(selected.value?.status ?? '')
   place-items: center;
   width: 36px;
   height: 36px;
-  border-radius: 11px;
-  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: transparent;
   color: var(--ink-2);
 }
 

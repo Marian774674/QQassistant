@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { ArrowLeft, ArrowDownLeft, ArrowUpRight } from 'lucide-vue-next'
+import { ArrowDownLeft, ArrowUpRight } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
+import PageHead from '@/components/PageHead.vue'
 import Segmented from '@/components/Segmented.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import { listMessageLogs } from '@/api/logs'
 import type { LogDirection, MessageLog } from '@/api/types'
 import { useRefresh } from '@/composables/useRefresh'
+import { useToast } from '@/composables/useToast'
 import { dayKey, formatHeadDate, formatTime, parseLocal } from '@/utils/datetime'
 
 type Filter = 'ALL' | 'IN' | 'OUT'
+
+const toast = useToast()
 
 const logs = ref<MessageLog[]>([])
 const loading = ref(true)
@@ -21,17 +25,20 @@ const limit = ref(100)
 
 const LIMITS = [100, 200, 500]
 
-async function load(more = false) {
+/** silent = 下拉刷新：保留当前列表，不闪骨架屏 */
+async function load(more = false, silent = false) {
   if (more) loadingMore.value = true
-  else loading.value = true
-  error.value = ''
+  else if (!silent) loading.value = true
+  if (!silent) error.value = ''
   try {
     logs.value = await listMessageLogs({
       direction: filter.value === 'ALL' ? undefined : (filter.value as LogDirection),
       limit: limit.value,
     })
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '日志读取失败'
+    const message = e instanceof Error ? e.message : '日志读取失败'
+    if (silent) toast.error(message)
+    else error.value = message
   } finally {
     loading.value = false
     loadingMore.value = false
@@ -52,7 +59,7 @@ function loadMore() {
   void load(true)
 }
 
-useRefresh(() => load())
+useRefresh(() => load(false, true))
 
 const canLoadMore = computed(() => logs.value.length >= limit.value && limit.value < 500)
 
@@ -101,14 +108,11 @@ const tabs = computed(() => [
 
 <template>
   <div class="page">
-    <header class="page-head">
-      <RouterLink to="/more" class="back">
-        <ArrowLeft :size="16" :stroke-width="2" aria-hidden="true" />
-        更多
-      </RouterLink>
-      <h1 class="page-title">消息日志</h1>
-      <p class="page-sub">每一条进出 QQ 的消息都会记一笔，排查链路问题时先看这里。</p>
-    </header>
+    <PageHead
+      :back="{ to: '/more', label: '更多' }"
+      title="Logs"
+      sub="每一条进出 QQ 的消息都会记一笔，排查链路问题时先看这里。"
+    />
 
     <Segmented v-model="filter" :items="tabs" label="按方向筛选" />
 
@@ -169,14 +173,6 @@ const tabs = computed(() => [
 </template>
 
 <style scoped>
-.back {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 10px;
-  color: var(--ink-2);
-  font-size: 13px;
-}
 
 .body {
   margin-top: 16px;
@@ -186,13 +182,9 @@ const tabs = computed(() => [
   margin-top: 20px;
 }
 
+/* 分节标题由 style.css 的「栏目线」统一实现，这里只管块间距 */
 .group-title {
   margin-bottom: 8px;
-  padding-left: 2px;
-  color: var(--ink-3);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
 }
 
 .logs {
@@ -253,7 +245,7 @@ const tabs = computed(() => [
 .log-type {
   padding: 1px 6px;
   border-radius: var(--r-pill);
-  background: rgba(17, 18, 20, 0.06);
+  background: rgba(46, 38, 26, 0.06);
   color: var(--ink-2);
   font-size: 10px;
 }

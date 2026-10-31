@@ -319,12 +319,18 @@ async function cancelMemo() {
   overflow-wrap: anywhere;
 }
 
+/*
+ * 抽屉是深色面，里面不要再放一块纯白卡——
+ * 黑底上突然一块 100% 白，亮度差太大，眼睛会被那块白吸住。
+ * 改成 5.5% 白的半透明板 + 发丝线，信息还在，但整块面板是一个整体。
+ */
 .facts {
   display: grid;
   gap: 1px;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--r-md);
-  background: #fff;
+  background: rgba(255, 255, 255, 0.055);
 }
 
 .fact {
@@ -333,21 +339,23 @@ async function cancelMemo() {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
-  color: var(--ink);
+  color: var(--on-dark);
 }
 
 .fact + .fact {
-  border-top: 1px solid var(--hairline);
+  border-top: 1px solid rgba(255, 255, 255, 0.085);
 }
 
 .fact-label {
-  color: var(--ink-3);
-  font-size: 12.5px;
+  color: var(--on-dark-3);
+  font-size: 12px;
+  letter-spacing: 0.02em;
   flex: none;
 }
 
 .fact-value {
   font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
   text-align: right;
 }
 
@@ -355,20 +363,35 @@ async function cancelMemo() {
   margin-top: 18px;
 }
 
+/* 抽屉里的小节标题也走「微标签」：和页面上的栏目线同一套字号与字距，
+ * 只是颜色换成深色面上的次级白——换面不换语言。 */
 .plan-title {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  color: var(--on-dark-2);
-  font-size: 12px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: var(--on-dark-3);
+  font-size: 10.5px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.16em;
+}
+
+.plan-title::after {
+  content: '';
+  flex: 1;
+  min-width: 10px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .plan-count {
+  order: 2;
+  color: var(--on-dark-2);
+  font-family: var(--font-display);
+  font-size: 13px;
   font-weight: 400;
-  color: var(--on-dark-3);
+  letter-spacing: 0;
+  font-variant-numeric: lining-nums tabular-nums;
 }
 
 .plan-empty {
@@ -386,8 +409,9 @@ async function cancelMemo() {
   padding: 0;
   list-style: none;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--r-md);
-  background: #fff;
+  background: rgba(255, 255, 255, 0.055);
 }
 
 .reminder {
@@ -435,8 +459,9 @@ async function cancelMemo() {
   padding: 0;
   list-style: none;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--r-md);
-  background: #fff;
+  background: rgba(255, 255, 255, 0.055);
 }
 
 .change {
