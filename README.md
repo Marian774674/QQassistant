@@ -1,320 +1,239 @@
 <div align="center">
 
-# 值守台 · QQ 消息智能助手
+# 值守台
 
-**把群里的「下周三交表」「周四晚七点班会」自动变成会按时找你的提醒**
+**一个替你看着 QQ 的私人助手**
 
-[![Java](https://img.shields.io/badge/Java-21-orange.svg)]()
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4-brightgreen.svg)]()
-[![Vue](https://img.shields.io/badge/Vue-3-42b883.svg)]()
-[![Python](https://img.shields.io/badge/Python-3.12-3776AB.svg)]()
-[![MySQL](https://img.shields.io/badge/MySQL-8-4479A1.svg)]()
-[![Dify](https://img.shields.io/badge/Dify-Chatflow-2563eb.svg)]()
+群里的「下周三交表」「周四晚七点班会」它记下来、到点提醒你；
+你不在的时候群里聊了什么，打开网页就知道；想问「上次谁说的实验报告几号交」，一句话就能翻回去。
 
-[解决什么问题](#-解决什么问题) · [核心功能](#-核心功能备忘与分级提醒) · [系统架构](#-系统架构) · [数据模型](#-数据模型) · [技术栈](#-技术栈) · [快速开始](#-快速开始)
+<sub>Spring Boot · Vue 3 · LangBot 插件 · Dify · MySQL —— 单机、单用户、全本地</sub>
+
+![Vue](https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4-6db33f?logo=springboot&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.12-3776ab?logo=python&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-8-4479a1?logo=mysql&logoColor=white)
+![Dify](https://img.shields.io/badge/Dify-Chatflow-1c64f2)
+![Docker](https://img.shields.io/badge/Docker%20Compose-4%20services-2496ed?logo=docker&logoColor=white)
+
+[它做什么](#它做什么) · [四个功能](#四个功能) · [架构](#架构) · [工程取舍](#几处刻意的工程取舍) · [数据](#数据模型) · [跑起来](#本地跑起来) · [目录](#仓库结构) · [文档](#设计文档)
 
 </div>
 
 ---
 
-## 💡 解决什么问题
+<p align="center">
+  <img src="QQMessageAssistantVue/design/preview/01-memos.png" width="31%" alt="备忘时间线" />
+  <img src="QQMessageAssistantVue/design/preview/10-sheet-detail.png" width="31%" alt="备忘详情" />
+  <img src="QQMessageAssistantVue/design/preview/15-sheet-picker.png" width="31%" alt="自绘日期选择器" />
+</p>
 
-信息是在 QQ 里被动出现的，而待办工具需要你主动打开、主动录入——多这一步，就少记一次。
+<p align="center"><sub>备忘时间线 · 详情抽屉 · 自绘的日期时间选择器（390dp，真机截图）</sub></p>
 
-| 痛点 | 现实情况 |
-|---|---|
-| **通知会沉底** | 班会改时间、面试确认、缴费截止都散在群聊里，看完就翻不到了，靠脑子记必然漏 |
-| **入口是错的** | 日历、待办 App 要你主动打开再手打一遍；而信息就在 QQ 里，复制粘贴都嫌麻烦 |
-| **全提醒 = 没提醒** | 什么都要提醒，等于什么都会被忽略；全靠人判断轻重，等于不会用 |
-| **交给大模型记并不可靠** | 纯 Prompt 方案没有状态、没有幂等、没有审计：会忘、会重复推、会把「室友的学号」记成你的 |
+## 它做什么
 
-**这个项目的分工是**：大模型只回答「这条消息里有没有事、是什么事、有多重要」，工程代码负责「什么时候提醒、提醒几次、发没发出去、有没有重复」。
-两者用一张状态机表和一份接口契约隔开，谁也不越界。
+信息是被动出现在 QQ 里的，而待办工具要你主动打开、主动录入——多这一步，就少记一次。这个项目的做法是：**把 QQ 本身当成入口**，机器人待在群里，用大模型判断语义，用工程代码管状态。
 
-结果就是三件事：**不漏**（分级提醒 + 双端闭环）、**可控**（所有 AI 判断都能降级成草稿让人过一眼）、**可查**（12 张表 + 全链路消息日志）。
+| 你遇到的麻烦 | 它的处理 |
+| --- | --- |
+| 通知看完就沉底，靠脑子记必然漏 | 群里带时间的事自动抽成备忘，按重要性分级提醒，到点在 QQ 里戳你 |
+| 什么都要提醒，等于什么都没提醒 | 五级 rubric + 分级提前量，5 级连催三次、1 级静默存档 |
+| 离开半天，回来要爬几百条楼 | 每小时把勾选的群整理成要点，「要你拿主意」的排最前面 |
+| 想找一句话，只记得大概意思 | 一句话提问，答案必须附原文证据；认不出「小明」是谁就反问 |
+| 纯 Prompt 方案会忘、会重复、会记错人 | 状态机、幂等键、证据校验全在代码里，AI 只负责语义 |
 
----
+## 四个功能
 
-## ⭐ 核心功能：四件事
+| # | 功能 | 现在的样子 |
+| --- | --- | --- |
+| **F1** | **备忘与分级提醒** | 从消息里抽 `title / dueTime / importance(1-5) / category`，按级别展开成多条提醒；QQ 里回「做完了」即闭环；每次改动留痕 |
+| **F2** | **拟人回复** | 私聊按 `1.5s + 字数×0.15s + 抖动` 延迟发送，语气来自「事实记忆 + 风格画像」；拿不准就降级成草稿，绝不乱发 |
+| **F3** | **消息整理** | 每小时按群切段交给 Dify 提炼要点，Spring 校验证据 id 后落库；首页只显示你勾过的群 |
+| **F4** | **历史查询** | 每天 0:10 把当天消息抽成 `contact` / `memory_note`；提问时先认人（0 条=不认识，≥2 条=冲突，都转反问），再带证据作答 |
 
-一条流水线：**消息进来 → 该记的记下 → 该说的说 → 没看到的补给你 → 想问什么就问。**
+> **已冻结**：表格自动填写（xlsx/docx 读写）跑通过，但模板千奇百怪，投入产出不划算。代码保留在 `file_task` 与插件里，不再迭代。
 
-| 功能 | 一句话 | 状态 |
-|---|---|---|
-| **F1 备忘与分级提醒** | 从群聊和私聊里抽出「要做什么、什么时候」，按重要性决定提醒几次 | 可用 |
-| **F2 自动回复** | 替你说日常话：你的风格 + 你写的额外要求 + 最近 15 条上下文；按群开关、每小时限额、拿不准先存草稿 | 代码就绪，需重新导入 Dify Chatflow 后生效 |
-| **F3 消息整理推送** | 你不在的时候群里发生了什么，按你关心的程度排好，重要的一条弹一次 | 可用 |
-| **F4 历史消息查询** | 「小明的生日是什么时候」→ 结论 + 2–3 条原文证据；认不出人时反问你 | 可用 |
+## 架构
 
-四件事共用同一套地基：一条 `message_log`（进和出都记）、一个草稿中心（AI 可能出错的地方都能降级成"等你点确认"），以及一条硬规矩——**AI 只做判断，执行交给确定性的代码**。
+```mermaid
+flowchart LR
+  subgraph edge["QQ 侧 · Docker"]
+    QQ([QQ]) <--> NC[NapCat]
+    NC <--> LB["LangBot + qq_assistant 插件<br/>路由 · 拦截 · 拟人延迟"]
+    LB <--> BR["send_bridge<br/>主动发送 · 幂等"]
+    BR <--> NC
+  end
 
-### F1 · 备忘与分级提醒
-
-这是项目的主线，其余能力都是它的延伸。
-
-#### 1. 消息进来就自动成条
-
-在 QQ 里说一句「周四晚上七点班会，线上腾讯会议」，助手会抽出标题、时间、分类，并**给这件事打 1–5 级重要性**：
-
-| 级别 | 判定 | 例子 |
-|---|---|---|
-| 5 紧要 | 有明确时间 + 错过后果严重 | 考试、面试、答辩 |
-| 4 重要 | 有明确时间 + 重要但可调整 | 重要邀约、缴费截止 |
-| 3 一般 | 普通邀约 / 一般截止 | 班会、聚餐 |
-| 2 轻量 | 低价值待办 | 帮室友带东西 |
-| 1 存档 | 纯信息，无行动项 | 通知存档 |
-
-#### 2. 重要性决定提醒密度，不是一刀切
-
-| 级别 | 提前量 | 次数 | 语气 |
-|---|---|---|---|
-| 5 | 24h / 2h / 30min | 3 次 | 强 |
-| 4 | 24h / 1h | 2 次 | 较强 |
-| 3 | 2h | 1 次 | 温和 |
-| 2 | 当天 09:00 | 1 次 | 轻 |
-| 1 | 不提醒 | 0 | 静默 |
-
-每条提醒在 `memo_reminder` 里是**独立一行**，有独立的发送状态。改重要性或改时间时，旧档位作废保留（审计用），按新档位重排——不会出现「改了时间却还在按老时间推」。
-
-#### 3. 三个入口，一个出口
-
-- **QQ 里说一句** → Dify 抽取 → 入库
-- **QQ 里改一句** → 「班会改到后天 4 点」「班会取消了」作用在**同一条**备忘上：Dify 通过 `POST /api/agent/ops` 发起窄写操作（改哪条、改什么由它判断），校验、归属、状态迁移、提醒重算、幂等、审计留在 Spring。改完能在详情页的「变更记录」里看到改前改后
-- **网页里手写** → 移动端时间轴直接新建
-- **AI 拿不准时** → 降级成 `MEMO` 草稿，你在草稿中心点一下才入库（时间说不清、要素缺失时不会瞎猜）
-
-#### 4. 双端闭环
-
-提醒发出后，你在 QQ 里回「做完了」就行；也可以打开网页勾掉那条。
-状态机：`ACTIVE → REMINDED → AWAITING_REPLY → DONE | CANCELLED`，另有 `OVERDUE` 单独标记逾期。两边改的是同一行数据。
-
-#### 5. 网页端是「值日表」
-
-备忘页是一条时间轴：左边勾选圆点、中间卡片、右边时间，滚过当前时刻有一条「现在」线；**接下来这一件**用深色卡单独拎出来。
-
-<div align="center">
-<img src="./QQMessageAssistantVue/design/preview/01-memos.png" width="30%" alt="备忘" />
-<img src="./QQMessageAssistantVue/design/preview/03-drafts.png" width="30%" alt="草稿中心" />
-<img src="./QQMessageAssistantVue/design/preview/10-sheet-detail.png" width="30%" alt="详情" />
-</div>
-
----
-
-### F2 · 自动回复
-
-替你说日常话，但**只替你说该说的话**。开口要过三道关：
-
-1. **会话开关**：`chat_setting.auto_reply_enabled`，按群 / 按私聊单独开。关着不影响别的功能——
-   备忘照建、查询照答，只是不替你说闲聊。
-2. **每小时限额**：`app_setting.reply_rate_limit`（默认 20），超了就只做事、不说话。
-3. **拿不准就交给你**：回复信封带 `needs_confirm`，涉及替你承诺、定时间、谈钱、被点名表态时，
-   不直发，而是落成 `draft(type=REPLY)`，你在草稿中心点一下才发。
-
-注入给模型的三份材料，优先级从高到低：**固定约束**（不透露是机器人、不替你承诺、不编造）→
-**你写的额外要求**（设置页那段多行文本，比如"语气随意点""别提我工作"）→ **最近 15 条消息**
-（它得知道刚才在聊什么，不能只看见被 @ 的那一句）。风格画像只决定「怎么说话」，不是内容来源。
-
-> 另外还有一条前置拦截（关键词 + 正则，报学号这类固定回复）：直接绕过模型省 token，
-> 但仍先查防重表，同一个收集任务只回一次。
-
-### F3 · 消息整理推送
-
-打开网页，首页顶部一张「你不在的这段时间」卡片：按重要度倒序，默认折叠到 5 条；
-有 4 级以上（含）的条目才弹窗，同一时间段只弹一次。底部点「都在这里了」记下时间点
-（存在服务端，换设备不会重复推）。
-
-只整理你在「群设置」里勾了的群，**私聊不整理**。候选先由规则层筛（@ 了我、出现我的称呼、
-带时间词、带文件、来自重要联系人），再由模型合成 1–5 级重要度，注入你写的「关注点」
-（比如"我关心实习招聘和课程通知，游戏群谁赢谁输不用告诉我"）。
-
-防幻觉是硬校验不是提示词自觉：模型给的 `source_msg_ids` 必须在输入里真实存在，否则整条丢弃。
-
-### F4 · 历史消息查询
-
-`/ask` 页面一个对话框。问「我的同学小明的生日是什么时候」，它答结论 + 2–3 条原文证据。
-认不出「小明」是谁时**反问**，你答完（"就是三班群里那个"）它记住关系，再接着答原问题。
-
-背后不是纯向量检索：每晚把新消息抽成「谁 · 什么属性 · 什么值 · 出处」，查的时候先认人、
-再取候选集、再生成，最后校验引用的 id 是否都在候选集里——不在就只给证据、不给结论。
-个人 QQ 的数据量下，这样比向量检索准，还能给出处。
-
----
-
-### 🧊 文件填写（冻结）
-
-收到 xlsx / docx 后，模型只决定「哪个单元格填什么」，Python 侧机械地读写；缺字段就追问，
-置信度不够就转成文件草稿。Chatflow 已搭、部分节点待修，**本轮不碰**。
-
----
-
-## 🏗️ 系统架构
-
-```
-QQ 客户端
-   │ QQ 协议
-NapCat ──► LangBot + qq_assistant_plugin（路由 / 拦截 / 拟人延迟 / 文件 IO）
-              │                    │
-              │ 语义与决策          │ 状态、持久化、调度
-              ▼                    ▼
-           Dify Chatflow      Spring Boot ──► MySQL
-              │                    │
-              └── 决策 envelope ───┘        REST
-                                           ▼
-                                    Vue3「值守台」（移动端）
-Spring Boot ──► send_bridge ──► LangBot / NapCat（主动发文本、发文件）
+  LB <-->|"14 个输入变量 / 决策信封"| DF["Dify<br/>Chatflow + Workflow"]
+  LB -->|"profile · memos · logs"| SB["Spring Boot 3.4<br/>状态机 · 调度 · 草稿中心"]
+  SB <-->|"整理 · 归纳 · 回答"| DF
+  SB <--> DB[("MySQL 8 · 16 张表")]
+  SB <-->|"/api/*"| V["Vue 3<br/>11 个页面"]
 ```
 
-### 职责红线（四条，不可越）
+| 组件 | 只管 | 绝不管 |
+| --- | --- | --- |
+| **NapCat** | QQ 协议、收发消息与文件 | 任何业务判断 |
+| **LangBot 插件** | 事件归一化、群触发判定、正则拦截、拟人延迟、文件 IO、动作执行、幂等 | 长期状态、定时任务 |
+| **Dify** | 意图识别、对话状态、语义生成、决策信封 | 持久化、文件流、定时 |
+| **Spring Boot** | 16 张表的持久化、提醒调度、草稿分发、画像存取 | 文件流、直连 QQ |
+| **Vue** | 展示、人工确认、手动编辑 | 业务判定 |
 
-| 红线 | 为什么 |
-|---|---|
-| 业务逻辑不写进 Dify Prompt | 状态机、持久化、定时调度放 Prompt 里就没法测、没法查、没法回滚 |
-| Dify 不碰文件流 | 模型只接收结构化后的表格摘要，二进制读写归 Python |
-| 风格记忆不许实时改 System Prompt | 每句话都改 prompt 必然漂移；风格只允许定期离线总结后整体替换 |
-| Spring Boot 不直连 NapCat | 所有 QQ 动作经 LangBot / 发送桥，协议细节不进业务层 |
+**四条不能越的线**（评审按这四条判）：
 
-### 一次提醒的完整链路
+1. 业务逻辑不进 Dify 提示词——阈值、状态迁移、提醒策略只写在 Java 服务层；
+2. Dify 不接触文件流——插件解析成结构再送，Dify 只回「填什么到哪」；
+3. 风格画像不由单条消息实时改写——只有定期总结能更新它，事实记忆才可以实时写；
+4. Spring 不直连 NapCat——一切 QQ 动作经插件或发送桥。
 
-```
-QQ 消息 ─► 插件归一化 ─► Dify 抽取(title/dueTime/importance)
-                              │ 置信度够
-                              ▼
-                     Spring Boot 入库 + 按级别展开 memo_reminder
-                              │
-              Spring @Scheduled 每分钟扫到期 ─► send_bridge ─► LangBot ─► 你的 QQ
-                              │
-                     回「做完了」─► 插件识别 ─► PATCH 状态 ─► 未发的提醒全部作废
-```
+## 几处刻意的工程取舍
 
----
+这些不是顺手的实现细节，是踩过坑之后定下来的规则。
 
-## 🗄️ 数据模型
+**AI 的每个产出都可降级。** Dify 返回的 Answer 必须是纯 JSON 决策信封，动作只有 `SEND / DRAFT / SILENT / MEMO / FACT / MEMO_CLOSE / WAIT_FILE / ASK / FILE_FILL`。解析失败、字段缺失、动作未知——一律当 `SILENT` 记日志，**绝不把模型原文发给用户**。四类草稿（回复/文件/备忘/事实）共用一张表，`PENDING` 永不过期。
 
-12 张表，**只有 Spring Boot 直连数据库**；插件和前端都走 REST，所以下表的「谁写 / 谁读」指的是实际发起方。
-唯一的例外是 `file_task`——它的状态机真身在插件里，Spring 这边只是只读镜像。
+**所有对外副作用都有幂等键。** 主动发送用 `bizRef`（在途返 409、重试返首次的 `messageId`，状态落盘，重启不丢）；群内防重用 `task_key = chat_id + 类型 + 时间窗口`；消息记账用 `dedupe_key`。重复投递、重复确认、服务重启，都不会重复发一条。
 
-| 表 | 用途 | 谁写 | 谁读 |
-|---|---|---|---|
-| `memo` | 备忘主体（标题/时间/重要性/分类/状态） | Spring（含 Dify 经 `/api/agent/ops` 发起的改动） | Vue / 调度 |
-| `memo_reminder` | 提醒计划，按级别展开成多行 | Spring | 调度 / Vue |
-| `memo_change_log` | 备忘改动留痕（改前/改后快照 + `eventId` 幂等键） | Spring | Vue |
-| `draft` | 统一草稿中心（REPLY/FILE/MEMO/FACT 四类共用一张表） | Dify / 插件 | Vue |
-| `message_log` | 全链路消息流水（IN/OUT + 去重键） | 插件 / 发送桥 | Vue / 风格总结 |
-| `profile_fact` | 事实记忆 kv（学号、姓名、专业…） | Dify / Vue | Dify |
-| `style_profile` | 风格画像正文 | 定期总结任务 / Vue | Dify |
-| `intercept_rule` | 前置拦截规则（关键词 + 正则，60s 热更新） | Vue | 插件 |
-| `collection_task` | 防重状态（chat + taskType + 时间窗口） | 插件 / Dify | 插件 |
-| `file_task` | 文件任务状态镜像 | 插件同步 | Vue |
-| `conversation_session` | QQ 会话 ↔ Dify conversation_id | 插件 | 插件 |
-| `app_setting` | 全局配置 kv | Vue | 全部 |
+**答案必须带得回原文。** 整理结果带 `source_msg_ids`，查证结果带 `used_ids`，对不上候选集就整项丢弃或降级成「只给证据」。宁可少说一句，不可编一句。
 
-设计上有一个刻意的取舍：**草稿只有一张表**。回复、文件、备忘、事实四种「待人工确认」的东西共用 `draft`，靠 `type` 区分、靠 `payload` 承载各自结构。确认接口按 type 分发——这比四套平行的待办表省掉了四份重复代码。
+**拟人延迟是有公式的，不是随手 sleep。** `1.5s + 字数 × 0.15s + 抖动(0~1s)`，上限 15s，四个参数都可配；只对私聊生效，群里不装人。Java 侧读超时必须大于「15s 延迟 + 10s HTTP」的 25s，否则会出现「Java 已回滚、桥仍发出」的重复发送。
 
----
+**发送是两份契约，不是一份。** `send_message`（文本）与 `send_file`（二进制）分开，永不混用；文件通道在 LangBot 不支持时回落 NapCat。
 
-## 🧱 技术栈
+## 数据模型
 
-| 层 | 选型 | 说明 |
-|---|---|---|
-| 前端 | Vue 3 + TypeScript + Vite | 零 UI 库，样式全自主；移动端优先，宽屏居中成手机画布 |
-| 业务后端 | Java 21 + Spring Boot 3.4 + MyBatis-Plus | 状态机、持久化、`@Scheduled` 提醒扫描、REST |
-| 协议接入 | NapCat + LangBot | QQ 协议、消息/文件收发 |
-| 插件 | Python 3.12 | 前置拦截、拟人延迟、文件读写、会话映射 |
-| 发送桥 | Python（FastAPI） | 主动发文本/发文件，`bizRef` 幂等，绝不自动重试 |
-| 编排 | Dify Chatflow | 意图识别、抽取、决策 envelope |
-| 数据库 | MySQL 8（utf8mb4） | 12 张表 |
+16 张表，全部 `utf8mb4`，DDL 见 [`db/schema.sql`](QQMessageAssistantJava/src/main/resources/db/schema.sql)，增量脚本在 `db/migrations/`。
 
----
+| 域 | 表 |
+| --- | --- |
+| 消息与会话 | `message_log`（唯一事实源，带昵称与群名）、`conversation_session`（QQ 会话 ↔ Dify `conversation_id`） |
+| 备忘 | `memo`、`memo_reminder`（按级别展开为多行）、`memo_change_log` |
+| 草稿 | `draft`（`REPLY / FILE / MEMO / FACT` 四类共用） |
+| 群与规则 | `chat_setting`、`intercept_rule`、`collection_task`（防重状态） |
+| 记忆 | `profile_fact`（事实 kv）、`style_profile`（画像，保留历史版本）、`contact`（人物别名）、`memory_note`（夜间归纳） |
+| 整理 | `chat_digest_item`（要点 + 证据 id） |
+| 文件 | `file_task`（插件状态机的只读镜像） |
+| 配置 | `app_setting` |
 
-## 🚀 快速开始
+**状态真身与镜像**：文件任务的状态机活在插件里，Spring 只存镜像供前端读；会话映射有三层兜底（内存 → Spring → 本地 JSON）。
 
-**前置**：一台能跑 Docker 的 Linux（NapCat + LangBot + 发送桥）、一个 QQ 小号、一个 Dify 应用、MySQL 8。
+## 技术栈
+
+| 层 | 选型 | 备注 |
+| --- | --- | --- |
+| 前端 | Vue 3.5 + TypeScript + Vite | `<script setup>`，**零 UI 库**，390dp 画布优先，11 条路由全部懒加载 |
+| 后端 | Java 21 + Spring Boot 3.4.12 | MyBatis-Plus 3.5.9、RestClient、springdoc；16 个控制器 / 47 个端点 |
+| 插件 | Python 3.12 + httpx | LangBot 插件形态，`openpyxl` / `python-docx` / `pypdf` 做文件 IO |
+| 发送桥 | Python 3.12 + FastAPI | 单职责：把「发文本 / 发文件」做成幂等 HTTP 接口 |
+| 编排 | Dify Chatflow + Workflow | 一份对话流做决策，一份「记忆与整理」做整理 / 归纳 / 回答；两份 DSL 已入库 |
+| 存储 | MySQL 8 | 单库单实例，时间由 Java 写本地时间（那台库跑 UTC） |
+| 部署 | Docker Compose | LangBot / 插件运行时 / NapCat / 发送桥，四个容器 |
+
+测试：Java 28 个测试类（`mvn test`），Python 177 个用例（插件 146 + 发送桥 31，`pytest`）。
+
+## 本地跑起来
+
+### 0. 前置
+
+Java 21、Maven、Node 20+、MySQL 8、Docker。Dify 与 NapCat 各需一份可用实例。
+
+### 1. 建库
 
 ```bash
-# 1) 数据库
-mysql -u root -p -e "CREATE DATABASE qq_assistant DEFAULT CHARSET utf8mb4;"
-# 建表脚本见 design/database_schema.md
-
-# 2) QQ 侧（NapCat + LangBot + 发送桥）
-cd deploy
-cp .env.example .env      # 填 QQ 号、LangBot Key、桥的地址
-docker compose up -d
-
-# 3) 业务后端
-cd ../QQMessageAssistantJava
-# 改 application.yaml 里的 datasource 与 langbot.base-url
-mvn spring-boot:run        # 默认 8080
-
-# 4) 前端
-cd ../QQMessageAssistantVue
-npm install
-npm run dev                # 5173，/api 代理到 8080
+mysql -uroot -p -e "CREATE DATABASE qq_assistant DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+mysql -uroot -p qq_assistant < QQMessageAssistantJava/src/main/resources/db/schema.sql
 ```
 
-**第一次用**：打开网页 → 「更多 → 设置」→ 填自己的 QQ 号并保存。后端用它判断哪些备忘、事实、草稿属于你。
+已有库升级：按文件名顺序执行 `db/migrations/*.sql`，不要重建。
 
-细节见 [`deploy/README.md`](./deploy/README.md)。
+### 2. 后端（:8080）
 
----
+改 `QQMessageAssistantJava/src/main/resources/application.yaml` 里的 `spring.datasource` 与 `langbot.base-url`，然后：
 
-## 📁 目录结构
+```bash
+cd QQMessageAssistantJava
+export AGENT_OPS_TOKEN=$(openssl rand -hex 16)   # Dify 回写用的令牌，留空则该入口整体 503
+mvn spring-boot:run
+```
+
+接口文档：<http://localhost:8080/swagger-ui/index.html>。统一响应体 `{code, message, data}`，`code == 0` 才算成功。
+
+### 3. 前端（:5173）
+
+```bash
+cd QQMessageAssistantVue
+npm install
+npm run dev        # /api 代理到 http://localhost:8080
+```
+
+后端不在本机就设 `VITE_API_TARGET`。打包：`npm run build`（`vue-tsc -b && vite build`，零错误才算过）。
+
+### 4. QQ 侧
+
+```bash
+cd deploy
+cp .env.example .env      # 填 NAPCAT_WEBUI_TOKEN / NAPCAT_UID / NAPCAT_GID / SPRING_BASE
+docker compose up -d
+```
+
+接着四步：NapCat 扫码登录 → LangBot 里建机器人拿 `UUID` / `API Key` → 安装 `qq_assistant_plugin` 并填参数 → Dify 导入 [`QQAssistant.chatflow.yml`](design/QQAssistant.chatflow.yml) 与 [`QQAssistant-memory-workflow.yml`](design/QQAssistant-memory-workflow.yml)。
+
+发送桥的环境变量：
+
+| 变量 | 用途 |
+| --- | --- |
+| `LANGBOT_BOT_UUID` / `LANGBOT_API_KEY` | 主动发消息的身份 |
+| `SPRING_BASE` | 回查发送记录 |
+| `NAPCAT_BASE` / `NAPCAT_TOKEN` | 文件通道回落 |
+| `DELAY_BASE_MS` / `DELAY_PER_CHAR_MS` / `DELAY_JITTER_MS` / `DELAY_MAX_MS` | 拟人延迟四参数 |
+| `STATE_FILE` / `IDEMPOTENCY_TTL` | 幂等状态落盘位置与有效期 |
+
+完整步骤、地址对照表、排错对照表在 [`deploy/README.md`](deploy/README.md)。
+
+> 密钥、Token、数据库口令一律走环境变量或 `.env`，**不要**写进 `application.yaml` 再提交。
+
+## 仓库结构
 
 ```
 .
-├── QQMessageAssistantJava/      # Spring Boot：状态机 / 持久化 / 调度 / REST
-│   └── src/main/java/com/czx/qqmessageassistantjava/
-│       ├── controller/ service/ mapper/ entity/ dto/ vo/
-│       ├── schedule/            # @Scheduled 提醒扫描
-│       └── client/              # 调发送桥
+├── QQMessageAssistantJava/       Spring Boot：16 控制器 / 47 端点 / 16 表 / 28 测试类
+│   └── src/main/resources/db/    schema.sql 与增量 migrations
 ├── QQMessageAssistantPython/
-│   ├── qq_assistant_plugin/     # LangBot 插件：路由 / 拦截 / 拟人 / 文件 IO
-│   └── send_bridge/             # 主动发送桥（幂等、不重试）
-├── QQMessageAssistantVue/       # 值守台（移动端 Web）
-│   └── design/preview/          # 界面截图
-├── design/                      # 架构 / 需求 / 接口契约 / 表结构 / Chatflow
-└── deploy/                      # docker-compose 与部署手册
+│   ├── qq_assistant_plugin/      LangBot 插件：事件、拦截、文件 IO、决策执行、幂等
+│   └── send_bridge/              主动发送桥：幂等 + 拟人延迟 + 文件通道
+├── QQMessageAssistantVue/        Vue 3 前端：11 页，无 UI 库
+│   └── design/preview/           设计预览图（真机尺寸）
+├── deploy/                       docker-compose.yml + .env.example + 部署手册
+└── design/                       设计文档（准据）与两份 Dify DSL
 ```
 
----
+## 设计文档
 
-## 📌 当前状态
-
-代码基本跑通，**真机验收还在进行**，如实标注：
-
-| 模块 | 代码 | 备注 |
-|---|---|---|
-| F1 备忘与分级提醒 | ✅ | 调度默认关闭，需显式开启 |
-| F2 自动回复 | 🟡 | 插件门控、`reply-context` 接口、设置页都已就绪；**需把 `design/QQAssistant.chatflow.yml` 重新导入 Dify 并发布**才生效 |
-| F3 消息整理推送 | ✅ | 每小时任务；只看你勾了的群 |
-| F4 历史消息查询 | ✅ | 反问闭环 + 证据校验 |
-| 草稿中心 | ✅ | 四类草稿确认/拒绝均可用 |
-| 消息日志 | ✅ | 已真机验收 |
-| 记忆（事实） | ✅ | 增删改查 + 网页兜底 |
-| 记忆（风格总结） | 🟡 | 定时任务待接 |
-| 前置拦截 / 防重 | ✅ | 拦截规则可在网页改，60s 生效 |
-| 文件填写 | 🧊 | 冻结，本轮不动 |
-| 前端 11 页 | ✅ | 底部五个 tab：首页 / 备忘 / 草稿 / 问一句 / 更多；「更多」按「关于我 / 群与规则 / 运行记录 / 系统」分组，收着记忆、群设置、拦截规则、文件任务、消息日志、设置 |
-
-**已知限制**：单实例、单主人、内网运行，无鉴权、无分页、无多租户——这是刻意的，个人工具不需要这些。
-
----
-
-## 📚 文档
+先读文档再读代码——字段、契约、状态机都在里面。
 
 | 文档 | 内容 |
-|---|---|
-| [`design/requirements.md`](./design/requirements.md) | 需求规格（FR / NFR / 验收标准） |
-| [`design/architecture.md`](./design/architecture.md) | 分层架构与三个全局抽象 |
-| [`design/api_contract.md`](./design/api_contract.md) | 31 个对外端点的契约 |
-| [`design/database_schema.md`](./design/database_schema.md) | 12 张表的字段级设计 |
-| [`design/agent_contract.md`](./design/agent_contract.md) | Dify ↔ 插件的决策 envelope |
-| [`design/dify_chatflow.md`](./design/dify_chatflow.md) | Chatflow 节点图与变量约定 |
-| [`deploy/README.md`](./deploy/README.md) | 部署、备份与故障排查 |
+| --- | --- |
+| [`requirements.md`](design/requirements.md) | 需求规格：用例、功能编号、验收标准、实现进度 |
+| [`architecture.md`](design/architecture.md) | 组件边界与四条红线 |
+| [`api_contract.md`](design/api_contract.md) | Spring 对外接口逐字段契约 |
+| [`agent_contract.md`](design/agent_contract.md) | Dify ↔ 插件的信封协议与 `agent/ops` 窄写接口 |
+| [`database_schema.md`](design/database_schema.md) | 16 张表的字段级说明 |
+| [`dify_chatflow.md`](design/dify_chatflow.md) | Chatflow 节点图与已知坑 |
+| [`memory_workflow.md`](design/memory_workflow.md) | 夜间归纳与风格总结的调度 |
+| [`core_features.md`](design/core_features.md) | F1–F4 的重新定义与取舍 |
 
----
+## 项目状态
 
-<div align="center">
+| 部分 | 状态 |
+| --- | --- |
+| 后端 / 插件 / 发送桥 | ✅ 可用，测试全绿 |
+| Dify 对话流 | ✅ 可用（DSL 已入库，导入后需重填密钥） |
+| Vue 前端 | ✅ 11 页，390 / 360 / 1280 三档验过 |
+| 真机全链路验收 | 🟡 按 UC 逐条在跑，尚未全绿 |
+| 表格自动填写 | 🧊 冻结 |
 
-个人项目，跑在自己的机器上，聊天数据不出内网。
+**已知限制**：单用户单实例，无鉴权、无分页，只在内网跑；整理与夜间归纳的调度默认关闭，需在 `app_setting` 里打开 `digest_enabled` / `memory_job_enabled`；PDF 只读不回写；群聊不共享上下文（每个群成员独立会话）。
 
-</div>
+## 声明
+
+个人自用项目，与腾讯及 QQ 官方无关；QQ 登录态与聊天数据只存本地，备份不外发。运行所需凭据（Dify Key、`AGENT_OPS_TOKEN`、数据库口令）请自行配置，不要提交进仓库。
