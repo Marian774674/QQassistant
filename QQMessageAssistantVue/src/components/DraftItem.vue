@@ -180,7 +180,7 @@ async function resolve(action: 'confirm' | 'reject') {
 }
 
 .closed .type {
-  background: rgba(17, 18, 20, 0.07);
+  background: rgba(46, 38, 26, 0.07);
   color: var(--ink-2);
 }
 

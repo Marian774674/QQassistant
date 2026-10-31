@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
-import { ArrowLeft, Check } from 'lucide-vue-next'
+import { Check } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
+import PageHead from '@/components/PageHead.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import { listChatSettings, putChatSetting } from '@/api/chatSettings'
 import type { ChatSetting } from '@/api/chatSettings'
@@ -32,9 +32,12 @@ onMounted(() => {
   void load()
 })
 
-async function load() {
-  loading.value = true
-  error.value = ''
+/** silent = 下拉刷新：保留当前内容，不闪骨架屏 */
+async function load(silent = false) {
+  if (!silent) {
+    loading.value = true
+    error.value = ''
+  }
   try {
     const [list, settings] = await Promise.all([listChatSettings(), getSettings()])
     chats.value = list
@@ -42,13 +45,15 @@ async function load() {
     aliases.value = settings.owner_aliases ?? ''
     focus.value = settings.digest_focus_prompt ?? ''
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '加载失败'
+    const message = e instanceof Error ? e.message : '加载失败'
+    if (silent) toast.error(message)
+    else error.value = message
   } finally {
     loading.value = false
   }
 }
 
-useRefresh(load)
+useRefresh(() => load(true))
 
 /** 先改界面再发请求：失败了滚回去，别让人以为已经生效 */
 async function toggle(chat: ChatSetting, field: 'digestEnabled' | 'autoReplyEnabled') {
@@ -93,16 +98,11 @@ function chatLabel(chat: ChatSetting) {
 
 <template>
   <div class="page">
-    <header class="page-head">
-      <RouterLink to="/more" class="back">
-        <ArrowLeft :size="16" :stroke-width="2" aria-hidden="true" />
-        更多
-      </RouterLink>
-      <h1 class="page-title">群设置</h1>
-      <p class="page-sub">
-        选哪些群参与整理；偏好开关决定后端要不要每小时真的去整理。
-      </p>
-    </header>
+    <PageHead
+      :back="{ to: '/more', label: '更多' }"
+      title="Chats"
+      sub="选哪些群参与整理；偏好开关决定后端要不要每小时真的去整理。"
+    />
 
     <ErrorState v-if="error" :message="error" hint="也可以下拉重试。" @retry="load" />
     <Skeleton v-else-if="loading" :rows="3" />
@@ -171,7 +171,7 @@ function chatLabel(chat: ChatSetting) {
       <section class="block">
         <h2 class="block-title">
           群列表
-          <span class="num faint">{{ enabledCount }}/{{ groups.length }} 已开启整理</span>
+          <span class="num">{{ enabledCount }}/{{ groups.length }} 已开启整理</span>
         </h2>
         <p class="block-hint">
           列表来自机器人见过的群消息；还没配置过的群默认两个开关都是关的。
@@ -254,24 +254,26 @@ function chatLabel(chat: ChatSetting) {
 </template>
 
 <style scoped>
-.back {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 10px;
-  color: var(--ink-2);
-  font-size: 13px;
-}
 
 .block + .block {
   margin-top: 28px;
 }
 
+/* 分节标题由 style.css 的「栏目线」统一实现，这里只管块间距 */
 .block-title {
-  margin-bottom: 6px;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  margin-bottom: 8px;
+}
+
+/*
+ * 栏目线右端默认放「衬线数字」。这一处放的是「1/1 已开启整理」这种短语，
+ * 衬线 14px 会把它变成一个奇怪的标题，所以退回微标签的字号与字距。
+ */
+.block-title .num {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
 }
 
 .block-hint {

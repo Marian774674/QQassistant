@@ -57,7 +57,7 @@ const emit = defineEmits<{ close: [] }>()
   padding: 1px 7px;
   border-radius: var(--r-pill);
   background: rgba(229, 56, 127, 0.12);
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 

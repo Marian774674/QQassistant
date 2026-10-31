@@ -50,7 +50,9 @@ const activeIndex = computed(() => {
  * 页头就跟着一亮一暗地闪。两个阈值把这段来回抖动挡在外面。
  */
 const COLLAPSE_AT = 28
-const EXPAND_AT = 8
+const EXPAND_AT = 2
+/** 收起后页头大致的高度，用来估算「收起会让内容上移多少」 */
+const COLLAPSED_HEAD = 38
 
 const scrolled = ref(false)
 const positions = new Map<string, number>()
@@ -61,23 +63,57 @@ function onScroll() {
   if (ticking) return
   ticking = true
   requestAnimationFrame(() => {
-    const top = screenEl.value?.scrollTop ?? 0
+    const el = screenEl.value
+    if (!el) {
+      ticking = false
+      return
+    }
+    const top = el.scrollTop
+
     if (scrolled.value) {
       if (top < EXPAND_AT) scrolled.value = false
-    } else if (top > COLLAPSE_AT) {
-      scrolled.value = true
+      ticking = false
+      return
     }
+
+    if (top <= COLLAPSE_AT) {
+      ticking = false
+      return
+    }
+
+    /*
+     * 内容只比视口高一点点时别收起：收起会让内容整体上移，
+     * 滚动位置被浏览器夹回顶部，看起来像「刚滚就弹回去」。
+     * 所以先算一下还剩多少可滚距离，够抵消这次收缩才收。
+     */
+    const head = el.querySelector<HTMLElement>('.page-head')
+    const shrink = head ? Math.max(0, head.offsetHeight - COLLAPSED_HEAD) : 0
+    const range = el.scrollHeight - el.clientHeight
+    if (range > shrink + EXPAND_AT) scrolled.value = true
+
     ticking = false
   })
 }
 
 onMounted(() => {
-  screenEl.value?.addEventListener('scroll', onScroll, { passive: true })
+  const el = screenEl.value
+  el?.addEventListener('scroll', onScroll, { passive: true })
+  // touchmove 必须非 passive，否则 preventDefault 不生效，下拉会被浏览器当成橡皮筋
+  el?.addEventListener('touchstart', onTouchStart, { passive: true })
+  el?.addEventListener('touchmove', onTouchMove, { passive: false })
+  el?.addEventListener('touchend', onTouchEnd)
+  el?.addEventListener('touchcancel', onTouchEnd)
   void draftStore.refreshPendingDrafts()
 })
 
 onBeforeUnmount(() => {
-  screenEl.value?.removeEventListener('scroll', onScroll)
+  const el = screenEl.value
+  el?.removeEventListener('scroll', onScroll)
+  el?.removeEventListener('touchstart', onTouchStart)
+  el?.removeEventListener('touchmove', onTouchMove)
+  el?.removeEventListener('touchend', onTouchEnd)
+  el?.removeEventListener('touchcancel', onTouchEnd)
+  document.body.classList.remove('pulling')
 })
 
 watch(
@@ -100,48 +136,63 @@ watch(
 
 /* ── 下拉刷新 ─────────────────────────────────────────────── */
 
-const PULL_MAX = 88
-const PULL_TRIGGER = 52
+/*
+ * 触摸设备上 pointer 事件在浏览器接管滚动时会被 cancel 掉，
+ * 所以触摸走 touch（touchmove 必须 passive:false 才能 preventDefault），
+ * 鼠标才走 pointer。两条路最后都落到 drag() / end()。
+ */
+const PULL_MAX = 96
+const PULL_TRIGGER = 56
 
 const pull = ref(0)
 const pulling = ref(false)
 const refreshing = ref(false)
 let startY = 0
+let startX = 0
 let armed = false
-
-const pullStyle = computed(() => ({
-  transform: `translateY(${-42 + pull.value}px)`,
-  opacity: String(Math.min(1, pull.value / PULL_TRIGGER)),
-  transition: pulling.value
-    ? 'none'
-    : 'transform 320ms var(--ease-spring), opacity 240ms var(--ease-out)',
-}))
 
 const pullReady = computed(() => pull.value >= PULL_TRIGGER)
 
-function onPointerDown(event: PointerEvent) {
-  if (refreshing.value || !refreshState.handler) return
-  if ((screenEl.value?.scrollTop ?? 0) > 0) return
-  if (event.pointerType === 'mouse' && event.button !== 0) return
-  startY = event.clientY
+/** 内容跟着手指走，指示器落在顶部露出来的那道缝里 */
+const screenStyle = computed(() => ({
+  transform: pull.value ? `translateY(${pull.value}px)` : undefined,
+  transition: pulling.value ? 'none' : 'transform 380ms var(--ease-spring)',
+}))
+
+const pullStyle = computed(() => ({
+  opacity: String(Math.min(1, pull.value / (PULL_TRIGGER * 0.7))),
+  transform: `translateY(${Math.max(-24, pull.value / 2 - 24)}px)`,
+}))
+
+function begin(y: number, x: number) {
+  if (refreshing.value || !refreshState.handler) return false
+  if ((screenEl.value?.scrollTop ?? 0) > 0) return false
+  startY = y
+  startX = x
   armed = true
+  return true
 }
 
-function onPointerMove(event: PointerEvent) {
+function drag(y: number) {
   if (!armed || refreshing.value) return
-  const dy = event.clientY - startY
+  const dy = y - startY
   if (dy <= 0) {
     if (pull.value !== 0) pull.value = 0
     return
   }
-  if (!pulling.value && dy > 10) pulling.value = true
-  if (!pulling.value) return
-  pull.value = Math.min(PULL_MAX, dy * 0.45)
+  if (!pulling.value) {
+    if (dy < 8) return
+    pulling.value = true
+    document.body.classList.add('pulling')
+  }
+  // 阻尼：越往下拉越沉，手感接近橡皮筋
+  pull.value = Math.min(PULL_MAX, dy * 0.55)
 }
 
-async function onPointerUp() {
+async function end() {
   if (!armed) return
   armed = false
+  document.body.classList.remove('pulling')
   const distance = pull.value
   pulling.value = false
 
@@ -161,6 +212,54 @@ async function onPointerUp() {
     pull.value = 0
   }
 }
+
+/* 鼠标 */
+function onPointerDown(event: PointerEvent) {
+  if (event.pointerType === 'touch') return
+  if (event.pointerType === 'mouse' && event.button !== 0) return
+  if (!begin(event.clientY, event.clientX)) return
+  ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
+}
+
+function onPointerMove(event: PointerEvent) {
+  if (event.pointerType === 'touch') return
+  drag(event.clientY)
+}
+
+function onPointerUp(event: PointerEvent) {
+  if (event.pointerType === 'touch') return
+  void end()
+}
+
+/* 触摸 */
+function onTouchStart(event: TouchEvent) {
+  if (event.touches.length !== 1) return
+  const touch = event.touches[0]
+  begin(touch.clientY, touch.clientX)
+}
+
+function onTouchMove(event: TouchEvent) {
+  if (!armed || refreshing.value) return
+  const touch = event.touches[0]
+  const dy = touch.clientY - startY
+  const dx = touch.clientX - startX
+
+  // 横向滑动或往上推：交还给浏览器去滚动
+  if (dy <= 0 || Math.abs(dx) > Math.abs(dy)) {
+    if (pull.value) pull.value = 0
+    if (Math.abs(dx) > 12) armed = false
+    return
+  }
+
+  if (!pulling.value && dy < 8) return
+  // 接管这次手势，否则浏览器会把它当成橡皮筋，并吞掉后续 touchmove
+  if (event.cancelable) event.preventDefault()
+  drag(touch.clientY)
+}
+
+function onTouchEnd() {
+  void end()
+}
 </script>
 
 <template>
@@ -178,11 +277,11 @@ async function onPointerUp() {
       ref="screenEl"
       class="screen"
       :class="{ 'has-fab': fab.visible }"
+      :style="screenStyle"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
       @pointercancel="onPointerUp"
-      @pointerleave="onPointerUp"
     >
       <RouterView v-slot="{ Component }">
         <Transition name="page" mode="out-in">
@@ -237,6 +336,38 @@ async function onPointerUp() {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  /*
+   * 整页底色不是一块死灰：顶部一层几乎察觉不到的暖白，往下沉到纸色，
+   * 底部再压深一点点。卡片浮在上面才有「纸」的层次。
+   */
+  background: linear-gradient(
+    180deg,
+    var(--bg-top) 0%,
+    var(--bg) 8%,
+    var(--bg) 78%,
+    var(--bg-bottom) 100%
+  );
+}
+
+/*
+ * 纸纹。
+ *
+ * 一层 3% 的噪点铺在整屏最上面，压在卡片、页头、导航之上——
+ * 数字界面之所以「廉价」，很大程度是因为它太干净：每一块都是数学意义上的纯色，
+ * 眼睛找不到任何随机性。噪点把它拉回到「有纤维的纸」。
+ *
+ * 它必须 pointer-events:none，否则整屏都点不动；
+ * 也刻意不跟内容一起滚——纸是不动的，动的是纸上的东西。
+ */
+.app::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  background-image: var(--grain);
+  background-size: 140px 140px;
+  opacity: 0.055;
+  pointer-events: none;
 }
 
 .skip-link {
@@ -269,12 +400,12 @@ async function onPointerUp() {
    * 表现就是滚动时页头一直在抖。关掉锚定，高度变化就只发生一次。
    */
   overflow-anchor: none;
-  padding-bottom: calc(var(--tab-h) + 26px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(var(--tab-h) + 40px + env(safe-area-inset-bottom, 0px));
 }
 
 /* 有悬浮按钮时多留一截，别让按钮压住最后一条 */
 .screen.has-fab {
-  padding-bottom: calc(var(--tab-h) + 88px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(var(--tab-h) + 96px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ── 下拉刷新指示器 ───────────────────────────────────────── */
@@ -284,9 +415,11 @@ async function onPointerUp() {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 15;
+  z-index: 12;
   display: flex;
   justify-content: center;
+  align-items: center;
+  height: 48px;
   pointer-events: none;
 }
 
@@ -298,7 +431,8 @@ async function onPointerUp() {
   border-radius: 50%;
   background: var(--card);
   color: var(--ink-3);
-  box-shadow: var(--shadow-card);
+  box-shadow: 0 0 0 1px rgba(46, 38, 26, 0.04),
+    0 6px 18px -10px rgba(46, 38, 26, 0.4);
   transform: rotate(0deg);
   transition: transform 300ms var(--ease-out), color 200ms var(--ease-out);
 }
@@ -318,17 +452,17 @@ async function onPointerUp() {
 .fab {
   position: absolute;
   right: var(--pad-x);
-  bottom: calc(var(--tab-h) + 20px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--tab-h) + 30px + env(safe-area-inset-bottom, 0px));
   z-index: 40;
   display: grid;
   place-items: center;
-  width: 54px;
-  height: 54px;
+  width: 52px;
+  height: 52px;
   border: 0;
-  border-radius: 50%;
-  background: var(--card-inverse);
-  color: #fff;
-  box-shadow: var(--shadow-lift);
+  border-radius: var(--r-md);
+  background: linear-gradient(158deg, #221f26 0%, #16151a 70%);
+  color: var(--on-dark);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), var(--shadow-lift);
   cursor: pointer;
   transition: transform var(--dur-1) var(--ease-spring);
   animation: rise 0.44s var(--ease) both;
@@ -340,27 +474,37 @@ async function onPointerUp() {
 
 /* ── 底部导航 ─────────────────────────────────────────────── */
 
+/*
+ * v3 把导航从「贴边的半透明白条」改成一条浮起来的书签条：
+ * 离左右各 10px、离底 8px、22px 圆角、发丝线压边。
+ * 贴边的条子是「浏览器工具栏」，浮起来的一条才是「这块界面的一部分」——
+ * 它同时让底下那条纸色露出来，整屏因此有个收口，而不是被白条硬切掉。
+ */
 .tabbar {
   position: relative;
   z-index: 30;
   flex: none;
   display: grid;
   grid-template-columns: repeat(var(--tab-n, 5), 1fr);
-  height: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px));
-  padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid var(--hairline);
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: saturate(1.6) blur(20px);
-  -webkit-backdrop-filter: saturate(1.6) blur(20px);
+  height: var(--tab-h);
+  margin: 0 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 6px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-xl);
+  background: rgba(255, 253, 250, 0.84);
+  backdrop-filter: saturate(1.5) blur(22px);
+  -webkit-backdrop-filter: saturate(1.5) blur(22px);
+  box-shadow: 0 1px 2px rgba(46, 38, 26, 0.04),
+    0 18px 40px -28px rgba(46, 38, 26, 0.5);
 }
 
-/* 选中态是一块会滑动的药丸，跟着 tab 走 */
+/* 选中态是一块会滑动的纸片，跟着 tab 走 */
 .tab-indicator {
   position: absolute;
   top: 6px;
-  left: 10px;
-  width: calc((100% - 20px) / var(--tab-n, 5));
-  height: 27px;
+  left: 8px;
+  width: calc((100% - 16px) / var(--tab-n, 5));
+  height: 28px;
   transition: transform var(--dur-3) var(--ease-spring);
   pointer-events: none;
 }
@@ -369,11 +513,12 @@ async function onPointerUp() {
   position: absolute;
   left: 50%;
   top: 0;
-  width: 42px;
-  height: 27px;
-  margin-left: -21px;
+  width: 44px;
+  height: 28px;
+  margin-left: -22px;
   border-radius: var(--r-pill);
-  background: rgba(17, 18, 20, 0.055);
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--hairline), 0 1px 3px rgba(46, 38, 26, 0.07);
 }
 
 .tab {
@@ -401,9 +546,9 @@ async function onPointerUp() {
 }
 
 .tab-label {
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 500;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
 }
 
 .tab.is-active {

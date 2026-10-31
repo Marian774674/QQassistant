@@ -14,8 +14,10 @@ const props = withDefaults(
     vtName?: string
     /** 共享元素接管动画时，跳过自己的进出场 */
     instant?: boolean
+    /** 叠在另一个抽屉上面（选择器之类）：不锁背景，Esc 只关自己 */
+    nested?: boolean
   }>(),
-  { description: '', tone: 'dark', height: '88%', vtName: '', instant: false },
+  { description: '', tone: 'dark', height: '88%', vtName: '', instant: false, nested: false },
 )
 
 const emit = defineEmits<{ close: [] }>()
@@ -93,7 +95,9 @@ function close() {
 
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
-    event.stopPropagation()
+    // 嵌套时用捕获阶段先吃掉，否则会连着把下面那层抽屉一起关掉
+    if (props.nested) event.stopImmediatePropagation()
+    else event.stopPropagation()
     close()
     return
   }
@@ -119,6 +123,8 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
+let locked = false
+
 function lockBackground(lock: boolean) {
   if (!scroller) scroller = document.querySelector<HTMLElement>('.screen')
   if (!appRoot) appRoot = document.querySelector<HTMLElement>('#app > .app')
@@ -134,8 +140,12 @@ watch(
       lastFocused = document.activeElement as HTMLElement | null
       dragY.value = 0
       kbInset.value = 0
-      lockBackground(true)
-      window.addEventListener('keydown', onKeydown)
+      // 嵌套抽屉不去动背景锁：下面那层还开着，锁是它的
+      if (!props.nested) {
+        lockBackground(true)
+        locked = true
+      }
+      window.addEventListener('keydown', onKeydown, props.nested)
       window.visualViewport?.addEventListener('resize', onViewportResize)
       await nextTick()
       panel.value
@@ -148,8 +158,11 @@ watch(
 )
 
 function cleanup() {
-  lockBackground(false)
-  window.removeEventListener('keydown', onKeydown)
+  if (locked) {
+    lockBackground(false)
+    locked = false
+  }
+  window.removeEventListener('keydown', onKeydown, props.nested)
   window.visualViewport?.removeEventListener('resize', onViewportResize)
   lastFocused?.focus?.({ preventScroll: true })
   lastFocused = null
@@ -161,7 +174,12 @@ onBeforeUnmount(cleanup)
 <template>
   <Teleport to="#app">
     <Transition name="sheet" :css="!instant">
-      <div v-if="open" class="layer" :style="{ paddingBottom: `${kbInset}px` }">
+      <div
+        v-if="open"
+        class="layer"
+        :class="{ nested }"
+        :style="{ paddingBottom: `${kbInset}px` }"
+      >
         <div class="scrim" :style="scrimStyle" @click="close" />
 
         <section
@@ -214,10 +232,21 @@ onBeforeUnmount(cleanup)
   transition: padding-bottom 240ms var(--ease-out);
 }
 
+/* 叠在另一个抽屉上时抬一层，遮罩也浅一些，别把下面压成一片黑 */
+.layer.nested {
+  z-index: 90;
+}
+
+.layer.nested .scrim {
+  background: rgba(28, 22, 16, 0.28);
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
+}
+
 .scrim {
   position: absolute;
   inset: 0;
-  background: rgba(10, 10, 11, 0.42);
+  background: rgba(28, 22, 16, 0.44);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
   transition: opacity 220ms var(--ease-out);
@@ -229,7 +258,7 @@ onBeforeUnmount(cleanup)
   flex-direction: column;
   width: 100%;
   border-radius: var(--r-sheet) var(--r-sheet) 0 0;
-  box-shadow: 0 -18px 60px -30px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 -18px 60px -30px rgba(28, 22, 16, 0.55);
   transition: transform var(--dur-3) var(--ease-spring);
 }
 
@@ -237,13 +266,16 @@ onBeforeUnmount(cleanup)
   transition: none;
 }
 
+/* 深色抽屉也是「一张纸」：顶部一道极淡的高光压边，往下沉到近黑 */
 .panel.dark {
-  background: #0f0f10;
+  background: linear-gradient(180deg, #1c1a20 0%, #16151a 46%, #100f13 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
   color: var(--on-dark);
 }
 
 .panel.light {
   background: var(--bg);
+  border-top: 1px solid var(--hairline);
   color: var(--ink);
 }
 
@@ -266,8 +298,10 @@ onBeforeUnmount(cleanup)
 }
 
 .panel.light .grip-close {
-  background: #fff;
-  color: #111214;
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  color: var(--ink);
+  box-shadow: 0 6px 20px -10px rgba(46, 38, 26, 0.5);
 }
 
 .drag-zone {
@@ -284,19 +318,21 @@ onBeforeUnmount(cleanup)
   padding: 6px 0 14px;
 }
 
+/* 抽屉标题也用衬线：它和页头标题是同一层「展示级文字」，同一套字体 */
 .title {
-  font-size: 21px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.3;
+  font-family: var(--font-display);
+  font-size: 23px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  line-height: 1.28;
   overflow-wrap: anywhere;
 }
 
 .desc {
-  margin-top: 6px;
-  font-size: 13px;
-  line-height: 1.55;
-  opacity: 0.62;
+  margin-top: 7px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  opacity: 0.6;
 }
 
 .body {
@@ -306,11 +342,21 @@ onBeforeUnmount(cleanup)
   padding: 0 22px 8px;
 }
 
+/*
+ * 动作区顶上一条发丝线。
+ * 没有它，正文滚到底时最后一行会被硬生生切在半截，看着像渲染坏了；
+ * 有线之后，同一件事读起来是「内容滚到一条栏下面」，是正常的滚动暗示。
+ */
 .foot {
   flex: none;
   display: flex;
   gap: 10px;
   padding: 14px 22px calc(18px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--hairline);
+}
+
+.panel.dark .foot {
+  border-top-color: rgba(255, 255, 255, 0.1);
 }
 
 .foot :deep(.btn) {

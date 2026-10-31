@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { ArrowUpRight, BellRing, ChevronDown } from 'lucide-vue-next'
+import { ArrowUpRight, ChevronDown } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import DigestPopup from '@/components/DigestPopup.vue'
+import PageHead from '@/components/PageHead.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import { getLastSeen, listDigest, markSeen } from '@/api/digest'
 import type { DigestItem } from '@/api/digest'
@@ -41,24 +42,33 @@ onMounted(() => {
   void load()
 })
 
-async function load() {
-  loading.value = true
-  error.value = ''
+/**
+ * silent = 下拉刷新：不清空当前内容、不摆骨架屏，否则整页会闪一下白。
+ * 失败也不把页面换成错误页——旧数据比错误页有用，弹个 toast 就够。
+ */
+async function load(silent = false) {
+  if (!silent) {
+    loading.value = true
+    error.value = ''
+  }
   try {
     // 时间基准由后端给：第一次进来是空串（后端按 24 小时算），之后是上次点「都看过了」的时刻
     lastSeen.value = await getLastSeen()
     items.value = await listDigest(lastSeen.value || undefined)
     expanded.value = false
     now.value = new Date()
-    maybePopup()
+    // 刷新时不要再弹一次「要你拿主意」
+    if (!silent) maybePopup()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '加载失败'
+    const message = e instanceof Error ? e.message : '加载失败'
+    if (silent) toast.error(message)
+    else error.value = message
   } finally {
     loading.value = false
   }
 }
 
-useRefresh(load)
+useRefresh(() => load(true))
 
 function expandAll() {
   expanded.value = true
@@ -113,11 +123,11 @@ function maybePopup() {
 
 <template>
   <div class="page">
-    <header class="page-head">
-      <p class="eyebrow">{{ formatHeadDate(now) }}</p>
-      <h1 class="page-title">你不在的时候</h1>
-      <p class="page-sub">这些是群里的新鲜事，要你拿主意的排在前面。</p>
-    </header>
+    <PageHead
+      :eyebrow="formatHeadDate(now)"
+      title="Digest"
+      sub="这些是群里的新鲜事，要你拿主意的排在前面。"
+    />
 
     <div class="body">
       <ErrorState
@@ -143,7 +153,6 @@ function maybePopup() {
       <template v-else>
         <section v-if="important.length" class="group">
           <h2 class="section-title">
-            <BellRing :size="14" :stroke-width="2" aria-hidden="true" />
             要你拿主意 <span class="num">{{ important.length }}</span>
           </h2>
           <ul class="list">
@@ -195,12 +204,6 @@ function maybePopup() {
   margin-bottom: 22px;
 }
 
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .list {
   display: grid;
   gap: 8px;
@@ -211,15 +214,18 @@ function maybePopup() {
 
 .item {
   padding: 13px 15px;
+  border: 1px solid var(--hairline);
   border-radius: var(--r-md);
   background: var(--card);
   box-shadow: var(--shadow-card);
 }
 
+/* 深色面统一走渐变 + 顶部高光，和卡片、抽屉是同一块「纸」的背面 */
 .item.is-important {
-  background: var(--card-inverse);
-  color: #fff;
-  box-shadow: var(--shadow-lift);
+  background: linear-gradient(158deg, #221f26 0%, #16151a 62%, #121116 100%);
+  border-color: transparent;
+  color: var(--on-dark);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), var(--shadow-lift);
 }
 
 .item-chat {
@@ -245,7 +251,7 @@ function maybePopup() {
   padding: 1px 6px;
   border-radius: var(--r-pill);
   background: rgba(229, 56, 127, 0.14);
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 

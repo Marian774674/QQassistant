@@ -90,7 +90,7 @@ onBeforeUnmount(() => window.clearTimeout(timer))
   width: 40px;
   height: 9px;
   border-radius: var(--r-pill);
-  background: rgba(17, 18, 20, 0.07);
+  background: rgba(46, 38, 26, 0.07);
   flex: none;
 }
 
@@ -119,7 +119,7 @@ onBeforeUnmount(() => window.clearTimeout(timer))
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  background: rgba(17, 18, 20, 0.06);
+  background: rgba(46, 38, 26, 0.06);
   flex: none;
   animation: pulse 1.4s var(--ease) infinite;
 }
@@ -134,7 +134,7 @@ onBeforeUnmount(() => window.clearTimeout(timer))
   display: block;
   height: 11px;
   border-radius: var(--r-pill);
-  background: rgba(17, 18, 20, 0.06);
+  background: rgba(46, 38, 26, 0.06);
   animation: pulse 1.4s var(--ease) infinite;
 }
 

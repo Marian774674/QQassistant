@@ -111,13 +111,13 @@ const metaText = computed(() => {
 .tl-dot {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 21px;
+  height: 21px;
   padding: 0;
-  border: 1.5px solid var(--dot);
+  border: 1px solid rgba(122, 112, 96, 0.42);
   border-radius: 50%;
   background: var(--bg);
-  color: #fff;
+  color: var(--bg);
   cursor: pointer;
   transition: border-color var(--dur) var(--ease),
     background-color var(--dur) var(--ease),
@@ -130,11 +130,13 @@ const metaText = computed(() => {
 
 .tl-dot.late {
   border-color: var(--danger);
+  border-width: 1.5px;
 }
 
 .tl-dot.done {
   border-color: var(--card-inverse);
   background: var(--card-inverse);
+  color: var(--card);
   cursor: default;
 }
 
@@ -158,7 +160,7 @@ const metaText = computed(() => {
   gap: 11px;
   width: 100%;
   padding: 12px 14px;
-  border: 0;
+  border: 1px solid var(--hairline);
   border-radius: var(--r-lg);
   background: var(--card);
   box-shadow: var(--shadow-card);
@@ -175,12 +177,15 @@ const metaText = computed(() => {
 
 /* 逾期：左侧一道窄红边，扫一眼就知道哪条欠着 */
 .memo.overdue {
+  border-color: rgba(191, 58, 43, 0.22);
   box-shadow: inset 3px 0 0 var(--danger), var(--shadow-card);
 }
 
 .memo.featured {
-  background: var(--card-inverse);
+  background: linear-gradient(158deg, #221f26 0%, #16151a 62%, #121116 100%);
+  border-color: transparent;
   color: var(--on-dark);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), var(--shadow-lift);
 }
 
 .memo-icon {
@@ -188,15 +193,16 @@ const metaText = computed(() => {
   place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 10px;
-  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: transparent;
   color: var(--ink-2);
   flex: none;
 }
 
 .featured .memo-icon {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--on-dark);
 }
 
 .memo-main {
@@ -243,27 +249,37 @@ const metaText = computed(() => {
   color: var(--on-dark-3);
 }
 
+/*
+ * 时间列是这一行的「排版锚点」：衬线数字。
+ * 整页正文都是无衬线，只有这一列和页头大数字用衬线——
+ * 两处衬线遥相呼应，版面才像被设计过，而不是被排满过。
+ */
 .memo-time {
   align-self: start;
   display: grid;
   justify-items: end;
-  gap: 1px;
-  padding-top: 1px;
-  color: var(--ink-3);
-  font-size: 12.5px;
-  letter-spacing: 0;
+  gap: 2px;
+  padding-top: 0;
+  color: var(--ink-2);
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-variant-numeric: lining-nums tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
 }
 
 .memo-time.late {
   color: var(--danger);
-  font-weight: 500;
 }
 
+/* 日期是辅助信息，回到微标签：小、宽字距、大写感 */
 .memo-day {
   color: var(--ink-3);
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
+  font-family: var(--font-ui);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .memo-time.late .memo-day {
@@ -272,7 +288,7 @@ const metaText = computed(() => {
 }
 
 .featured .memo-time {
-  color: var(--on-dark-2);
+  color: var(--on-dark);
 }
 
 .featured .memo-day {

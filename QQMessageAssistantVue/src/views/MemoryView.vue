@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
-import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-vue-next'
+import { Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
+import PageHead from '@/components/PageHead.vue'
 import Segmented from '@/components/Segmented.vue'
 import Sheet from '@/components/Sheet.vue'
 import Skeleton from '@/components/Skeleton.vue'
@@ -77,13 +78,17 @@ const savingContact = ref(false)
 const confirmingContactId = ref<number | null>(null)
 
 // 通讯录是全局的（谁的称呼都记在一起），不按当前主人过滤
-async function loadContacts() {
-  loadingContacts.value = true
-  contactsError.value = ''
+async function loadContacts(silent = false) {
+  if (!silent) {
+    loadingContacts.value = true
+    contactsError.value = ''
+  }
   try {
-    contacts.value = await listContacts()
+    contacts.value = (await listContacts()) ?? []
   } catch (e) {
-    contactsError.value = e instanceof Error ? e.message : '人物读取失败'
+    const message = e instanceof Error ? e.message : '人物读取失败'
+    if (silent) toast.error(message)
+    else contactsError.value = message
   } finally {
     loadingContacts.value = false
   }
@@ -138,17 +143,21 @@ async function removeContact(contact: Contact) {
   }
 }
 
-async function loadFacts() {
+async function loadFacts(silent = false) {
   if (!senderId.value) {
     loadingFacts.value = false
     return
   }
-  loadingFacts.value = true
-  factsError.value = ''
+  if (!silent) {
+    loadingFacts.value = true
+    factsError.value = ''
+  }
   try {
-    facts.value = await listFacts(senderId.value)
+    facts.value = (await listFacts(senderId.value)) ?? []
   } catch (e) {
-    factsError.value = e instanceof Error ? e.message : '事实读取失败'
+    const message = e instanceof Error ? e.message : '事实读取失败'
+    if (silent) toast.error(message)
+    else factsError.value = message
   } finally {
     loadingFacts.value = false
   }
@@ -179,19 +188,20 @@ async function loadFrequency() {
   }
 }
 
-async function loadAll() {
-  void loadContacts()
+/** silent = 下拉刷新：保留当前内容，不闪骨架屏 */
+async function loadAll(silent = false) {
+  void loadContacts(silent)
   if (!senderId.value) {
     loadingFacts.value = false
     return
   }
-  await Promise.all([loadFacts(), loadProfile(), loadFrequency()])
+  await Promise.all([loadFacts(silent), loadProfile(), loadFrequency()])
 }
 
-onMounted(loadAll)
-watch(senderId, loadAll)
+onMounted(() => void loadAll())
+watch(senderId, () => void loadAll())
 
-useRefresh(loadAll)
+useRefresh(() => loadAll(true))
 
 function openAdd() {
   editing.value = null
@@ -295,15 +305,12 @@ async function changeFrequency(value: Frequency) {
 
 <template>
   <div class="page">
-    <header class="page-head">
-      <RouterLink to="/more" class="back">
-        <ArrowLeft :size="16" :stroke-width="2" aria-hidden="true" />
-        更多
-      </RouterLink>
-      <p class="eyebrow">记忆总控台</p>
-      <h1 class="page-title">记忆</h1>
-      <p class="page-sub">事实是即时生效的硬信息；风格画像只在手动保存或定时总结时更新。</p>
-    </header>
+    <PageHead
+      :back="{ to: '/more', label: '更多' }"
+      eyebrow="记忆总控台"
+      title="Memory"
+      sub="事实是即时生效的硬信息；风格画像只在手动保存或定时总结时更新。"
+    />
 
     <p v-if="!owner.loaded" class="faint">正在读取设置…</p>
 
@@ -447,6 +454,7 @@ async function changeFrequency(value: Frequency) {
 
     <Sheet
       :open="sheetOpen"
+      tone="light"
       :title="editing ? '修改事实' : '添加事实'"
       description="比如学号、导员电话、常用地址。机器人下次对话就会用上。"
       @close="sheetOpen = false"
@@ -502,7 +510,7 @@ async function changeFrequency(value: Frequency) {
 
       <template #footer>
         <button type="button" class="btn btn-ghost" @click="sheetOpen = false">取消</button>
-        <button type="button" class="btn btn-on-dark" :disabled="saving" @click="save">
+        <button type="button" class="btn btn-primary" :disabled="saving" @click="save">
           {{ saving ? '保存中…' : '保存' }}
         </button>
       </template>
@@ -510,6 +518,7 @@ async function changeFrequency(value: Frequency) {
 
     <Sheet
       :open="contactSheetOpen"
+      tone="light"
       title="认一个人"
       description="记下称呼和 QQ 号，以后问起这个人就不用再猜。"
       @close="contactSheetOpen = false"
@@ -554,7 +563,7 @@ async function changeFrequency(value: Frequency) {
 
       <template #footer>
         <button type="button" class="btn btn-ghost" @click="contactSheetOpen = false">取消</button>
-        <button type="button" class="btn btn-on-dark" :disabled="savingContact" @click="saveContact">
+        <button type="button" class="btn btn-primary" :disabled="savingContact" @click="saveContact">
           {{ savingContact ? '保存中…' : '保存' }}
         </button>
       </template>
@@ -563,14 +572,6 @@ async function changeFrequency(value: Frequency) {
 </template>
 
 <style scoped>
-.back {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 10px;
-  color: var(--ink-2);
-  font-size: 13px;
-}
 
 .block + .block {
   margin-top: 30px;
@@ -800,46 +801,7 @@ async function changeFrequency(value: Frequency) {
 
 /* ── 抽屉表单 ─────────────────────────────────────────────── */
 
-.form {
-  display: grid;
-  gap: 10px;
-}
-
-.frow {
-  display: grid;
-  gap: 6px;
-  padding: 12px 14px;
-  border-radius: var(--r-md);
-  background: #fff;
-  color: var(--ink);
-}
-
-.frow-label {
-  color: var(--ink-3);
-  font-size: 11.5px;
-  font-weight: 500;
-}
-
-.frow-input {
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-size: 15.5px;
-  outline: none;
-}
-
-.frow-input::placeholder {
-  color: var(--ink-3);
-}
-
-.form-error {
-  padding: 10px 14px;
-  border-radius: var(--r-md);
-  background: rgba(191, 58, 43, 0.18);
-  color: #ffb4ab;
-  font-size: 12.5px;
-}
+/* 表单骨架在 style.css 里，和备忘、规则共用一套 */
 
 .inline-error {
   margin-top: 10px;
@@ -861,7 +823,7 @@ async function changeFrequency(value: Frequency) {
   padding: 8px 0;
   border: 0;
   background: transparent;
-  color: rgba(255, 140, 128, 0.9);
+  color: var(--danger);
   font-size: 12.5px;
   cursor: pointer;
 }
@@ -869,8 +831,9 @@ async function changeFrequency(value: Frequency) {
 .confirm {
   padding: 14px;
   border-radius: var(--r-md);
-  background: rgba(191, 58, 43, 0.16);
-  color: #ffc3ba;
+  background: var(--danger-wash);
+  border: 1px solid rgba(191, 58, 43, 0.2);
+  color: var(--danger);
   font-size: 12.5px;
   line-height: 1.55;
 }
