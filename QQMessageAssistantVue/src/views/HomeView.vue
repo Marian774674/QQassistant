@@ -8,10 +8,11 @@ import DigestPopup from '@/components/DigestPopup.vue'
 import PageHead from '@/components/PageHead.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import { getLastSeen, listDigest, markSeen, refreshDigest } from '@/api/digest'
-import type { DigestItem } from '@/api/digest'
+import type { DigestItem, DigestRefresh } from '@/api/digest'
 import { useRefresh } from '@/composables/useRefresh'
 import { useToast } from '@/composables/useToast'
 import { formatHeadDate, formatTime } from '@/utils/datetime'
+import { firstSegment, fullNameHint } from '@/utils/name'
 
 /** 重要度到这个数就值得单独拎出来放前面 */
 const IMPORTANT = 4
@@ -30,6 +31,7 @@ const expanded = ref(false)
 const seenConfirmed = ref(false)
 const now = ref(new Date())
 const popupItem = ref<DigestItem | null>(null)
+const refreshInfo = ref<DigestRefresh | null>(null)
 
 const important = computed(() => items.value.filter((item) => item.importance >= IMPORTANT))
 const rest = computed(() => items.value.filter((item) => item.importance < IMPORTANT))
@@ -37,6 +39,31 @@ const visibleRest = computed(() =>
   expanded.value ? rest.value : rest.value.slice(0, Math.max(0, PREVIEW - important.value.length)),
 )
 const hiddenCount = computed(() => rest.value.length - visibleRest.value.length)
+
+/**
+ * 空屏不等于「群里没人说话」：也可能是没到整理阈值，或这次整理没产出。
+ * 后端 refresh 已经告诉我们窗口里收了多少条，用这个数区分三种情况，
+ * 别再一律显示「没什么事」。
+ */
+const emptyCopy = computed(() => {
+  const info = refreshInfo.value
+  if (!info || info.messageCount === 0) {
+    return {
+      title: '这段时间群里没什么事',
+      hint: '勾选要整理的群之后，再离开一阵子回来看看。',
+    }
+  }
+  if (!info.refreshed) {
+    return {
+      title: '消息先攒着，还没到整理的坎',
+      hint: `上次整理之后已有 ${info.messageCount} 条消息，达到你设的条数或时长后一起整理。`,
+    }
+  }
+  return {
+    title: '这段时间有消息，但没整理出要点',
+    hint: `收到了 ${info.messageCount} 条消息，这次没有可单独提醒的内容，可以到消息日志翻原文。`,
+  }
+})
 
 onMounted(() => {
   void load()
@@ -54,7 +81,7 @@ async function load(silent = false) {
   try {
     // 每次进首页都问一次：距上次整理超过一段时间、或中间攒了足够多消息，后端才真的跑整理
     // （两个阈值在「群设置」里改）；没到阈值就是一次几十毫秒的计数，窗口继续累积
-    await refreshDigest()
+    refreshInfo.value = await refreshDigest()
     // 时间基准由后端给：第一次进来是空串（后端按 24 小时算），之后是上次点「都看过了」的时刻
     lastSeen.value = await getLastSeen()
     items.value = await listDigest(lastSeen.value || undefined)
@@ -101,8 +128,14 @@ function localStamp(d = new Date()) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
+/** 群名可能是「双创部学科竞赛交流群，交流群」这种逗号串，卡片上只留第一段 */
 function chatLabel(item: DigestItem) {
-  return item.chatName || `群 ${item.chatId}`
+  return firstSegment(item.chatName) || `群 ${item.chatId}`
+}
+
+/** 全名不进布局，只挂在 title 上，悬停/长按仍能看到 */
+function chatTitle(item: DigestItem) {
+  return fullNameHint(chatLabel(item), item.chatName)
 }
 
 /**
@@ -144,8 +177,8 @@ function maybePopup() {
 
       <EmptyState
         v-else-if="!items.length"
-        title="这段时间群里没什么事"
-        hint="勾选要整理的群之后，再离开一阵子回来看看。"
+        :title="emptyCopy.title"
+        :hint="emptyCopy.hint"
       >
         <RouterLink to="/memos" class="btn btn-sm btn-quiet">
           先去看看备忘
@@ -161,7 +194,7 @@ function maybePopup() {
           <ul class="list">
             <li v-for="item in important" :key="item.id" class="item is-important">
               <p class="item-chat">
-                {{ chatLabel(item) }}
+                <span class="item-chat-name" :title="chatTitle(item)">{{ chatLabel(item) }}</span>
                 <span v-if="item.mentionsMe" class="mention">@你</span>
                 <span class="item-time num">{{ formatTime(item.createdAt) }}</span>
               </p>
@@ -175,7 +208,7 @@ function maybePopup() {
           <ul class="list">
             <li v-for="item in visibleRest" :key="item.id" class="item">
               <p class="item-chat">
-                {{ chatLabel(item) }}
+                <span class="item-chat-name" :title="chatTitle(item)">{{ chatLabel(item) }}</span>
                 <span class="item-time num">{{ formatTime(item.createdAt) }}</span>
               </p>
               <p class="item-summary">{{ item.summary }}</p>
@@ -245,12 +278,39 @@ function maybePopup() {
   color: rgba(255, 255, 255, 0.66);
 }
 
+/*
+ * 名字是 flex 子项：不写 min-width:0 的话默认 min-width:auto，长群名会把
+ * 后面的时间和 @你 挤出去。省略号只是版面取舍，悬停/长按仍可横向滚动看全名。
+ */
+.item-chat-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* 长按拖动是「滚动」，不该同时选中文字 */
+  user-select: none;
+}
+
+.item-chat-name:hover,
+.item-chat-name:active {
+  overflow-x: auto;
+  text-overflow: clip;
+  scrollbar-width: none;
+}
+
+.item-chat-name::-webkit-scrollbar {
+  display: none;
+}
+
 .item-time {
+  flex: 0 0 auto;
   margin-left: auto;
   font-weight: 400;
 }
 
 .mention {
+  flex: 0 0 auto;
   padding: 1px 6px;
   border-radius: var(--r-pill);
   background: rgba(229, 56, 127, 0.14);

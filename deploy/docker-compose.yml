@@ -11,6 +11,26 @@
 name: qq-assistant
 
 services:
+  # ── Redis：登录会话 / 验证码 / 接口限流 ─────────────────────────────────
+  # 不用 Dify 自带的 redis 容器：那是 Dify 的内部依赖，升级/重建时不该被业务牵连。
+  redis:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    container_name: qq-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:?请在 .env 里设置 REDIS_PASSWORD}
+    ports:
+      # Spring Boot 在 Windows 宿主机上，需要能连到虚拟机的 6379
+      - "${REDIS_BIND:-0.0.0.0}:6379:6379"
+    volumes:
+      - ./redis-data:/data
+    networks:
+      - qqnet
+
   # ── LangBot 主程序：WebUI + 平台适配 + 插件宿主 ─────────────────────────
   langbot:
     image: ${LANGBOT_IMAGE:-rockchin/langbot:latest}

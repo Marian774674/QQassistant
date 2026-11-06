@@ -2,11 +2,26 @@ server:
   port: 8080
 
 spring:
+  config:
+    # 本地私密配置（不入库）：从仓库根或 Java 模块目录启动都能找到。
+    # 文件不存在就忽略，此时所有值必须来自真实环境变量；生产建议只用环境变量。
+    import:
+      - optional:file:./deploy/java.properties
+      - optional:file:../deploy/java.properties
   datasource:
-    url: jdbc:mysql://192.168.100.128:3307/qq_assistant?useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&transformedBitIsBoolean=true&allowMultiQueries=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=Asia/Shanghai
-    username: root
-    password: root
+    # 5.5：口令 / 地址一律外置。仓库里不再有任何明文凭据或部署专用 IP。
+    # 本地开发把值写进 deploy/java.properties（已在 .gitignore），或启动时 export。
+    url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/qq_assistant?useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&transformedBitIsBoolean=true&allowMultiQueries=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=Asia/Shanghai}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: 2s
   task:
     scheduling:
       pool:
@@ -25,7 +40,7 @@ mybatis-plus:
       logic-not-delete-value: 0
 langbot:
   # 指向主动发送桥（QQMessageAssistantPython/send_bridge），不是 LangBot 官方端口
-  base-url: http://192.168.100.128:5301
+  base-url: ${LANGBOT_BRIDGE_URL:http://127.0.0.1:5301}
   connect-timeout-ms: 2000
   # 桥内最坏耗时 = DELAY_MAX_MS(15000) + HTTP_TIMEOUT(10000) = 25s；
   # 读超时必须大于它，否则 Java 先超时回滚、桥随后仍发出 → 用户重试就会重复发送
@@ -34,11 +49,41 @@ langbot:
 dify:
   workflow:
     # 「记忆与整理」Workflow 应用（和对话用的 Chatflow 是两个应用，密钥不通用）
+    # api-key 没有默认值：漏配时调用会明确报错，而不是拿仓库里的旧 key 悄悄连上别人的应用
     base-url: ${DIFY_WORKFLOW_BASE_URL:http://127.0.0.1/v1}
-    api-key: ${DIFY_WORKFLOW_API_KEY:app-bJjkczL6buQyIXvZLsuaCTo9}
+    api-key: ${DIFY_WORKFLOW_API_KEY:}
+    # 账本里的模型标注，Dify 不回传模型名；留空显示「未标注」
+    model: ${DIFY_WORKFLOW_MODEL:}
     timeout-ms: 60000
 
 app:
+  auth:
+    # 单管理员登录：首次登录时用这里的初始密码生成 BCrypt 哈希写入 app_setting。
+    # 不配置 AUTH_INITIAL_PASSWORD 时会生成随机临时密码并打到启动日志里。
+    username: ${AUTH_USERNAME:admin}
+    initial-password: ${AUTH_INITIAL_PASSWORD:}
+    captcha-ttl-minutes: 2
+    session-ttl-minutes: 30
+    # QQ 授权登录：网页只填 QQ 号，机器人私聊推 6 位码。
+    # 只认 app_setting.owner_sender_id（设置页「我的 QQ 号」）这一个号；
+    # 库里为空时用这里的兜底值，方便首次部署在没登录过的情况下直接绑定。
+    owner-qq: ${AUTH_OWNER_QQ:}
+    qq-code-ttl-minutes: 5
+    # 两次发码的最小间隔，防止拿登录接口当短信轰炸器
+    qq-code-cooldown-seconds: 60
+    # 连续错这么多次就作废当前码（爆破空间 5/10^6）
+    qq-code-max-attempts: 5
+  rate-limit:
+    # HTTP 接口：每个会话 token（未登录按 IP）一个桶，60 次突发，之后每秒补 1 次
+    enabled: true
+    capacity: 60
+    refill-per-second: 1
+    key-ttl-seconds: 120
+    # QQ 群聊：每个会话一个桶，20 条突发，之后每 2 秒补 1 条
+    # 桶空时 reply-context 返回 enabled=false，插件静默 CHAT，但 TASK 照常执行
+    chat-capacity: 20
+    chat-refill-per-second: 0.5
+    chat-key-ttl-seconds: 300
   agent:
     # Dify HTTP 节点调用 /api/agent/* 时携带的 X-Agent-Token。
     # 留空 = 该入口整体关闭（503），所以必须从环境变量注入，别把值写进仓库。

@@ -30,8 +30,8 @@
 | 2 | `message_log` | 统一消息日志（风格总结原料 + 全链路排查） | 抽象②，方案⑤ |
 | 3 | `memo` | 备忘录主体 | 方案③ |
 | 4 | `memo_reminder` | 提醒计划（按 category 展开为多行） | 方案③ |
-| 5 | `collection_task` | 统一回复防重状态 | 方案② |
-| 6 | `intercept_rule` | 前置拦截规则（关键词 + 正则，热更新） | 方案② |
+| 5 | `collection_task` | ~~统一回复防重状态~~ **已废弃**：运行时不再读写，表保留不 DROP | 方案②（历史） |
+| 6 | `intercept_rule` | ~~前置拦截规则~~ **已废弃**：运行时不再读写，表保留不 DROP | 方案②（历史） |
 | 7 | `profile_fact` | 事实记忆（学号/姓名… 逐条 kv） | 方案⑤ |
 | 8 | `style_profile` | 风格画像（注入 Dify 的画像正文） | 方案⑤ |
 | 9 | `app_setting` | 全局配置（总结频率 / 窗口等） | 方案⑤ |
@@ -42,6 +42,15 @@
 | 14 | `memory_note` | 夜间事实归纳（受控谓词 + 证据 id） | F4 历史查询，`core_features.md` §7 |
 | 15 | `message_embedding` | 消息向量（语义召回，只索引 `IN`） | `intelligent_retrieval.md` §3.1 |
 | 16 | `ask_trace` | 一次问答的检索轨迹（问题/通道/计数，不存正文） | `intelligent_retrieval.md` §3.3 |
+| 17 | `napcat_cursor` | NapCat 掉线补拉游标（每会话已补到哪个 `message_seq`） | `design_overview.md` §5.4 |
+| 18 | `token_usage` | Token 用量账本（模型调用追加记录，只读统计） | `design_overview.md` §5.5 |
+
+> `chat_setting`、`chat_alias`、`chat_digest_item`、`napcat_cursor`、`token_usage` 是 Phase 2 之后追加的表，
+> 权威 DDL 在 `QQMessageAssistantJava/src/main/resources/db/migrations/`，
+> 下面只对 `napcat_cursor`、`token_usage` 补一份，其余以迁移脚本为准。
+> 当前共 **21 张表**（`db/schema.sql` 为准）；本文的编号表只列出设计文档明确追认过的表。
+> 其中 #5 `collection_task` 与 #6 `intercept_rule` 已废弃：表与 DDL 保留、运行时不再读写，
+> 也不再对应任何查询场景（见下方「索引与查询场景」表）。
 
 ---
 
@@ -200,7 +209,13 @@ CREATE TABLE `collection_task` (
 
 > `check` / `mark` 幂等落在唯一键 `uk_chat_task` 上：命中即「已回复」，未命中即新批次。
 
-### 6. `intercept_rule` — 前置拦截规则
+### 6. `intercept_rule` — 前置拦截规则（已废弃，DDL 仅作历史留存）
+
+> **已废弃（2026-11）**：原「拦截规则」功能整体下线，运行时不再读写此表，
+> Java 实体 / Mapper / Service / CRUD 接口与插件侧规则缓存都已删除。
+> 表本身与存量数据保留，不做 DROP；新库仍会按 `db/schema.sql` 建出空表。
+> 替代方案是 `app_setting` 的四个 `noise_filter_*` 键 + `MessageNoiseFilter`
+> （见 [`api_contract.md`](./api_contract.md) §17.1–17.3、§17.7）。
 
 ```sql
 CREATE TABLE `intercept_rule` (
@@ -218,7 +233,7 @@ CREATE TABLE `intercept_rule` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='前置拦截规则';
 ```
 
-> LangBot 启动/定时拉取本表实现**热更新**；改规则不改代码、不重启。
+> ~~LangBot 启动/定时拉取本表实现**热更新**~~ —— 该链路已随拦截规则整体下线，本表不再有读取方。
 
 ### 7. `profile_fact` — 事实记忆
 
@@ -420,6 +435,77 @@ CREATE TABLE `ask_trace` (
 > 注意列名 `candidate_cnt` 是数据库列（下划线）；`/api/ask` 响应里的同义字段是
 > `scope.candidateCnt`（camelCase）。
 
+### 16. `napcat_cursor` — 掉线补拉游标
+
+```sql
+CREATE TABLE `napcat_cursor` (
+  `id`               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `chat_type`        VARCHAR(8)  NOT NULL COMMENT 'GROUP|PRIVATE',
+  `chat_id`          BIGINT UNSIGNED NOT NULL COMMENT '群号；私聊存对方 QQ',
+  `last_message_seq` BIGINT      NOT NULL DEFAULT 0 COMMENT 'NapCat message_seq，只前进不后退',
+  `updated_at`       DATETIME    NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_napcat_cursor` (`chat_type`, `chat_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='NapCat 补拉游标';
+```
+
+> **存 `message_seq` 而不是时间戳**：同一秒里可能有好几条消息，时间戳既不能排序
+> 也不能做「大于游标」的截断，补拉会把整页重复写一遍。
+>
+> **只前进不后退**：写入走 `INSERT ... ON DUPLICATE KEY UPDATE last_message_seq = GREATEST(...)`，
+> 重放一个更小的值不会把游标改小。改小意味着下一轮把已经补过的几百条再拉一遍。
+>
+> **放 Spring 而不是插件本地文件**：插件容器重建后游标不能丢，
+> 否则下次重连会把历史重新拉一遍（虽然有 `message_id` 去重，但白白打 QQ 接口）。
+>
+> **私聊的 `chat_id` 是对方 QQ**，与 `chat_setting` / `chat_alias` 的约定一致；
+> 三张表的 `(chat_id, kind/chat_type)` 指向同一个会话。
+
+### 17. `token_usage` — Token 用量账本（5.5）
+
+```sql
+CREATE TABLE IF NOT EXISTS `token_usage` (
+  `id`                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `source`            VARCHAR(12)  NOT NULL DEFAULT 'spring' COMMENT 'spring|plugin',
+  `task`              VARCHAR(32)  NOT NULL COMMENT 'digest|extract|ask|chat|file …',
+  `model`             VARCHAR(64)  NULL COMMENT 'Dify 不回传模型名，NULL = 未标注',
+  `prompt_tokens`     INT          NOT NULL DEFAULT 0,
+  `completion_tokens` INT          NOT NULL DEFAULT 0,
+  `total_tokens`      INT          NOT NULL DEFAULT 0,
+  `chat_id`           BIGINT       NULL COMMENT '属于哪个群；私聊/问答类为 NULL',
+  `created_at`        DATETIME     NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_usage_created` (`created_at`),
+  KEY `idx_usage_task_created` (`task`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='模型调用用量账本（只追加）';
+```
+
+> **只追加**：没有 `updated_at`、没有删除 / 清空接口，也不参与任何业务判定；
+> 记账失败只记 warn，表没迁移也不影响 Dify 调用。
+>
+> **拆账列为什么常为 0**：Dify Workflow 的 blocking 响应只给 `data.total_tokens`，
+> 不拆 prompt/completion；只有 chat-messages 的 `metadata.usage` 才有拆分。
+> Spring 侧（`source=spring`）因此以 `total_tokens` 为主，插件侧（`source=plugin`）才有拆账。
+>
+> **`model` 允许 NULL**：Dify 不回传模型名。Spring 可由 `DIFY_WORKFLOW_MODEL`、插件由
+> `dify_chat_model` 自行标注，留空前端显示「未标注」，**不猜一个名字写进去**。
+>
+> **`chat_id` 只用于分账，且只记群号**：`ChatDigestService` 把群号传给 `DifyWorkflowClient`
+> 的三参 `run(task, inputs, chatId)`，该参数不进 Dify 输入；插件也只在群消息里带 `chat_id`。
+> 私聊自动回复、问一句、画像抽取、夜间归纳一律写 **NULL**。
+>
+> **「花在哪个会话」饼图就按这一列分账**（`TokenUsageMapper#selectByChat` →
+> `GET /api/token-usage/summary` 的 `byChat`，契约见 [`api_contract.md`](./api_contract.md) §17.5）：
+>
+> - `chat_id IS NULL` 的所有调用合并成一扇「未归属会话」，各扇之和仍等于总量；
+>   账本没有 `kind` 列，**不同私聊对象暂时分不开**，要拆就得加列 + 改写入侧。
+> - 展示名用 `LEFT JOIN chat_alias / chat_setting`，且必须带 `kind='GROUP'` 条件，
+>   否则「群号恰好等于某人 QQ」时私聊别名会串进群聊桶；逗号串在 Java 侧取第一段。
+> - `GROUP BY u.chat_id` 已在 SQL 聚合，Top 6 / 其它 / 未归属的合并是 **Java 侧**逻辑
+>   （`TokenUsageService#chatBuckets`），不是新表、不是视图，也不新增索引。
+>
+> 迁移：`db/migrations/2026-11-05-token-usage.sql`。
+
 ---
 
 ## 四、关系与索引 ↔ 查询场景
@@ -442,7 +528,7 @@ memory_note.source_msg_ids ─ ─ message_log.id         （逗号分隔，应�
 | 备忘变更记录（前端 + 审计） | `GET /api/memos/{id}/history` | `memo_change_log.idx_memo` |
 | 未终结备忘摘要（喂 Dify） | `GET /api/memos/open` | `memo.idx_sender_status` |
 | 防重 check/mark | `POST /api/collection-tasks/*` | `collection_task.uk_chat_task` |
-| 拦截规则拉取 | LangBot 定时 | `intercept_rule.idx_enabled_priority` |
+| ~~拦截规则拉取~~（已下线） | 无读取方 | `intercept_rule.idx_enabled_priority`（索引保留，无查询） |
 | 会话注入事实记忆 | `GET /api/profile/{sender_id}` | `profile_fact.uk_sender_key`（前缀 `sender_id`） |
 | 画像读取 | 总结工作流 | `style_profile.uk_sender` |
 | 文件任务列表 | Vue | `file_task.idx_sender_status` |
@@ -453,6 +539,9 @@ memory_note.source_msg_ids ─ ─ message_log.id         （逗号分隔，应�
 | 全文召回（实体/查询串） | `POST /api/ask` 的 `msg-mention` / `msg-lexical` | `message_log.ft_content`（ngram FULLTEXT） |
 | 语义召回（全表向量） | `POST /api/ask` 的 `msg-semantic` | `message_embedding.idx_model` + 进程内 off-heap 索引 |
 | 问答轨迹排查 | 漏答复盘 | `ask_trace.idx_created` |
+| 用量汇总（时间窗） | `GET /api/token-usage/summary` | `token_usage.idx_usage_created` |
+| 用量按任务分账 | `GET /api/token-usage/summary` | `token_usage.idx_usage_task_created` |
+| 用量按会话分账（饼图） | `GET /api/token-usage/summary` 的 `byChat` | `token_usage.idx_usage_created`（按时间窗扫后 `GROUP BY chat_id`；LEFT JOIN 靠 `chat_alias` / `chat_setting` 的 `(chat_id, kind)` 唯一键） |
 
 ---
 

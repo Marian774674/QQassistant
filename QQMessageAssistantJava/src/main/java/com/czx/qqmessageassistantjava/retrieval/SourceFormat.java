@@ -21,14 +21,26 @@ public final class SourceFormat {
     }
 
     public static String messageSource(MessageLog row) {
+        return messageSource(row, null);
+    }
+
+    /**
+     * @param displayName 用户给这个会话起的名字；为空时退回已有群名 / 号码
+     */
+    public static String messageSource(MessageLog row, String displayName) {
         if (row == null) {
             return "";
         }
         List<String> parts = new ArrayList<>();
+        String alias = isBlank(displayName) ? null : displayName.trim();
         if (row.getChatId() != null) {
-            parts.add(isBlank(row.getChatName()) ? "群 " + row.getChatId() : row.getChatName().trim());
+            if (alias != null) {
+                parts.add(alias);
+            } else {
+                parts.add(isBlank(row.getChatName()) ? "群 " + row.getChatId() : row.getChatName().trim());
+            }
         } else if (row.getSenderId() != null) {
-            parts.add("QQ " + row.getSenderId());
+            parts.add(alias != null ? alias : "QQ " + row.getSenderId());
         }
         appendSender(parts, row);
         if (row.getCreatedAt() != null) {

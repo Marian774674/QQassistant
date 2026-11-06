@@ -12,7 +12,22 @@ def test_normalize_none_means_closed():
     assert ctx["enabled"] is False
     assert ctx["rateLimit"] == 20
     assert ctx["recentMessages"] == []
-    assert ctx == EMPTY_CONTEXT
+    # 总开关不跟着一起关：拿不到快照 ≠ 主人按了总开关。
+    # 真按了的话连备忘确认语都没了，而 Spring 抖动只是这一轮取不到。
+    assert ctx["globalEnabled"] is True
+    assert ctx == {**EMPTY_CONTEXT, "globalEnabled": True}
+
+
+def test_normalize_treats_a_missing_global_switch_as_on():
+    # 旧版 Spring 不返回这个字段：升级插件不能让人从此一个字都说不出
+    assert normalize({"enabled": True})["globalEnabled"] is True
+
+
+def test_normalize_reads_the_global_switch():
+    assert normalize({"globalEnabled": False})["globalEnabled"] is False
+    # 有的客户端会把布尔写成字符串
+    assert normalize({"globalEnabled": "false"})["globalEnabled"] is False
+    assert normalize({"globalEnabled": "true"})["globalEnabled"] is True
 
 
 def test_normalize_fills_missing_keys_without_touching_given_ones():

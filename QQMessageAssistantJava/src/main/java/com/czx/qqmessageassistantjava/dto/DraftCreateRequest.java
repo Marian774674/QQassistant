@@ -7,7 +7,7 @@ import java.util.Map;
 @Schema(description = "创建草稿请求")
 public class DraftCreateRequest {
 
-    @Schema(description = "草稿类型",allowableValues = {"REPLY", "FILE", "MEMO", "FACT"})
+    @Schema(description = "草稿类型",allowableValues = {"REPLY", "FILE", "MEMO", "FACT", "NAMING"})
     private String type;
 
     @Schema(description = "归属用户")

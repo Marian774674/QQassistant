@@ -3,7 +3,6 @@
 # 主流程顺序即优先级，勿调整（原因见各步注释）。
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 import traceback
@@ -11,12 +10,11 @@ import traceback
 from langbot_plugin.api.definition.components.common.event_listener import EventListener
 from langbot_plugin.api.entities import context, events
 
-from core import conversation_store, file_store, reply_gate, reply_rules
+from core import conversation_store, file_store, reply, reply_gate, reply_rules, usage
 from core.dispatch import parse_answer
 from core.event import build_inputs, event_id_of
 from core.reply import reply_text
-from core.rules import task_key
-from core.text import extract_text, has_file, human_delay_seconds, is_at_bot, peer_names
+from core.text import extract_text, has_file, is_at_bot, peer_names
 
 log = logging.getLogger(__name__)
 
@@ -55,8 +53,67 @@ def _file_task():
     return file_task
 
 
+async def _fetch_reply_context(deps, is_group, sender_id, chat_id) -> dict:
+    """取自动回复快照。私聊没有群号，拿对方 QQ 当会话键——和 chat_setting 的存法一致。"""
+    try:
+        return reply_rules.normalize(await deps.spring.reply_context(
+            chat_id if chat_id is not None else sender_id,
+            "GROUP" if is_group else "PRIVATE"))
+    except Exception as e:
+        # 取不到就当没开：宁可闭嘴，也不能拿不到限流快照还照说
+        file_store.debug(f"reply context failed, auto reply stays off: {e!r}")
+        return reply_rules.normalize(None)
+
+
+def _is_owner(reply_ctx: dict, sender_id: int) -> bool:
+    """这条消息是不是主人自己发的。拿不到主人号一律 False（fail closed）。"""
+    owner = str(reply_ctx.get("ownerSenderId") or "").strip()
+    return bool(owner) and owner == str(sender_id)
+
+
+async def _is_noise(deps, text: str) -> bool:
+    """前置噪音判定。规则在 Spring 侧，和整理 / 归纳共用一条链。
+
+    拿不到结果一律当普通消息放行：Spring 重启、接口还没部署、网络抖动
+    都只是「这一句没被过滤」，绝不能反过来把主人的话吞掉。
+    """
+    try:
+        result = await deps.spring.check_noise(text, "text")
+    except Exception as e:
+        file_store.debug(f"noise check unavailable, keep message: {e!r}")
+        return False
+    data = result or {}
+    if data.get("noise"):
+        file_store.debug(f"noise filtered: {text[:50]!r} reason={data.get('reason') or '?'}")
+        return True
+    return False
+
+
 async def _respond(deps, ctx, is_group, sender_id, chat_id, text,
-                   event_type: str, file_ctx: dict | None = None):
+                   event_type: str, file_ctx: dict | None = None,
+                   sender_name: str = "", chat_name: str = "",
+                   reply_ctx: dict | None = None):
+    """统一出口的第一层：先判总开关，关掉就整轮静默，再交给真正的处理流程。
+
+    静默压在 `reply_text` 上（`core.reply.silence`）而不是逐个分支判断：
+    文件过期提示、格式不支持、FILE_FILL 的填写结果都会直接回话，散在三个模块里，
+    漏一个就等于没关。动作照跑——备忘照建、文件照写，只是不往外吐一个字。
+    """
+    if reply_ctx is None:
+        reply_ctx = await _fetch_reply_context(deps, is_group, sender_id, chat_id)
+
+    args = dict(event_type=event_type, file_ctx=file_ctx,
+                sender_name=sender_name, chat_name=chat_name, reply_ctx=reply_ctx)
+    if reply_ctx.get("globalEnabled", True):
+        return await _respond_inner(deps, ctx, is_group, sender_id, chat_id, text, **args)
+    with reply.silence():
+        return await _respond_inner(deps, ctx, is_group, sender_id, chat_id, text, **args)
+
+
+async def _respond_inner(deps, ctx, is_group, sender_id, chat_id, text,
+                         event_type: str, file_ctx: dict | None = None,
+                         sender_name: str = "", chat_name: str = "",
+                         reply_ctx: dict | None = None):
     """统一出口：画像 → Chatflow → 机械分发。任何异常只记日志，不回复。"""
     # 本函数下面的降级分支要写这个模块级开关；global 必须在读它之前声明
     global _legacy_chatflow, _legacy_since
@@ -91,15 +148,9 @@ async def _respond(deps, ctx, is_group, sender_id, chat_id, text,
         except Exception as e:
             file_store.debug(f"open memos failed, continue with []: {e!r}")
         # 自动回复的开关 / 限流 / 人设 / 最近消息，一次取齐。
-        # 私聊没有群号，拿对方 QQ 当会话键——和 chat_setting 的存法保持一致。
-        reply_ctx = reply_rules.normalize(None)
-        try:
-            reply_ctx = reply_rules.normalize(await deps.spring.reply_context(
-                chat_id if chat_id is not None else sender_id,
-                "GROUP" if is_group else "PRIVATE"))
-        except Exception as e:
-            # 取不到就当没开：宁可闭嘴，也不能拿不到限流快照还照说
-            file_store.debug(f"reply context failed, auto reply stays off: {e!r}")
+        # 文件分支在下载之前已经取过一次，这里直接复用，不重复打接口。
+        if reply_ctx is None:
+            reply_ctx = await _fetch_reply_context(deps, is_group, sender_id, chat_id)
 
         pending = await file_store.load_pending(deps, key) or {}
         # 幂等键在此生成一次：下面「会话丢失重试」必须复用同一个值，
@@ -153,6 +204,13 @@ async def _respond(deps, ctx, is_group, sender_id, chat_id, text,
             else:
                 raise
 
+        # 用量记账：只记最终那次成功调用，放在三种重试路径的汇合处，
+        # 一条消息最多一行。纯旁路：Spring 没开/表没迁移都只是少一笔统计。
+        if getattr(settings, "token_usage_enabled", True):
+            usage.enqueue(
+                deps.spring, result, task="chat", chat_id=chat_id,
+                model=getattr(settings, "dify_chat_model", "") or "")
+
         new_conversation_id = result.get("conversation_id")
         if new_conversation_id and new_conversation_id != conversation_id:
             await conversation_store.bind(
@@ -187,7 +245,10 @@ async def _respond(deps, ctx, is_group, sender_id, chat_id, text,
                 await deps.spring.create_draft(
                     "REPLY", sender_id, chat_id, None,
                     {"content": gate.draft["content"],
-                     "sourceContent": (query or "").strip()[:200]})
+                     "sourceContent": (query or "").strip()[:200],
+                     # 草稿卡要能显示「谁在哪个群说的」；私聊 chat_name 为空串
+                     "sourceSenderName": sender_name or "",
+                     "sourceChatName": chat_name or ""})
                 file_store.debug(f"reply draft created for chat={chat_id}")
             except Exception as e:
                 # 草稿没建成 = 这条回复彻底没了。宁可让用户等一句「没办成」，也别假装发过
@@ -255,10 +316,16 @@ class DefaultEventListener(EventListener):
         # 1. IN 日志：同步入队，永不阻塞、永不抛错（排查依据，最先落）
         #    昵称/群名只给人看：整理结果要写「谁在哪个群说了什么」，光有 id 读不懂
         sender_name, chat_name = peer_names(event)
+        # 去重键必须**稳定**：掉线补拉会把同一批消息从 NapCat 历史里再取一遍，
+        # 两边只有 message_id 是同一个值。以前这里是随机 uuid，
+        # 实时与补拉写出来的行对不上，同一条消息会在库里出现两次。
+        platform_id = event_id_of(event)
         deps.log_queue.enqueue({
             "senderId": sender_id, "chatId": chat_id, "direction": "IN",
             "senderName": sender_name, "chatName": chat_name,
             "msgType": "file" if has_file(chain) else "text", "content": text,
+            "messageId": platform_id,
+            "dedupeKey": "msg:" + platform_id,
         })
         # 插件 worker 的 stdout 不会进 LangBot 日志文件，落盘面包屑才是唯一稳定痕迹
         file_store.debug(f"IN sender={sender_id} chat={chat_id} group={is_group} text={text[:50]!r}")
@@ -269,10 +336,23 @@ class DefaultEventListener(EventListener):
         if has_file(chain):
             log.warning("file message from %s, chain=%s", sender_id,
                         [type(c).__name__ for c in chain])
+            # 文件任务的应答以前绕过了 reply_gate：ingest() 内部直接 reply_text，
+            # 所以总开关关掉后照样会回「这个格式我只能读不能改」。
+            # 现在在下载之前就判一次：总开关关掉 = 谁的都不看、不存、不回；
+            # 只是会话开关关掉时，主人自己发的文件仍处理（用工具 ≠ 替主人说话）。
+            reply_ctx = await _fetch_reply_context(deps, is_group, sender_id, chat_id)
+            if not (reply_ctx["globalEnabled"]
+                    and (reply_ctx["enabled"] or _is_owner(reply_ctx, sender_id))):
+                file_store.debug(
+                    f"file ignored: reply off (global={reply_ctx['globalEnabled']}) "
+                    f"sender={sender_id}")
+                return
             task = await _file_task().ingest(ctx, event, is_group, deps)
             if task:
                 await _respond(deps, ctx, is_group, sender_id, chat_id,
-                               text, event_type="file", file_ctx=task)
+                               text, event_type="file", file_ctx=task,
+                               sender_name=sender_name, chat_name=chat_name,
+                               reply_ctx=reply_ctx)
             return
 
         if not text:
@@ -287,14 +367,11 @@ class DefaultEventListener(EventListener):
         else:
             triggered = True
 
-        # 4. 前置拦截。注意在 triggered 退出【之前】执行——
-        #    群里发收集通知通常不会 @机器人，不 @ 也要能拦
-        rule = None
-        if settings.intercept_scope == "all" \
-                or (settings.intercept_scope == "group" and is_group):
-            rule = deps.rule_cache.match(text)
-        if rule:
-            await self._intercept(ctx, deps, rule, sender_id, chat_id)
+        # 4. 前置噪音过滤：顶替原来「拦截规则」在这个位置。
+        #    IN 日志已在第 1 步入队，原文照常保留；命中的消息只是不再进模型、不再自动回复。
+        #    判定放 Spring 侧，和整理 / 夜间归纳共用同一条规则链，避免插件缓存旧规则、
+        #    或 Java/Python 正则方言不一致造成「试跑说保留、真跑却丢」。
+        if await _is_noise(deps, text):
             return
 
         if not triggered:
@@ -308,31 +385,6 @@ class DefaultEventListener(EventListener):
         if file_ctx and file_ctx.get("chatId") != chat_id:
             file_ctx = None
         await _respond(deps, ctx, is_group, sender_id, chat_id, text,
-                       event_type="text", file_ctx=file_ctx)
+                       event_type="text", file_ctx=file_ctx,
+                       sender_name=sender_name, chat_name=chat_name)
 
-    async def _intercept(self, ctx, deps, rule, sender_id, chat_id):
-        """命中拦截规则：防重检查 → 拟人延迟回复 → mark → OUT 日志。
-
-        发送动作绝不重试；check/mark 是幂等接口，失败只记日志。
-        """
-        template = (rule.get("replyTemplate") or "").strip()
-        if not template:
-            log.warning("rule %s has empty replyTemplate, skip", rule.get("name"))
-            return
-        try:
-            # 私聊场景 chat_id 为 None，防重键退化为 sender 维度
-            scope_id = chat_id if chat_id is not None else sender_id
-            key = task_key(scope_id, rule["name"])
-            if await deps.spring.check_replied(scope_id, rule["name"], key):
-                return
-            await asyncio.sleep(human_delay_seconds(template, deps.settings))
-            await reply_text(ctx, template)
-            await deps.spring.mark_replied(scope_id, rule["name"], key)
-            deps.log_queue.enqueue({
-                "senderId": sender_id, "chatId": chat_id, "direction": "OUT",
-                "msgType": "text", "content": template,
-                # 拦截回复是「干活」，不该占用自动回复的每小时额度
-                "replyKind": "TASK",
-            })
-        except Exception as e:
-            log.warning("intercept reply failed (rule=%s): %s", rule.get("name"), e)

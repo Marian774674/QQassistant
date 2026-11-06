@@ -5,6 +5,7 @@ import {
   Inbox,
   Layers,
   Sparkles,
+  Tag,
   Users,
   Wallet,
 } from 'lucide-vue-next'
@@ -60,6 +61,7 @@ const DRAFT_TYPE: Record<DraftType, string> = {
   FILE: '文件',
   MEMO: '备忘',
   FACT: '事实',
+  NAMING: '命名',
 }
 
 export function draftTypeLabel(type: string): string {
@@ -71,6 +73,7 @@ const DRAFT_ICON: Record<DraftType, Component> = {
   FILE: Layers,
   MEMO: BookOpen,
   FACT: Sparkles,
+  NAMING: Tag,
 }
 
 export function draftTypeIcon(type: string): Component {

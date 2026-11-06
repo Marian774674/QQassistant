@@ -17,6 +17,24 @@ public class ReplyContextVO {
 
     /** 该会话是否允许替主人说日常话；没建开关行 = false */
     private Boolean enabled;
+    /**
+     * 总开关（{@code app_setting.reply_enabled}）本身，不含会话开关与令牌桶。
+     *
+     * <p>为什么要和 {@code enabled} 分开给：{@code enabled} 是「总开关 AND 会话开关 AND 令牌桶」，
+     * 插件分不出是哪一层关的。而这两层的语义完全不同——
+     * <ul>
+     *   <li>总开关关掉 = 彻底闭嘴，连备忘确认语、拦截回复、文件任务应答一起停；</li>
+     *   <li>只是某个会话开关关掉 = 那个群不替主人闲聊，但备忘确认语（TASK）仍要发。</li>
+     * </ul>
+     */
+    private Boolean globalEnabled;
+    /**
+     * 主人自己的 QQ 号；空串 = 还没绑定。
+     *
+     * <p>插件用它区分两件完全不同的事：「别人发来的东西」和「主人自己在用工具」。
+     * 总开关关掉后前者必须闭嘴，后者（主人发文件让它处理）仍要回——那不是替主人说话。
+     */
+    private String ownerSenderId;
     /** 主人写的额外要求；空串 = 没写 */
     private String replyPrompt;
     /** 每小时最多几条 CHAT 回复 */

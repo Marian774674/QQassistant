@@ -6,7 +6,9 @@ import com.czx.qqmessageassistantjava.service.MemoService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import com.czx.qqmessageassistantjava.support.StubAuthConfig;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@Import(StubAuthConfig.class)
 @ActiveProfiles("test")
 @Transactional
 class MemoControllerTest {
@@ -32,11 +35,14 @@ class MemoControllerTest {
 
     @Test
     void previewDescribesThePlanInChinese() throws Exception {
-        LocalDate tomorrow = LocalDate.now().plusDays(1);
+        // 排期会丢掉「已经过去的提醒点」：学业的 -1d@20:00 是截止前一天的 20:00。
+        // 若只取明天，晚上 20:00 之后跑这条用例，那个点就成了过去时，断言会从 3 变 2。
+        // 取足够远的日期，让用例与运行时刻无关。
+        LocalDate dueDate = LocalDate.now().plusDays(3);
 
         mockMvc.perform(get("/api/memos/reminder-preview")
                         .param("category", "学业")
-                        .param("dueTime", tomorrow + "T15:00:00")
+                        .param("dueTime", dueDate + "T15:00:00")
                         .param("importance", "3"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(3))

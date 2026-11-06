@@ -43,6 +43,12 @@ class ChatDigestQueryTest {
     @Mock
     ChatSettingService chatSettingService;
 
+    @Mock
+    ChatAliasService chatAliasService;
+
+    @Mock
+    MessageNoiseFilter noiseFilter;
+
     private ChatDigestServiceImpl service;
 
     @BeforeEach
@@ -50,6 +56,7 @@ class ChatDigestQueryTest {
         // 这组测试只读，事务模板用不上；给个不发事务的空实现
         service = new ChatDigestServiceImpl(
                 messageLogMapper, digestItemMapper, dify, appSettingService, chatSettingService,
+                chatAliasService,
                 new org.springframework.transaction.support.TransactionTemplate(
                         new org.springframework.transaction.support.AbstractPlatformTransactionManager() {
                             @Override
@@ -71,7 +78,19 @@ class ChatDigestQueryTest {
                             protected void doRollback(
                                     org.springframework.transaction.support.DefaultTransactionStatus status) {
                             }
-                        }));
+                        }),
+                noiseFilter);
+    }
+
+    @Test
+    void listSince_replacesChatNameWithAlias() {
+        when(chatSettingService.listEnabledGroupIds()).thenReturn(List.of(9L));
+        when(chatAliasService.displayNames()).thenReturn(Map.of("GROUP:9", "班群"));
+        givenRows(row(1L, 9L, "三班群", "班主任提醒明天开班会", 4, SINCE.plusMinutes(10)));
+
+        List<DigestItemVO> items = service.listSince(SINCE);
+
+        assertThat(items).extracting(DigestItemVO::getChatName).containsExactly("班群");
     }
 
     @Test
@@ -101,6 +120,34 @@ class ChatDigestQueryTest {
     }
 
     @Test
+    void listSince_dropsTheRowWhoseEvidenceIsCoveredByAnother() {
+        when(chatSettingService.listEnabledGroupIds()).thenReturn(List.of(9L));
+        ChatDigestItem narrow = row(1L, 9L, "三班群", "整点任务", 2, SINCE.plusMinutes(10));
+        narrow.setSourceMsgIds("198");
+        ChatDigestItem wide = row(2L, 9L, "三班群", "补跑，覆盖 198 和 199", 3, SINCE.plusMinutes(20));
+        wide.setSourceMsgIds("198,199");
+        givenRows(narrow, wide);
+
+        List<DigestItemVO> items = service.listSince(SINCE);
+
+        assertThat(items).extracting(DigestItemVO::getId).containsExactly(2L);
+    }
+
+    @Test
+    void listSince_keepsTheNewerRowWhenEvidenceIsIdentical() {
+        when(chatSettingService.listEnabledGroupIds()).thenReturn(List.of(9L));
+        ChatDigestItem older = row(1L, 9L, "三班群", "整点任务", 3, SINCE.plusMinutes(10));
+        ChatDigestItem newer = row(2L, 9L, "三班群", "补跑", 2, SINCE.plusMinutes(20));
+        older.setSourceMsgIds("198");
+        newer.setSourceMsgIds("198");
+        givenRows(older, newer);
+
+        List<DigestItemVO> items = service.listSince(SINCE);
+
+        assertThat(items).extracting(DigestItemVO::getId).containsExactly(2L);
+    }
+
+    @Test
     void listSince_returnsEmptyWithoutQueryingWhenNothingIsEnabled() {
         when(chatSettingService.listEnabledGroupIds()).thenReturn(List.of());
 
@@ -121,7 +168,8 @@ class ChatDigestQueryTest {
         item.setSummary(summary);
         item.setImportance(importance);
         item.setMentionsMe(false);
-        item.setSourceMsgIds("1,2");
+        // 每条各用自己 id 当证据：默认互不覆盖，只有显式构造的用例才制造重叠
+        item.setSourceMsgIds(String.valueOf(id));
         item.setPeriodEnd(createdAt);
         item.setCreatedAt(createdAt);
         return item;

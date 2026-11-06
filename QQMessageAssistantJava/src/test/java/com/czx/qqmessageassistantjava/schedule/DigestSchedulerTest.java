@@ -3,6 +3,7 @@ package com.czx.qqmessageassistantjava.schedule;
 import com.czx.qqmessageassistantjava.entity.ChatSetting;
 import com.czx.qqmessageassistantjava.service.AppSettingService;
 import com.czx.qqmessageassistantjava.service.ChatDigestService;
+import com.czx.qqmessageassistantjava.service.ChatDigestService.DigestOutcome;
 import com.czx.qqmessageassistantjava.service.ChatSettingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,7 +61,8 @@ class DigestSchedulerTest {
                 group(9L, "三班群", true),
                 group(10L, "游戏群", false),
                 privateChat(88L, "小明", true)));
-        when(chatDigestService.digestChat(eq(9L), eq("三班群"), eq(START), eq(END))).thenReturn(2);
+        when(chatDigestService.digestChat(eq(9L), eq("三班群"), eq(START), eq(END)))
+                .thenReturn(new DigestOutcome(2, false));
 
         assertThat(scheduler.runOnce(START, END)).isEqualTo(2);
 
@@ -77,7 +79,8 @@ class DigestSchedulerTest {
                 group(10L, "游戏群", true)));
         when(chatDigestService.digestChat(eq(9L), anyString(), any(), any()))
                 .thenThrow(new RuntimeException("Dify 挂了"));
-        when(chatDigestService.digestChat(eq(10L), anyString(), any(), any())).thenReturn(1);
+        when(chatDigestService.digestChat(eq(10L), anyString(), any(), any()))
+                .thenReturn(new DigestOutcome(1, false));
 
         assertThat(scheduler.runOnce(START, END)).isEqualTo(1);
         verify(chatDigestService).digestChat(10L, "游戏群", START, END);

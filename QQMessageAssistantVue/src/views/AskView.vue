@@ -11,6 +11,7 @@ import {
   type Evidence,
 } from '@/api/ask'
 import { useToast } from '@/composables/useToast'
+import { fullNameHint, shortSource } from '@/utils/name'
 
 interface Bubble {
   id: number
@@ -49,6 +50,22 @@ const EVIDENCE_LABELS: Record<Evidence['type'], string> = {
   note: '事实',
   memo: '备忘',
   file: '文件',
+}
+
+/**
+ * 证据卡的 label / source 是后端拼好的一句话：
+ *   label  「群 双创部学科竞赛交流群，交流群」
+ *   source 「双创部学科竞赛交流群，交流群 · 1828556575 · 11-01 14:02」
+ * 逗号串里的别名只展示第一个，但 QQ 号和时间这些出处信息不能跟着被切掉，
+ * 所以按「 · 」逐段收口而不是对整串取第一段。
+ */
+function evidenceName(raw: string | null | undefined) {
+  return shortSource(raw)
+}
+
+/** 悬停/长按时给完整出处，截断只是版面上的取舍 */
+function evidenceTitle(raw: string | null | undefined) {
+  return fullNameHint(shortSource(raw), raw)
 }
 
 /** 通道展示名与固定顺序；值为 null 的通道不展示，0 照常展示 */
@@ -376,9 +393,15 @@ async function confirmUnknown(bubble: Bubble) {
             >
               <span class="ev-head">
                 <span class="ev-type">{{ EVIDENCE_LABELS[item.type] ?? item.type }}</span>
-                <span class="ev-label">{{ item.label }}</span>
+                <span class="ev-label" :title="evidenceTitle(item.label)">{{
+                  evidenceName(item.label)
+                }}</span>
               </span>
-              <span v-if="item.source" class="ev-source">{{ item.source }}</span>
+              <span
+                v-if="evidenceName(item.source)"
+                class="ev-source"
+                :title="evidenceTitle(item.source)"
+              >{{ evidenceName(item.source) }}</span>
               <span class="ev-body">{{ item.content }}</span>
               <span
                 v-if="expandableQuote(item)"
@@ -748,18 +771,24 @@ async function confirmUnknown(bubble: Bubble) {
 }
 
 .ev-type {
+  flex: 0 0 auto;
   color: var(--ink-2);
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.06em;
 }
 
+/* 名字是 flex 子项：min-width:0 才能让省略号生效，不然长群名会撑破卡片 */
 .ev-label {
+  flex: 1 1 auto;
+  min-width: 0;
   color: var(--ink-3);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* 长按拖动是「滚动」，不该同时选中文字 */
+  user-select: none;
 }
 
 /* 出处是二级信息：压在摘要下面一行，太长就省略 */
@@ -772,6 +801,22 @@ async function confirmUnknown(bubble: Bubble) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  user-select: none;
+}
+
+/* 想看全名时：省略号让位给横向滚动，滚动条不占位也不显示 */
+.ev-label:hover,
+.ev-label:active,
+.ev-source:hover,
+.ev-source:active {
+  overflow-x: auto;
+  text-overflow: clip;
+  scrollbar-width: none;
+}
+
+.ev-label::-webkit-scrollbar,
+.ev-source::-webkit-scrollbar {
+  display: none;
 }
 
 .ev-body {

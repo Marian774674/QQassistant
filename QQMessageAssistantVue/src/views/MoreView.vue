@@ -1,16 +1,22 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import {
+  BarChart3,
   ChevronRight,
   FileSpreadsheet,
+  KeyRound,
+  LogOut,
   MessagesSquare,
   ScrollText,
   Settings,
   ShieldCheck,
   Sparkles,
 } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import { logout } from '@/api/auth'
 import { listMemos } from '@/api/memos'
 import type { Memo } from '@/api/types'
+import { clearToken } from '@/auth/session'
 import PageHead from '@/components/PageHead.vue'
 import { useDraftStore } from '@/composables/useDraftStore'
 import { useOwner } from '@/composables/useOwner'
@@ -19,6 +25,23 @@ import { formatTime, parseLocal } from '@/utils/datetime'
 
 const owner = useOwner()
 const draftStore = useDraftStore()
+const router = useRouter()
+
+const loggingOut = ref(false)
+
+async function onLogout() {
+  if (loggingOut.value) return
+  loggingOut.value = true
+  try {
+    await logout()
+  } catch {
+    // 会话已经失效也照样清本地，不能让用户卡在退不出的状态
+  } finally {
+    clearToken()
+    loggingOut.value = false
+    await router.replace('/login')
+  }
+}
 
 const OPEN_STATUSES = new Set(['ACTIVE', 'REMINDED', 'AWAITING_REPLY', 'OVERDUE'])
 
@@ -28,7 +51,7 @@ const syncedAt = ref<Date | null>(null)
 
 /**
  * 入口按「这是什么」分组，不再是一条条平铺：
- * 记忆是自己的人设，群与规则是机器人在哪儿做事，运行记录是出问题时看的地方。
+ * 记忆是自己的人设，群与过滤是机器人在哪儿做事，运行记录是出问题时看的地方。
  */
 const groups = [
   {
@@ -45,7 +68,7 @@ const groups = [
   },
   {
     key: 'chats',
-    label: '群与规则',
+    label: '群与过滤',
     items: [
       {
         to: '/chat-settings',
@@ -55,8 +78,8 @@ const groups = [
       },
       {
         to: '/rules',
-        label: '拦截规则',
-        hint: '关键词与正则，热更新',
+        label: '噪音过滤',
+        hint: '没信息量的话不进模型',
         icon: ShieldCheck,
       },
     ],
@@ -77,6 +100,12 @@ const groups = [
         hint: '收发流水，排查用',
         icon: ScrollText,
       },
+      {
+        to: '/usage',
+        label: 'Token 用量',
+        hint: '模型调用次数与消耗，只读',
+        icon: BarChart3,
+      },
     ],
   },
   {
@@ -88,6 +117,12 @@ const groups = [
         label: '设置',
         hint: '身份、自动回复与后端配置',
         icon: Settings,
+      },
+      {
+        to: '/password',
+        label: '修改密码',
+        hint: '兜底登录口令，QQ 验证码登录不受影响',
+        icon: KeyRound,
       },
     ],
   },
@@ -137,7 +172,7 @@ const pendingCount = computed(() => draftStore.pendingCount.value)
 
 const headSub = computed(() =>
   owner.senderId
-    ? '记忆、群与规则、运行记录都收在这里，日常用不到。'
+    ? '记忆、群与过滤、运行记录都收在这里，日常用不到。'
     : '先去设置里填上你的 QQ 号，备忘和记忆才会归到你名下。',
 )
 </script>
@@ -187,6 +222,11 @@ const headSub = computed(() =>
         </li>
       </ul>
     </section>
+
+    <button class="logout" type="button" :disabled="loggingOut" @click="onLogout">
+      <LogOut :size="14" :stroke-width="1.8" aria-hidden="true" />
+      {{ loggingOut ? '退出中…' : '退出登录' }}
+    </button>
 
     <p class="version">值守台 · 本地单实例</p>
   </div>
@@ -329,6 +369,31 @@ const headSub = computed(() =>
   color: var(--ink-3);
   opacity: 0.7;
   flex: none;
+}
+
+.logout {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  margin: 18px auto 0;
+  padding: 7px 12px;
+  color: var(--ink-3);
+  font-size: 11px;
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+}
+
+.logout:active:not(:disabled) {
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.logout:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 /* 版权行当「刊尾」处理：更小、更宽字距、居中，像书末的版本记录 */

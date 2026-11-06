@@ -52,3 +52,10 @@ def test_empty_config_does_not_raise():
     s = load_settings(p)
     assert s.dify_file_workflow_key == ""
     assert s.napcat_api_url == "http://127.0.0.1:3000"
+
+
+def test_backfill_sweep_default_and_override():
+    """兜底补拉间隔要能配，但默认不能激进到每轮探活都扫历史。"""
+    assert load_settings(FakePlugin()).napcat_backfill_sweep_s == 300
+    p = FakePlugin(legacy={"napcat_backfill_sweep_s": "60"})
+    assert load_settings(p).napcat_backfill_sweep_s == 60

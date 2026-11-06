@@ -1,18 +1,49 @@
-"""出口门控：Dify 说「说什么」，插件按会话开关与限流决定「说不说」。
+"""出口门控：Dify 说「说什么」，插件按总开关、会话开关与限流决定「说不说」。
 
-三条不能错的语义：
-1. `TASK` 永远发——开关与限流只约束替主人闲聊，不能连备忘确认语一起吞掉。
-2. 缺 `send_kind` 按 `TASK`——旧 Chatflow 连上来时行为必须和今天一样。
-3. `needs_confirm` 只对 `CHAT` 生效——不然一条备忘确认语会被塞进草稿箱。
+四条不能错的语义：
+1. 总开关（globalEnabled）关掉 = 彻底闭嘴，连 `TASK` 一起停；只清 content，动作照跑。
+2. 只是会话开关 / 限流关掉时，`TASK` 永远发——那关的是「替主人闲聊」，不是「让它干活」。
+3. 缺 `send_kind` 按 `TASK`——旧 Chatflow 连上来时行为必须和今天一样。
+4. `needs_confirm` 只对 `CHAT` 生效——不然一条备忘确认语会被塞进草稿箱。
 """
 from core.reply_gate import decide
 
 ON = {"enabled": True, "rateLimit": 20, "outLastHour": 0}
 OFF = {"enabled": False, "rateLimit": 20, "outLastHour": 0}
 FULL = {"enabled": True, "rateLimit": 20, "outLastHour": 20}
+# 总开关关掉：enabled 也是 False（它是三层相乘），但区别在于 TASK 也不许发
+MUTE = {"enabled": False, "globalEnabled": False, "rateLimit": 20, "outLastHour": 0}
 
 
-def test_task_is_sent_even_when_the_switch_is_off():
+def test_total_mute_silences_task_too():
+    """总开关是「彻底一个字都不说」，备忘确认语也不例外。"""
+    result = decide({"action": "SEND", "send_kind": "TASK", "content": "记下了：交实验报告"}, MUTE)
+
+    assert result.data["content"] == ""
+    assert result.data["action"] == "SEND"   # 动作保留，备忘照建
+    assert result.suppressed == "mute"
+    assert result.send_kind == "TASK"
+
+
+def test_total_mute_silences_chat_as_mute_not_off():
+    """两种闭嘴要能分开：日志里看不出是哪一层关的，排查会很痛苦。"""
+    result = decide({"action": "SEND", "send_kind": "CHAT", "content": "在呢"}, MUTE)
+
+    assert result.data["content"] == ""
+    assert result.suppressed == "mute"
+
+
+def test_total_mute_wins_even_if_enabled_is_true():
+    """防御性：正常不会出现，但总开关的优先级必须最高。"""
+    result = decide({"action": "SEND", "send_kind": "TASK", "content": "改好了"},
+                    {"enabled": True, "globalEnabled": False, "rateLimit": 20, "outLastHour": 0})
+
+    assert result.data["content"] == ""
+    assert result.suppressed == "mute"
+
+
+def test_task_is_sent_when_only_the_session_switch_is_off():
+    """会话开关关的是「替这个群说日常话」，备忘确认语仍然要发。"""
     result = decide({"action": "SEND", "send_kind": "TASK", "content": "改好了：班会"}, OFF)
 
     assert result.data["content"] == "改好了：班会"

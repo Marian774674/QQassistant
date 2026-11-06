@@ -3,14 +3,21 @@ package com.czx.qqmessageassistantjava.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.czx.qqmessageassistantjava.common.BusinessException;
+import com.czx.qqmessageassistantjava.constant.AppSettingKeys;
+import com.czx.qqmessageassistantjava.constant.TuningDefaults;
 import com.czx.qqmessageassistantjava.entity.ChatSetting;
 import com.czx.qqmessageassistantjava.entity.MessageLog;
 import com.czx.qqmessageassistantjava.mapper.ChatSettingMapper;
 import com.czx.qqmessageassistantjava.mapper.MessageLogMapper;
+import com.czx.qqmessageassistantjava.ratelimit.RedisTokenBucket;
 import com.czx.qqmessageassistantjava.service.AppSettingService;
+import com.czx.qqmessageassistantjava.service.ChatAliasService;
 import com.czx.qqmessageassistantjava.service.ChatSettingService;
 import com.czx.qqmessageassistantjava.vo.ReplyContextVO;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,12 +25,15 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
 public class ChatSettingServiceImpl extends ServiceImpl<ChatSettingMapper, ChatSetting>
         implements ChatSettingService {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatSettingServiceImpl.class);
 
     private static final Set<String> KINDS = Set.of("GROUP", "PRIVATE");
 
@@ -38,12 +48,29 @@ public class ChatSettingServiceImpl extends ServiceImpl<ChatSettingMapper, ChatS
     @Autowired
     private AppSettingService appSettingService;
 
-    static final String REPLY_PROMPT_KEY = "reply_prompt";
-    static final String REPLY_RATE_LIMIT_KEY = "reply_rate_limit";
-    static final String REPLY_ENABLED_KEY = "reply_enabled";
-    static final int DEFAULT_RATE_LIMIT = 20;
-    static final int RECENT_CONTENT_LIMIT = 200;
-    private static final int RECENT_LIMIT_MAX = 50;
+    @Autowired
+    private ChatAliasService chatAliasService;
+
+    @Autowired
+    private RedisTokenBucket tokenBucket;
+
+    @Value("${app.rate-limit.chat-capacity:20}")
+    private int chatCapacity;
+
+    @Value("${app.rate-limit.chat-refill-per-second:0.5}")
+    private double chatRefillPerSecond;
+
+    @Value("${app.rate-limit.chat-key-ttl-seconds:300}")
+    private int chatKeyTtlSeconds;
+
+    static final String REPLY_PROMPT_KEY = AppSettingKeys.REPLY_PROMPT;
+    static final String REPLY_RATE_LIMIT_KEY = AppSettingKeys.REPLY_RATE_LIMIT;
+    static final String REPLY_ENABLED_KEY = AppSettingKeys.REPLY_ENABLED;
+    /** 与备忘、整理、登录共用同一个键：设置页改一次，全局生效 */
+    static final String OWNER_SENDER_ID_KEY = AppSettingKeys.OWNER_SENDER_ID;
+    static final int DEFAULT_RATE_LIMIT = TuningDefaults.DEFAULT_REPLY_RATE_LIMIT;
+    static final int RECENT_CONTENT_LIMIT = TuningDefaults.RECENT_CONTENT_LIMIT;
+    private static final int RECENT_LIMIT_MAX = TuningDefaults.RECENT_LIMIT_MAX;
 
     @Override
     public List<ChatSetting> listAll() {
@@ -51,20 +78,32 @@ public class ChatSettingServiceImpl extends ServiceImpl<ChatSettingMapper, ChatS
                 .orderByAsc(ChatSetting::getKind)
                 .orderByAsc(ChatSetting::getChatName));
         // 日志里见过、但还没建开关行的群也列出来（开关默认关），否则用户永远没法给新群开整理
-        Set<Long> known = rows.stream().map(ChatSetting::getChatId).collect(Collectors.toSet());
+        // 去重键带 kind：群号可能恰好等于某个人的 QQ，只按 chatId 去重会让另一类会话消失
+        Set<String> known = rows.stream()
+                .map(row -> ChatAliasService.key(row.getChatId(), row.getKind()))
+                .collect(Collectors.toSet());
         List<ChatSetting> merged = new ArrayList<>(rows);
         for (MessageLog peer : messageLogMapper.selectGroupPeers()) {
-            if (peer.getChatId() == null || !known.add(peer.getChatId())) {
+            if (peer.getChatId() == null
+                    || !known.add(ChatAliasService.key(peer.getChatId(), "GROUP"))) {
                 continue;
             }
             merged.add(discovered(peer.getChatId(), "GROUP", "群", peer.getChatName()));
         }
         // 私聊同理：没有这一行，自动回复在私聊里永远打不开（用户也没法手建）
         for (MessageLog peer : messageLogMapper.selectPrivatePeers()) {
-            if (peer.getSenderId() == null || !known.add(peer.getSenderId())) {
+            if (peer.getSenderId() == null
+                    || !known.add(ChatAliasService.key(peer.getSenderId(), "PRIVATE"))) {
                 continue;
             }
             merged.add(discovered(peer.getSenderId(), "PRIVATE", "QQ", peer.getChatName()));
+        }
+        // 名字只做展示，不落 chat_setting；一次取全量，避免每行一次查询
+        Map<String, String> aliasNames = chatAliasService.displayNames();
+        if (aliasNames != null) {
+            for (ChatSetting row : merged) {
+                row.setAliases(aliasNames.get(ChatAliasService.key(row.getChatId(), row.getKind())));
+            }
         }
         return merged;
     }
@@ -132,10 +171,22 @@ public class ChatSettingServiceImpl extends ServiceImpl<ChatSettingMapper, ChatS
                 .eq(ChatSetting::getKind, effectiveKind));
 
         ReplyContextVO vo = new ReplyContextVO();
+        // 总开关单独给一份：插件要靠它区分「彻底闭嘴」和「只是这个群不说话」。
+        // enabled 是三层相乘，分不出是哪一层关的，而两层的语义并不一样。
+        boolean globalEnabled = globalReplyEnabled();
+        vo.setGlobalEnabled(globalEnabled);
         // 两层开关相乘：总开关断掉时，任何会话都闭嘴；总开关开着也还得该会话自己打开。
         // 没建开关行 = 关：默认替主人说话是最不能默默发生的事。
-        vo.setEnabled(globalReplyEnabled()
-                && setting != null && Boolean.TRUE.equals(setting.getAutoReplyEnabled()));
+        boolean enabled = globalEnabled
+                && setting != null && Boolean.TRUE.equals(setting.getAutoReplyEnabled());
+        if (enabled) {
+            // 刷屏突发时桶空 → enabled=false，插件的 reply_gate 会静默 CHAT；
+            // TASK 在插件里先于 enabled 判断，所以备忘/文件任务不受影响。
+            enabled = allowChatBurst(chatId, effectiveKind);
+        }
+        vo.setEnabled(enabled);
+        // 主人号：插件据此放行「主人自己发起的文件任务」，其余文件消息在总开关关掉时一律不处理
+        vo.setOwnerSenderId(appSettingService.getOrDefault(OWNER_SENDER_ID_KEY, "").trim());
         vo.setReplyPrompt(appSettingService.getOrDefault(REPLY_PROMPT_KEY, ""));
         vo.setRateLimit(rateLimit());
         vo.setOutLastHour(messageLogMapper.selectCount(inConversation(chatId, effectiveKind)
@@ -179,16 +230,31 @@ public class ChatSettingServiceImpl extends ServiceImpl<ChatSettingMapper, ChatS
         return new LambdaQueryWrapper<MessageLog>().eq(MessageLog::getChatId, chatId);
     }
 
+    /** 群聊刷屏闸。Redis 不可用时放行：限流坏了不能把自动回复整体停掉。 */
+    private boolean allowChatBurst(Long chatId, String kind) {
+        try {
+            return tokenBucket.tryAcquire(
+                    "rate:chat:" + kind + ":" + chatId,
+                    chatCapacity, chatRefillPerSecond, chatKeyTtlSeconds);
+        } catch (RuntimeException e) {
+            log.warn("群聊令牌桶不可用，本次放行：{}", e.getMessage());
+            return true;
+        }
+    }
+
     /** 取最近 N 条再翻回正序：读起来要像一段对话，而不是一份倒序清单 */
     private List<ReplyContextVO.RecentMessage> recentMessages(Long chatId, String kind, int size) {
         List<MessageLog> rows = messageLogMapper.selectList(inConversation(chatId, kind)
                 .orderByDesc(MessageLog::getCreatedAt)
                 .orderByDesc(MessageLog::getId)
                 .last("LIMIT " + size));
+        // 私聊里对面只有一个人：日志没带昵称时用用户起的名字兜底，别让 Dify 看到空白
+        String alias = "PRIVATE".equals(kind) ? chatAliasService.displayName(chatId, kind) : null;
         List<ReplyContextVO.RecentMessage> out = new ArrayList<>(rows.size());
         for (MessageLog row : rows) {
             ReplyContextVO.RecentMessage item = new ReplyContextVO.RecentMessage();
-            item.setSenderName(row.getSenderName());
+            String name = row.getSenderName();
+            item.setSenderName(name == null || name.isBlank() ? alias : name);
             item.setDirection(row.getDirection());
             item.setContent(truncate(flatten(row.getContent())));
             item.setCreatedAt(row.getCreatedAt());

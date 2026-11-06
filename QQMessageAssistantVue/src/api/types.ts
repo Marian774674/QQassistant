@@ -78,7 +78,7 @@ export interface MemoDraftPayload {
   dueTime?: string
 }
 
-export type DraftType = 'REPLY' | 'FILE' | 'MEMO' | 'FACT'
+export type DraftType = 'REPLY' | 'FILE' | 'MEMO' | 'FACT' | 'NAMING'
 export type DraftStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED'
 
 export interface Draft {
@@ -172,28 +172,5 @@ export interface FileTask {
   detail: unknown
   createdAt: string
   updatedAt: string
-}
-
-/* ── 拦截规则 ─────────────────────────────────────────────── */
-
-export interface InterceptRule {
-  id: number
-  name: string
-  keywords: string | null
-  regex: string | null
-  replyTemplate: string | null
-  priority: number
-  enabled: boolean
-  createdAt?: string
-  updatedAt?: string
-}
-
-export interface InterceptRuleBody {
-  name: string
-  keywords?: string | null
-  regex?: string | null
-  replyTemplate?: string | null
-  priority?: number
-  enabled?: boolean
 }
 

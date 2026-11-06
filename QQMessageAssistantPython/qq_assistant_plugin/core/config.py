@@ -14,6 +14,13 @@ def _number(value, default, cast):
         return default
 
 
+def _flag(value, default: bool) -> bool:
+    """布尔开关。不能用 `bool(value)`：配置面板传下来的 "false" 是真值。"""
+    if value is None or str(value).strip() == "":
+        return default
+    return str(value).strip().lower() not in ("false", "0", "no", "off")
+
+
 @dataclass(frozen=True)
 class Settings:
     spring_base_url: str
@@ -31,11 +38,23 @@ class Settings:
     delay_per_char_ms: int
     delay_jitter_ms: int
     delay_max_ms: int
-    intercept_refresh_s: int
-    intercept_scope: str          # group | all | off
+    # 前置噪音判定走 Spring /api/agent/noise-filter/check，插件不再缓存拦截规则
     napcat_api_url: str = ""     # NapCat HTTP API（文件下载/回传必需，留空则禁用）
     napcat_token: str = ""
+    spring_agent_token: str = ""  # 调 Spring 业务接口的 X-Agent-Token，与 AGENT_OPS_TOKEN 相同
     data_dir: str = ""           # 插件数据根目录（留空=用户目录，避免写只读插件包）
+    # 掉线补拉：NapCat 掉线期间 QQ 根本没推消息给它，重新上线后只能靠回查历史补。
+    # 关掉后插件完全不碰历史接口（不影响文件下载/回传）。
+    napcat_backfill_enabled: bool = True
+    napcat_backfill_interval_s: int = 10   # 轮询 get_status / get_login_info 的间隔（本机 HTTP，几乎零成本）
+    napcat_backfill_start_delay_s: int = 10  # 启动后先等一会，给 Spring / NapCat 就绪的时间
+    # 兜底补拉间隔：即使探活边沿一直不出现（登录过期 / WS 断开被漏采样），
+    # 也会周期性回查一次历史。补拉幂等，重复跑只多几次本机 HTTP。
+    napcat_backfill_sweep_s: int = 300
+    # Dify 的 /chat-messages 不回传模型名，账本里这一列只能由部署者自己标；
+    # 留空就显示「未标注」，不猜一个写进去。
+    dify_chat_model: str = ""
+    token_usage_enabled: bool = True  # 关掉后插件完全不上报用量（Spring 侧记账不受影响）
 
 
 def scoped_config(plugin) -> dict:
@@ -90,9 +109,14 @@ def load_settings(plugin) -> Settings:
         delay_per_char_ms=_number(c.get("delay_per_char_ms"), 150, int),
         delay_jitter_ms=_number(c.get("delay_jitter_ms"), 1000, int),
         delay_max_ms=_number(c.get("delay_max_ms"), 15000, int),
-        intercept_refresh_s=_number(c.get("intercept_refresh_s"), 60, int),
-        intercept_scope=_text(c.get("intercept_scope"), "group") or "group",
         napcat_api_url=_text(c.get("napcat_api_url"), "http://127.0.0.1:3000").rstrip("/"),
         napcat_token=_text(c.get("napcat_token")),
+        spring_agent_token=_text(c.get("spring_agent_token")),
         data_dir=_text(c.get("data_dir")),
+        napcat_backfill_enabled=_flag(c.get("napcat_backfill_enabled"), True),
+        napcat_backfill_interval_s=_number(c.get("napcat_backfill_interval_s"), 10, int),
+        napcat_backfill_start_delay_s=_number(c.get("napcat_backfill_start_delay_s"), 10, int),
+        napcat_backfill_sweep_s=_number(c.get("napcat_backfill_sweep_s"), 300, int),
+        dify_chat_model=_text(c.get("dify_chat_model")),
+        token_usage_enabled=_flag(c.get("token_usage_enabled"), True),
     )

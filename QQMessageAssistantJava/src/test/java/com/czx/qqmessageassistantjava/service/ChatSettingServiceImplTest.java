@@ -28,8 +28,24 @@ class ChatSettingServiceImplTest {
     @Mock
     MessageLogMapper messageLogMapper;
 
+    @Mock
+    ChatAliasService chatAliasService;
+
     @InjectMocks
     ChatSettingServiceImpl service;
+
+    @Test
+    void listAll_fillsAliasesFromChatAlias() {
+        when(mapper.selectList(any())).thenReturn(List.of(
+                setting(9L, "GROUP", "三班群", true)));
+        when(messageLogMapper.selectGroupPeers()).thenReturn(List.of());
+        when(messageLogMapper.selectPrivatePeers()).thenReturn(List.of());
+        when(chatAliasService.displayNames()).thenReturn(java.util.Map.of("GROUP:9", "班群"));
+
+        List<ChatSetting> all = service.listAll();
+
+        assertThat(all.get(0).getAliases()).isEqualTo("班群");
+    }
 
     @Test
     void listAll_includesGroupsSeenInLogsButNotConfiguredYet() {
@@ -67,6 +83,21 @@ class ChatSettingServiceImplTest {
         assertThat(privateChat.getAutoReplyEnabled()).isFalse();
         // 私聊不整理，只做自动回复
         assertThat(privateChat.getDigestEnabled()).isFalse();
+    }
+
+    @Test
+    void listAll_keepsGroupAndPrivateWithTheSameNumber() {
+        // 群号可能恰好等于某人的 QQ：去重键必须带 kind，否则另一边的开关永远看不见
+        when(mapper.selectList(any())).thenReturn(List.of(
+                setting(123L, "PRIVATE", "阿黄", false)));
+        when(messageLogMapper.selectGroupPeers()).thenReturn(List.of(peer(123L, "三班群")));
+        when(messageLogMapper.selectPrivatePeers()).thenReturn(List.of());
+
+        List<ChatSetting> all = service.listAll();
+
+        assertThat(all).hasSize(2);
+        assertThat(all).extracting(ChatSetting::getKind)
+                .containsExactlyInAnyOrder("GROUP", "PRIVATE");
     }
 
     private ChatSetting setting(long chatId, String kind, String name, boolean digestEnabled) {

@@ -7,6 +7,8 @@ const props = withDefaults(
     open: boolean
     title: string
     description?: string
+    /** 标题被截短时，悬停给完整原文；不传就不挂多余的 tooltip */
+    titleHint?: string
     /** 占屏高度上限，默认 88% */
     height?: string
     /** View Transitions 的共享元素名 */
@@ -16,7 +18,7 @@ const props = withDefaults(
     /** 叠在另一个抽屉上面（选择器之类）：不锁背景，Esc 只关自己 */
     nested?: boolean
   }>(),
-  { description: '', height: '88%', vtName: '', instant: false, nested: false },
+  { description: '', titleHint: '', height: '88%', vtName: '', instant: false, nested: false },
 )
 
 const emit = defineEmits<{ close: [] }>()
@@ -207,7 +209,7 @@ onBeforeUnmount(cleanup)
             -->
             <header class="head">
               <slot name="head">
-                <h2 class="title">{{ title }}</h2>
+                <h2 class="title" :title="titleHint || undefined">{{ title }}</h2>
                 <p v-if="description" class="desc">{{ description }}</p>
               </slot>
             </header>

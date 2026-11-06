@@ -18,8 +18,6 @@ settings = Settings(
     delay_per_char_ms=150,
     delay_jitter_ms=1000,
     delay_max_ms=15000,
-    intercept_refresh_s=60,
-    intercept_scope="group",
 )
 
 def test_extract_text_joins_plain_only():

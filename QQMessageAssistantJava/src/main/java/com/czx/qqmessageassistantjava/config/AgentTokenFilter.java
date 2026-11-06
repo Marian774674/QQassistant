@@ -39,13 +39,26 @@ public class AgentTokenFilter extends OncePerRequestFilter {
             return;
         }
         String provided = request.getHeader(HEADER);
-        if (provided == null || !MessageDigest.isEqual(
-                provided.getBytes(StandardCharsets.UTF_8),
-                expectedToken.getBytes(StandardCharsets.UTF_8))) {
+        if (!matches(provided, expectedToken)) {
             reject(response, 401, "token 无效");
             return;
         }
         chain.doFilter(request, response);
+    }
+
+    /** 插件和 Dify 共用同一个 token；未配置时一律不匹配。 */
+    public static boolean matches(HttpServletRequest request, String expectedToken) {
+        return matches(request.getHeader(HEADER), expectedToken);
+    }
+
+    public static boolean matches(String provided, String expectedToken) {
+        if (expectedToken == null || expectedToken.isBlank()
+                || provided == null || provided.isBlank()) {
+            return false;
+        }
+        return MessageDigest.isEqual(
+                provided.getBytes(StandardCharsets.UTF_8),
+                expectedToken.getBytes(StandardCharsets.UTF_8));
     }
 
     private void reject(HttpServletResponse response, int status, String message) throws IOException {

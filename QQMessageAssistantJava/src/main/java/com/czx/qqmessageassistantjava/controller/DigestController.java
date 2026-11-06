@@ -1,6 +1,7 @@
 package com.czx.qqmessageassistantjava.controller;
 
 import com.czx.qqmessageassistantjava.common.FlexibleLocalDateTimeDeserializer;
+import com.czx.qqmessageassistantjava.constant.AppSettingKeys;
 import com.czx.qqmessageassistantjava.common.Result;
 import com.czx.qqmessageassistantjava.service.AppSettingService;
 import com.czx.qqmessageassistantjava.service.ChatDigestService;
@@ -26,7 +27,7 @@ import java.util.Map;
 @RequestMapping("/api/digest")
 public class DigestController {
 
-    static final String LAST_SEEN_KEY = "last_digest_seen";
+    static final String LAST_SEEN_KEY = AppSettingKeys.DIGEST_LAST_SEEN;
 
     private final ChatDigestService chatDigestService;
     private final AppSettingService appSettingService;

@@ -65,6 +65,12 @@ Dify → { content, send_action }
 
 ## 二、统一回复任务（防重 + 前置拦截）
 
+> **已废弃（2026-11）**：本节描述的「插件本地正则拦截 + 查 `collection_task` 防重 + 发模板回复」
+> 已整体下线。现行方案是**噪音过滤**：规则只存 Spring 的 `app_setting`，插件每条文本消息
+> 调 `POST /api/agent/noise-filter/check`，命中只留原文、不进 Dify、不回复，判定失败 fail-open 放行。
+> `intercept_rule` / `collection_task` 表保留不 DROP。以下正文保留作设计出处，
+> 现行契约见 [`api_contract.md`](./api_contract.md) §七 / §17.7。
+
 ### 目标
 识别群内「收集信息」类通知，自动读知识库回复；防止重复回复；高频固定回复绕过 Dify 以省 Token、提速度。
 
@@ -90,18 +96,26 @@ Dify → { content, send_action }
 
 | 决策点 | 结论 |
 |---|---|
+> **方案② 已废弃（2026-11）**：下面四个决策与本节的 API 草案是当时的设计出处，
+> **不再是现行实现**。用户要求「噪音过滤直接替换原来的拦截规则功能，原来的拦截规则直接废弃」：
+> 规则改为 `app_setting` 的四个 `noise_filter_*` 键，插件不再拉规则 / 缓存 / 本地匹配，
+> 而是每条文本消息调 `POST /api/agent/noise-filter/check`（命中只留原文、不进 Dify、不回复，
+> 判定失败 fail-open 放行）。`intercept_rule` / `collection_task` 表保留不 DROP。
+> 现行契约见 [`api_contract.md`](./api_contract.md) §七 / §17.7。
+
 | `task_key` 定义 | `chat_id + task_type + 时间窗口`（当天/本周可配）。既防重又不误拦新批次 |
-| 拦截规则管理 | **可配置热更新**：规则存 Spring Boot 配置表，LangBot 启动/定时拉取，改规则不改代码不重启 |
-| 拦截命中是否仍防重 | **是**。正则命中后仍查状态表确认未回过再发，否则拦截本身会成为重复回复来源 |
-| 规则表达方式 | **关键词 + 正则混合**：先关键词快速匹配，再正则捕获（如「学号/姓名/专业」）|
+| ~~拦截规则管理~~ | ~~**可配置热更新**：规则存 Spring Boot 配置表，LangBot 启动/定时拉取~~ → 已下线 |
+| ~~拦截命中是否仍防重~~ | ~~**是**。正则命中后仍查状态表确认未回过再发~~ → 已下线 |
+| 规则表达方式 | **关键词 + 正则混合**：先关键词快速匹配，再正则捕获（现由 `MessageNoiseFilter` 在 Spring 侧统一执行）|
 
 ### API 契约草案
 
 | 接口 | 调用方 | 作用 |
 |---|---|---|
-| `POST /api/collection-tasks/check` | Dify / LangBot | 查是否已回复（幂等）|
-| `POST /api/collection-tasks/mark` | Dify / LangBot | 标记已回复 |
-| `GET /api/collection-tasks/rules` | LangBot | 拉取前置拦截规则（热更新）|
+| `POST /api/collection-tasks/check` | 暂无（兼容保留） | ~~查是否已回复（幂等）~~ |
+| `POST /api/collection-tasks/mark` | 暂无（兼容保留） | ~~标记已回复~~ |
+| `GET /api/collection-tasks/rules` | ~~LangBot~~ 已删除 | ~~拉取前置拦截规则（热更新）~~ |
+| `POST /api/agent/noise-filter/check` | LangBot 插件 | **现行**：单条消息前置噪音判定（§17.7） |
 
 ---
 

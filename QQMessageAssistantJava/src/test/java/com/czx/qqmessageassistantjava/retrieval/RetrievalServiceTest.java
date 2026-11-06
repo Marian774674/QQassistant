@@ -10,6 +10,7 @@ import com.czx.qqmessageassistantjava.mapper.FileTaskMapper;
 import com.czx.qqmessageassistantjava.mapper.MemoMapper;
 import com.czx.qqmessageassistantjava.mapper.MemoryNoteMapper;
 import com.czx.qqmessageassistantjava.mapper.MessageLogMapper;
+import com.czx.qqmessageassistantjava.service.ChatAliasService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -361,7 +362,7 @@ class RetrievalServiceTest {
                 .when(brokenNoteMapper).searchByKeywords(anyList(), anyInt());
         RetrievalService broken = new RetrievalServiceImpl(
                 brokenNoteMapper, messageLogMapper, memoMapper, fileTaskMapper, fake, index,
-                embeddingJobService);
+                embeddingJobService, mock(ChatAliasService.class));
 
         Memo memo = new Memo();
         memo.setSenderId(401L);

@@ -49,6 +49,13 @@ watch(
   { immediate: true },
 )
 
+// 这四项归 /rules 的噪音过滤页管，别在「其他设置」里再列一遍
+const NOISE_KEYS = [
+  'noise_filter_enabled',
+  'noise_filter_keywords',
+  'noise_filter_regex',
+  'noise_filter_keep_regex',
+]
 /** silent = 下拉刷新：保留当前内容，不闪骨架屏 */
 async function loadSettings(silent = false) {
   if (!silent) {
@@ -56,8 +63,9 @@ async function loadSettings(silent = false) {
     settingsError.value = ''
   }
   try {
-    settings.value = await getSettings()
-    hydrateReply(settings.value)
+    const snapshot = await getSettings()
+    settings.value = snapshot
+    hydrateReply(snapshot)
   } catch (e) {
     const message = e instanceof Error ? e.message : '设置读取失败'
     if (silent) toast.error(message)
@@ -153,7 +161,13 @@ const otherSettings = computed(() =>
     // 这几项在上面有专属编辑区，别再当成只读的「后端配置」重复列一遍
     .filter(
       ([key]) =>
-        !['owner_sender_id', REPLY_PROMPT_KEY, REPLY_LIMIT_KEY, REPLY_ENABLED_KEY].includes(key),
+        ![
+          'owner_sender_id',
+          REPLY_PROMPT_KEY,
+          REPLY_LIMIT_KEY,
+          REPLY_ENABLED_KEY,
+          ...NOISE_KEYS,
+        ].includes(key),
     )
     .sort(([a], [b]) => a.localeCompare(b)),
 )
@@ -165,7 +179,7 @@ const otherSettings = computed(() =>
 
     <section class="block">
       <h2 class="block-title">我的 QQ 号</h2>
-      <p class="block-hint">用来判断哪些备忘、事实和草稿是「你的」。</p>
+      <p class="block-hint">用来判断哪些备忘、事实和草稿是「你的」，也是 QQ 登录的收码账号。</p>
 
       <div class="card card-pad">
         <div class="field">
@@ -183,6 +197,7 @@ const otherSettings = computed(() =>
           <p v-if="ownerError" class="error" role="alert">{{ ownerError }}</p>
           <p v-else class="field-hint">
             机器人从 QQ 收到消息时会带上发送者号码；填成同一个，两边看到的是同一份数据。
+            网页登录的验证码也只发到这个号。
           </p>
         </div>
 
@@ -203,7 +218,7 @@ const otherSettings = computed(() =>
       <h2 class="block-title">自动回复</h2>
       <p class="block-hint">
         机器人替你说日常话时，会参考下面这段要求。哪些群、哪些私聊允许它开口，在「群设置」里按会话开关。
-        备忘、查资料、文件填写不受这里影响，照常工作。
+        备忘、查资料不受这里影响，照常工作。
       </p>
 
       <div class="card card-pad">
@@ -211,8 +226,9 @@ const otherSettings = computed(() =>
           <span class="switch-text">
             <span class="switch-label">总开关</span>
             <span class="switch-hint">
-              关掉后所有群和私聊都立刻闭嘴，「群设置」里那些开关全部暂停。
-              备忘、查资料、文件填写照常，不受影响。
+              关掉后机器人一个字都不说：闲聊、备忘确认语、文件任务全部停。
+              备忘照建、整理照跑，只是不再替你发任何消息。到点的提醒仍会私聊发给你——
+              那不是回复别人，是提醒你自己。
             </span>
           </span>
           <input

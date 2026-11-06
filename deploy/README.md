@@ -69,8 +69,14 @@ docker compose ps              # 4 个服务都应是 running
 
 ## 4. 安装插件并配置
 
+> **升级顺序（0.2.31 起必须遵守）**：插件的前置噪音判定依赖 Spring 的
+> `POST /api/agent/noise-filter/check`。请**先**部署包含该端点的 Spring Boot 版本，再装插件。
+> 顺序反了判定接口会 404，插件按 fail-open 全部放行——不会吞消息，但噪音过滤会静默失效。
+> 同时 `/api/intercept-rules` 已下线，旧版前端的「拦截规则」页不再可用；
+> 噪音规则改到网页 **更多 → 噪音过滤（`/rules`）** 配置，插件侧没有对应配置项。
+
 1. LangBot WebUI → 插件 → 安装 → 上传
-   `QQMessageAssistantPython/qq_assistant_plugin/dist/Marian-qq_assistant_plugin-0.2.24.lbpkg`
+   `QQMessageAssistantPython/qq_assistant_plugin/dist/Marian-qq_assistant_plugin-0.2.32.lbpkg`
 2. 打开插件配置，按容器网络填：
 
 | 配置项 | 值 |
@@ -81,11 +87,44 @@ docker compose ps              # 4 个服务都应是 running
 | `dify_file_workflow_key` | 文件填写 Workflow 的密钥 |
 | `napcat_api_url` | `http://napcat:3000` |
 | `napcat_token` | 与 `NAPCAT_HTTP_TOKEN` 一致 |
+| `napcat_backfill_enabled` | 默认「开启」；NapCat 重连 / 重登 / 周期兜底回查历史补日志，只写日志、不回复 |
+| `napcat_backfill_sweep_s` | 默认 `300`；兜底回查间隔（秒），即使没探到掉线也会周期性补一次，最小 30 |
+| `token_usage_enabled` | 默认「开启」；把 Dify 对话调用的用量旁路记进网页只读账本，关掉后插件不上报（Spring 侧记账不受影响） |
+| `dify_chat_model` | **留空即可**；Dify 不回传模型名，这里只是账本里的显示标注，留空显示「未标注」 |
 | `bot_uuid` | 第 3 步的 UUID |
 | `bot_qq` | 机器人 QQ 号 |
 | `data_dir` | **留空**（自动落到 `/app/data/qq_assistant/data`） |
 
 3. 启用插件，给机器人发一条私聊消息，看是否回复
+4. 打开网页「更多 → 噪音过滤（`/rules`）」，保存默认规则后试跑一句「……」，应判为噪音；
+   再给机器人发「……」，应只在「消息日志」看到原文、收不到回复。
+   若所有消息都被判为「保留」且插件日志出现 `noise check unavailable`，说明 Spring 还没升级
+   或 `X-Agent-Token` 不一致，插件正在按 fail-open 放行（不会吞消息，但过滤失效）
+
+### 4.1 掉线补拉（默认开启）
+
+NapCat 掉线期间 QQ 根本没把消息推给它，所以重连后插件会向 QQ 回查一次历史，
+把游标之后的消息补写进 `message_log`：
+
+- **触发（插件 0.2.32 起）**：每 10 秒同时探 `get_status`（OneBot 服务）和
+  `get_login_info`（QQ 账号登录态）。两者都就绪、且「从没补过 / 上次不就绪 / 探活失败后恢复」
+  时立即补一次；**另外每 `napcat_backfill_sweep_s`（默认 300 秒）无条件兜底补一次**。
+  边沿只当加速信号，不能当唯一触发条件：登录过期时 NapCat 进程和 HTTP 服务都还在，
+  `get_status` 可能照常报在线；重登也可能落在两次探活之间被漏采样；LangBot 与 NapCat
+  的 WS 断开时 NapCat 更是完全正常——这三种情况都不会产生 `offline → online` 边沿，
+  只靠边沿就会一直不补。补拉幂等（`dedupeKey` + 游标 GREATEST），重复跑只多几次本机 HTTP；
+  补拉抛异常也要等下一个周期再试，不能每轮探活都全量扫历史。
+- 范围：最近 7 天有消息、或已开启自动回复 / 整理的会话，单次最多 50 个会话，
+  每会话最多 200 条 / 5 页，请求间隔 1 秒（避免触发 QQ 风控）；
+- 只写日志：补回来的消息**不进 Dify、不触发自动回复**，但整理、夜间归纳、检索
+  都会自然读到它们；
+- 去重：实时与补拉统一 `dedupeKey = msg:<message_id>`，重叠部分被唯一索引吞掉。
+
+日志里看到 `NapCat 就绪（上线/登录恢复 或 周期兜底），开始补拉历史消息` 与
+`补拉完成：N 个会话，写入 M 条` 即为生效；出现
+`NapCat 未就绪（服务在线=True，账号已登录=False）` 说明 QQ 掉登录但 NapCat 服务还活着，
+重登后会自动补。游标存在 MySQL `napcat_cursor` 表，容器重建不丢。
+想关掉就把插件配置 `napcat_backfill_enabled` 选「关闭」——不影响文件下载/回传。
 
 ## 5. 插件产物路径与桥的对应关系
 
@@ -118,6 +157,19 @@ docker compose exec langbot_plugin_runtime tail -n 60 /app/data/qq_assistant/dat
 - 已有库记得执行 `db/migrations/2026-10-27-phase3-file-task-and-log.sql`
   以及 `db/migrations/2026-10-31-embedding-retrieval.sql`（两张表 + `message_log.ft_content` 全文索引，
   需要 MySQL 8.0+ 的 `ngram` 分词；脚本可重复执行）
+- 掉线补拉还需要 `db/migrations/2026-11-05-napcat-cursor.sql`（一张 `napcat_cursor` 表）。
+  **不建这张表，插件每次探测在线都会报 `Table 'napcat_cursor' doesn't exist`**，
+  补拉整体不可用（不影响收发消息与文件任务）
+- 5.5 的用量账本与会话别名还需要 `db/migrations/2026-11-05-token-usage.sql`
+  和 `db/migrations/2026-11-04-chat-alias.sql`。脚本都是 `CREATE TABLE IF NOT EXISTS`，可重复执行。
+  缺前者 `/usage` 汇总会报错；缺后者「花在哪个会话」饼图取展示名时的 LEFT JOIN 会报
+  `Table 'chat_alias' doesn't exist`（群号本身仍能分账）
+
+> **2026-11 用量页饼图部署顺序**：`/api/token-usage/summary` 新增的 `byChat` 字段由 Spring 侧
+> `TokenUsageService` / `TokenUsageMapper` 产出，前端 `/usage` 消费。上线时**必须同时**
+> 重新部署 Spring Boot 与前端 `dist/`；只换前端会拿到没有 `byChat` 的响应（饼图整块不渲染，
+> 其它分账照常），只换后端则页面不显示饼图。**数据库不用再迁移，插件也不用升级**
+> （仍是 `0.2.32`、不用重新打包上传）。
 
 ### 6.1 语义检索模型（可选，但 `/api/ask` 的语义通道需要）
 
@@ -163,6 +215,31 @@ https://hf-mirror.com/Xenova/bge-small-zh-v1.5/resolve/main/vocab.txt
 部署后用 `GET /api/memory/embeddings/status` 验证：`semantic=true` 即模型就绪。
 模型缺失或 ONNX 初始化失败时应用照常启动，只是语义通道关闭——不会让 `/api/ask` 500。
 
+### 6.2 登录（Redis + QQ 授权码）
+
+登录依赖 Redis：会话、图形验证码、接口限流都放那里。`docker-compose.yml` 里的 `redis` 服务
+已经把 `6379` 暴露出来，Spring 侧用环境变量指过去：
+
+| 变量 | 说明 |
+|---|---|
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | 指向 compose 起的 Redis；密码与 `.env` 的 `REDIS_PASSWORD` 一致 |
+| `AUTH_INITIAL_PASSWORD` | 初始登录密码；不设则启动日志打印随机临时密码 |
+| `AUTH_OWNER_QQ` | 主人 QQ 号，QQ 授权登录的收码账号；也可先用密码登录，在「设置 → 我的 QQ 号」里绑定（绑定后以数据库为准） |
+
+两种登录方式：
+
+1. **QQ 授权登录（默认）**：网页填 QQ 号 → 机器人私聊推 6 位码 → 输入即登录。
+   码 5 分钟有效、用一次即删、60 秒冷却、连错 5 次作废；**只对已绑定的主人号发码**。
+2. **密码登录（兜底）**：账号 + 密码 + 图形验证码，机器人掉线时用它进。
+
+**改兜底密码**：网页「更多 → 系统 → 修改密码」（`/password`），填旧密码 + 新密码两次即可，
+改完当前会话作废、自动回登录页用新密码登一次；QQ 验证码登录不受影响。
+首次部署如果用的是启动日志里那串随机临时密码，建议第一次进来就在这里换掉。
+注意哈希一旦写进 `app_setting.auth_password_hash`，之后再改 `AUTH_INITIAL_PASSWORD` 不再生效。
+
+> 为什么不用 QQ 互联 OAuth：那套要求已备案的回调域名，内网环境拿不到。
+> 取舍见 [`../design/design_overview.md`](../design/design_overview.md) §5.2。
+
 ## 7. 验收（真机）
 
 按 `design/dify_chatflow.md` §11：
@@ -187,11 +264,20 @@ https://hf-mirror.com/Xenova/bge-small-zh-v1.5/resolve/main/vocab.txt
 | VM / 容器访问 Windows 上的 Spring 返回 `http_code=000` | Windows 防火墙或监听地址问题：`netstat -ano \| findstr :8080` 要看到 `0.0.0.0:8080`；再加显式规则 `New-NetFirewallRule -DisplayName "SpringBoot 8080" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Any`（虚拟机网卡常被判为「公用」profile） |
 | 桥返回 400「fileRef 指向的文件不存在」 | 第 5 节两条路径是否一致；插件 `data_dir` 是否被改过 |
 | 桥返回 409 | 同一 `bizRef` 正在发送中，属预期保护；稍后重试会返回上次 `messageId` |
+| 补拉日志一直是「NapCat 补拉未启用」 | 插件 `napcat_backfill_enabled` 选了关闭，或 `napcat_api_url` 为空 |
+| QQ 登录过期、或 LangBot 与 NapCat 的 WS 断过之后，中间消息一直没补回来 | 0.2.31 及更早版本**只靠 `offline → online` 边沿**触发，这几种情况 NapCat 服务一直报在线、边沿根本不出现。升级到 **0.2.32**：每 10s 同时探 `get_status` 与 `get_login_info`，并每 300s 无条件兜底回查。升级后日志应出现 `周期兜底`；若没有，检查 `napcat_backfill_sweep_s` 是否被配得过大、以及 `napcat_api_url` / Token 是否正确 |
+| 补拉日志报 `HTTP 401/403` | 插件 `napcat_token` 与 `NAPCAT_HTTP_TOKEN` 不一致（补拉和文件下载共用同一套鉴权） |
+| 补拉报 `chatType 只能是 GROUP 或 PRIVATE` | 插件与后端版本不匹配：`/api/agent/napcat/cursor` 是 2026-11 新增的，后端要一起更新 |
+| 补拉「跑完了但写入 0 条」 | 正常：游标已是最新（`napcat_cursor.last_message_seq`），或者历史里全是机器人自己的消息（已按 `bot_qq` 过滤） |
 | 提醒只收到第一条 | 确认后端是本次改动后的版本（bizRef 按 `<memoId>:<reminderId>`） |
 | Java 调桥超时 | `langbot.read-timeout-ms` 必须 > 25s（当前 35000）；VM 到 Windows 是否通 |
 | `docker compose up` 拉镜像超时 | Docker Hub 不可达：`LANGBOT_IMAGE` 换官方国内源，`PYTHON_IMAGE` 换国内 registry 后重建 |
 | 浏览器打不开 NapCat WebUI | 先分清是谁在访问：VM 上 `curl -I http://127.0.0.1:<宿主机端口>/webui/` 通就说明服务正常，问题在同机访问/隧道；HTTPS 报 SSL 错说明用了 `https://`，改 `http://` |
 | 端口被旧容器占用 | `docker ps` 里若有更早手工起的 `langbot-napcat` 之类，先 `docker stop <旧容器>`（可回滚，不要急着 `rm`）；同类容器跑两份会互相顶掉 QQ 登录 |
+| 登录页报「验证码发送失败」 | 桥 / 机器人在线与否：`docker compose logs qq-send-bridge`，再看 LangBot 机器人是否「已连接」。急用就切「密码登录」页签 |
+| 登录页报「还没有绑定主人 QQ 号」 | `AUTH_OWNER_QQ` 没设，且 `app_setting.owner_sender_id` 为空。先用密码登录，在「设置 → 我的 QQ 号」填一次 |
+| 登录页报「这个 QQ 号不是已绑定的主人账号」 | 输入的号与 `app_setting.owner_sender_id` 不一致（设置页改过就以库里为准） |
+| 登录后立刻 401 / 反复跳登录页 | Redis 没起或密码不对：`GET /api/health` 之外任何接口都会 503/401；核对 `REDIS_PASSWORD` 与容器一致 |
 
 > 本目录的 compose 已通过 `docker compose config` 校验；镜像构建与真机联调需在虚拟机（或能访问镜像仓库的机器）上执行。
 
@@ -240,6 +326,117 @@ python -c "import secrets;print(secrets.token_hex(16))"
 - 所有 Token / API Key 都放 `.env`，不要写进 compose
 - 备份：`./data`（LangBot 配置与数据库、插件、任务文件）、`./napcat/qq`（QQ 登录态）、`./bridge-data`（幂等状态）
 - 升级：改 `LANGBOT_IMAGE` 到固定版本 → `docker compose pull && docker compose up -d`；`./data` 不要删
+
+### 10.1 Spring Boot 密钥外置（5.5）
+
+`application.yaml` 里不再有任何明文口令、API Key 或部署专用 IP。全部走环境变量；
+本机开发可以写进 `deploy/java.properties`（模板是 `deploy/java.properties.example`），
+该文件已被 `.gitignore` 排除，由 `spring.config.import` 以 `optional:file:` 载入——
+文件不存在时不会报错，此时值必须来自真实环境变量。生产环境建议只用环境变量，不建这个文件。
+
+| 变量 | 用途 | 落点 |
+| --- | --- | --- |
+| `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | JDBC 地址与账号口令 | `java.properties` 或环境变量 |
+| `LANGBOT_BRIDGE_URL` | 主动发送桥地址（默认 `127.0.0.1:5301`） | 同上 |
+| `DIFY_WORKFLOW_BASE_URL` / `DIFY_WORKFLOW_API_KEY` | 记忆与整理 Workflow；**Key 无默认值，漏配会明确报错** | 同上 |
+| `DIFY_WORKFLOW_MODEL` | 只用于 Token 账本的模型标注，可留空 | 同上 |
+| `AGENT_OPS_TOKEN` | Dify 回写 `/api/agent/*`，漏配该入口整体 503 | 环境变量 / Dify Secret 变量 |
+| `AUTH_INITIAL_PASSWORD` / `AUTH_OWNER_QQ` / `AUTH_USERNAME` | 首次登录与 QQ 授权码 | 环境变量 |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | 登录会话、验证码、限流 | 环境变量（与 `.env` 的 `REDIS_PASSWORD` 一致） |
+| `EMBEDDING_HTTP_*` | `app.embedding.mode=http` 时才用 | 环境变量 |
+
+本机启动（Git Bash）：
+
+```bash
+cd QQMessageAssistantJava
+# 值已在 deploy/java.properties 里；要临时覆盖就直接 export DB_PASSWORD=... 等
+mvn spring-boot:run
+```
+
+测试库另用 `TEST_DB_URL` / `TEST_DB_USERNAME` / `TEST_DB_PASSWORD` 覆盖
+`application-test.yaml`，默认仍指向隔离的 `qq_assistant_test`。
+
+### 10.2 密钥轮换清单
+
+以下值曾随仓库/示例文件一起出现过。**改值才是真正的修复**——从工作区删掉不等于从
+Git 历史里删掉。按顺序换，换完在方框里打勾：
+
+- [ ] **Dify「记忆与整理」Workflow API Key**：Dify 控制台重建密钥 → 更新 `DIFY_WORKFLOW_API_KEY`
+      （或本地 `java.properties`）；旧 key 立即停用
+- [ ] **Dify 对话 Chatflow API Key**：LangBot 插件配置 `dify_api_key` 重建并填回（不在仓库里，但同属一套 Dify）
+- [ ] **MySQL 账号口令**：改库口令 → `DB_PASSWORD` / `TEST_DB_PASSWORD` 同步；不要用 root 跑应用库
+- [ ] **Redis 口令**：改 `.env` 的 `REDIS_PASSWORD` 与 Spring 的 `REDIS_PASSWORD`，重启 compose 与后端
+- [ ] **NapCat WebUI 口令 / OneBot HTTP Token**：`NAPCAT_WEBUI_TOKEN`、`NAPCAT_HTTP_TOKEN`，
+      以及 NapCat WebUI 里 HTTP 服务器和插件 `napcat_token` 三处要一致
+- [ ] **LangBot API Key**：LangBot 后台重新生成 → `.env` 的 `LANGBOT_API_KEY`，重启发送桥
+- [ ] **`AGENT_OPS_TOKEN`**：Spring 与 Dify 环境变量两处同时换；插件 `spring_agent_token` 用同一个值
+- [ ] **`PLUGIN_RUNTIME_CONTROL_TOKEN`**：若曾设置，重新生成；留空则保持两端都为空
+- [ ] **初始登录口令**：首次部署设 `AUTH_INITIAL_PASSWORD`，登录后尽快在设置里改掉；
+      `app_setting.auth_password_hash` 已禁止经 `PUT /api/settings` 从网页改写
+- [ ] **Git 历史**：如仓库曾推送到远端，改用 `git filter-repo` 清理历史中的密钥文件，或干脆删库重建；
+      只删当前文件无效
+
+`.env.example` 与 `java.properties.example` 只保留空值占位，compose 用 `:?` 强制必填，
+避免「复制模板就带着示例口令上线」。
+
+### 10.3 测试库 FULLTEXT 索引维护（跑全量 Java 测试前看）
+
+`RetrievalServiceTest` / `AskSingleRoundTest` / `RetrievalAcceptanceMatrixTest` /
+`RetrievalFoundationTest` 用的是共享测试库 `qq_assistant_test` 上的
+`message_log.ft_content`（`ngram` FULLTEXT），不是 H2 / 内存库。
+这些用例为了能命中 `MATCH … AGAINST`，用 `Propagation.NOT_SUPPORTED` 让种子数据**真提交**，
+查完再显式删掉。InnoDB 不会立刻把删掉的行从全文索引里清走，而是记进
+`INNODB_FT_DELETED`；攒到几千条「幽灵文档」后，中文词的相关度被稀释，
+症状是**单个测试类跑全绿、全量 `mvn test` 一堆「召回为空」**。
+
+判断是否需要重建：
+
+```bash
+mysql -h <TEST_DB_HOST> -P <PORT> -u <USER> -p qq_assistant_test \
+  -e "SET GLOBAL innodb_ft_aux_table='qq_assistant_test/message_log'; \
+      SELECT COUNT(*) AS fts_deleted_docs FROM information_schema.INNODB_FT_DELETED;"
+```
+
+`fts_deleted_docs` 上千就该清理（实测 7328 时 14 个用例失败，清理后 428/428 全绿）：
+
+```bash
+mysql -h <TEST_DB_HOST> -P <PORT> -u <USER> -p qq_assistant_test \
+  -e "OPTIMIZE TABLE message_log;"
+```
+
+> `OPTIMIZE TABLE` 在 InnoDB 上会走 `recreate + analyze`，需要建表权限且会短暂锁表，
+> **只对隔离的测试库做**，不要拿它当生产库的日常维护。
+> 这个现象与业务代码无关：把 `HEAD`（未含 5.5 改动）单独起工作树跑同一批用例，
+> 一样会复现；清理之后两边都是全绿。
+
+### 10.4 重新打包插件（开发者）
+
+改完插件代码后先升 `manifest.yaml` 的 `version`，再在插件目录执行：
+
+```bash
+cd QQMessageAssistantPython/qq_assistant_plugin
+../.venv/Scripts/lbp.exe build -o dist
+```
+
+产物是 zip 格式的 `dist/Marian-qq_assistant_plugin-<version>.lbpkg`，
+上传前用 `zipfile` 校验一遍（能打开、`version` 对、无旧配置残留）。
+
+> **打包前务必清干净插件目录**。`lbp build` 会把插件目录**整棵目录树**打进包，
+> 不按 `.gitignore` 排除。实测把 pytest 的 `--basetemp=.pytest_tmp_rel/run` 放在插件目录内，
+> 包从 62 个文件涨到 186 个，多出 124 个 `xlsx` / `_debug.log` 测试临时文件（474 KB vs 287 KB）。
+> 跑测试时把干净 basetemp 放到**仓库根**（在仓库根先 `mkdir -p .pytest_tmp`，
+> 再 `--basetemp=../../.pytest_tmp/run`），或直接删掉插件目录内的临时目录再打包；
+> 仓库根已有 `.pytest_tmp*/` 忽略规则。
+>
+> **另查历史遗留目录**（2026-11 补）：`.pytest_cache` / `__pycache__` / `dist` 会被 `lbp` 自动跳过，
+> 但任意其它目录都会照打。实测 `build_tmp/restore_021.py`（10 月一次性回退脚本，已 tracked，
+> 引用的还是 0.2.21 包）被安静地打进了 0.2.32 包。它不会被 LangBot 加载、无功能风险，
+> 但属于包污染；已移出插件目录并重新打包，最终 **61 文件 / 285267 B**。
+> 打包后建议把下面这条也加进校验：
+>
+> ```bash
+> python -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); bad=[n for n in z.namelist() if any(k in n.lower() for k in ('build_tmp','pytest_tmp','.pyc','__pycache__','_debug.log'))]; print('残留:', bad); sys.exit(bool(bad))" dist/Marian-qq_assistant_plugin-0.2.32.lbpkg
+> ```
 
 ## 11. 地址对照表
 

@@ -46,4 +46,25 @@ class MessageLogFieldsTest {
 
         assertThat(log.getReplyKind()).isEqualTo("CHAT");
     }
+
+    /**
+     * {@code createdAtEpochSeconds} 在实体里没有同名属性（类型也不同：Long vs LocalDateTime）。
+     *
+     * <p>Spring 的 {@code BeanUtils.copyProperties} 遇到类型不可赋值的属性会**静默跳过**，
+     * 不会抛 {@code FatalBeanException}——这条测试钉的就是这个前提：
+     * 补拉的时间换算由 {@code MessageLogServiceImpl} 显式做，不能指望拷贝。
+     */
+    @Test
+    void copyProperties_skipsTheEpochFieldInsteadOfThrowing() {
+        MessageLogItem item = new MessageLogItem();
+        item.setSenderId(1001L);
+        item.setDirection("IN");
+        item.setMsgType("text");
+        item.setCreatedAtEpochSeconds(1_767_294_245L);
+
+        MessageLog log = new MessageLog();
+        BeanUtils.copyProperties(item, log);
+
+        assertThat(log.getCreatedAt()).isNull();
+    }
 }

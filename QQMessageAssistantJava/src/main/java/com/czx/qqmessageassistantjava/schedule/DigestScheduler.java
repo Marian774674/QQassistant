@@ -1,5 +1,6 @@
 package com.czx.qqmessageassistantjava.schedule;
 
+import com.czx.qqmessageassistantjava.constant.AppSettingKeys;
 import com.czx.qqmessageassistantjava.entity.ChatSetting;
 import com.czx.qqmessageassistantjava.service.AppSettingService;
 import com.czx.qqmessageassistantjava.service.ChatDigestService;
@@ -58,7 +59,7 @@ public class DigestScheduler {
      * @return 写入的整理条数合计
      */
     public int runOnce(LocalDateTime periodStart, LocalDateTime periodEnd) {
-        if (!"1".equals(appSettingService.getOrDefault("digest_enabled", "0"))) {
+        if (!"1".equals(appSettingService.getOrDefault(AppSettingKeys.DIGEST_ENABLED, "0"))) {
             return 0;
         }
         List<ChatSetting> groups = chatSettingService.listAll();
@@ -69,7 +70,7 @@ public class DigestScheduler {
             }
             try {
                 saved += chatDigestService.digestChat(
-                        group.getChatId(), group.getChatName(), periodStart, periodEnd);
+                        group.getChatId(), group.getChatName(), periodStart, periodEnd).saved();
             } catch (Exception e) {
                 // 一个群失败不能连累其它群：Dify 超时、某个群消息太多都可能单独炸
                 log.warn("整理群 {} 失败，跳过", group.getChatId(), e);

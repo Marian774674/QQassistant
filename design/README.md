@@ -4,15 +4,16 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 
 | 文档 | 内容 | 何时看 |
 |---|---|---|
+| [`design_overview.md`](./design_overview.md) | **简版设计文档**：项目背景、功能列表、功能模块、工作流、后续优化 | 快速了解项目全貌 / 汇报 |
 | [`requirements.md`](./requirements.md) | **需求规格说明书**：背景目标、用例、功能/非功能需求编号、验收标准 | 想知道「要做什么、做到什么算完成」|
 | [`prompt_init.md`](./prompt_init.md) | 项目原始纲领：组件、5 大功能、规则、5 阶段工作流 | 想了解项目缘起与总目标 |
 | [`architecture.md`](./architecture.md) | 分层架构、**职责红线**、**三个贯穿全局的抽象** | 写任何代码前先看边界 |
 | [`optimization_schemes.md`](./optimization_schemes.md) | 五大优化方案定稿（分工/数据流/状态机/决策记录） | 实现某个功能时的设计出处 |
-| [`database_schema.md`](./database_schema.md) | 12 张表的字段级结构 + 可执行 DDL | 建表、写实体/Mapper 时 |
+| [`database_schema.md`](./database_schema.md) | 21 张表的字段级结构 + 可执行 DDL（权威 DDL 是 `db/schema.sql`） | 建表、写实体/Mapper 时 |
 | [`api_contract.md`](./api_contract.md) | 全部对外接口契约（请求/响应/错误） | 写 Controller / 对接时 |
 | [`agent_contract.md`](./agent_contract.md) | **Dify ↔ LangBot 契约**：事件输入、决策 envelope、动作语义、降级规则 | 改 Dify Chatflow / 插件分发前必读 |
 | [`dify_chatflow.md`](./dify_chatflow.md) | Dify Chatflow 节点图、会话变量、提示词、手工验收清单 | 搭建/调整 Dify 应用时 |
-| [`team/`](./team/) | **前端团队文档**：共享手册 + A/B 两份角色手册（职责、任务、验收） | 前端开发前必读 |
+| [`../QQMessageAssistantVue/README.md`](../QQMessageAssistantVue/README.md) | 前端工程说明与页面清单 | 改 Vue 前先看 |
 | [`plans/`](./plans/) | 分期实现计划（Task 级 TDD 步骤） | 开发时逐步执行 |
 
 **注意**：冲突时的优先级是 **`requirements.md` > `optimization_schemes.md` > `prompt_init.md`**（见方案④：文件 I/O 已从 Spring Boot 改到 LangBot 插件）。
@@ -21,7 +22,7 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 
 - **Dify**：语义理解、意图识别、对话流、决策「填什么/发不发」——**不写业务逻辑、不碰文件流**。
 - **Spring Boot**：状态机、持久化、定时调度、REST API——**不直连 NapCat**。
-- **LangBot**：QQ 收发、正则拦截、拟人延迟、**文件 I/O**、主动发送接口。
+- **LangBot**：QQ 收发、前置噪音判定（每条消息问 Spring）、拟人延迟、**文件 I/O**、主动发送接口。
 - **Vue**：展示、人工确认、配置——不做业务判定。
 
 ---
@@ -30,11 +31,11 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 
 | 阶段 | 内容 | 状态 | 文档 |
 |---|---|---|---|
-| ① 架构 + 表结构 | 分层、红线、三个抽象、12 张表 DDL | ✅ 完成 | `architecture.md` / `optimization_schemes.md` / `database_schema.md` |
-| ② Spring Boot API | 27 个对外端点 + 调度 + LangBot 客户端 | ✅ 代码完成（30/30 测试绿）；5 项加固待做 | `api_contract.md` + `plans/2026-10-18-phase2-hardening.md` |
-| ③ LangBot 插件 | 收发 / 拦截 / 拟人延迟 / 文件 I/O / 主动发送 | ✅ 3-1/3-2 已落地；0.2.23 Dify-Centric 执行器重构；0.2.24 文件镜像补齐会话/缺口 + 草稿目标；3-3 发送桥已实现（待真机联调） | `plans/2026-10-18-phase3-*.md` |
+| ① 架构 + 表结构 | 分层、红线、三个抽象、21 张表 DDL | ✅ 完成 | `architecture.md` / `optimization_schemes.md` / `database_schema.md` |
+| ② Spring Boot API | 19 个控制器 / 67 个对外端点 + 调度 + LangBot 客户端 | ✅ 代码完成（442/442 测试绿）；Phase 2 加固计划保留作历史记录 | `api_contract.md` + `plans/2026-10-18-phase2-hardening.md` |
+| ③ LangBot 插件 | 收发 / 前置噪音判定 / 拟人延迟 / 文件 I/O / 主动发送 / 掉线补拉（边沿 + 周期兜底）/ 用量上报 | ✅ 3-1/3-2/3-3 已落地；当前版本 **0.2.32**（`dist/Marian-qq_assistant_plugin-0.2.32.lbpkg`）；待真机联调 | `plans/2026-10-18-phase3-*.md` |
 | ④ Dify 工作流 | 意图识别 / 对话状态 / 文件决策 / 风格总结 | 🟡 Chatflow + 文件 Workflow 已搭好；待真机联调 | `agent_contract.md` / `dify_chatflow.md` |
-| ⑤ Vue 前端 | 草稿中心 / 备忘 / 记忆总控台 / 设置 | ✅ 四页已搭建并对接真实接口（`npm run build` 类型检查通过）；待真机联调 | [`team/`](./team/) + [`../QQMessageAssistantVue/README.md`](../QQMessageAssistantVue/README.md) |
+| ⑤ Vue 前端 | 草稿中心 / 备忘 / 记忆总控台 / 设置 / Token 用量（含会话占比饼图） | ✅ 14 页已对接真实接口（`npm run build` 通过）；待真机联调 | [`../QQMessageAssistantVue/README.md`](../QQMessageAssistantVue/README.md) |
 
 ### Phase 2 计划索引
 
@@ -49,17 +50,29 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 
 | 计划 | 覆盖 | 依赖 |
 |---|---|---|
-| [`plans/2026-10-18-phase3-1-plugin-core.md`](./plans/2026-10-18-phase3-1-plugin-core.md) | 插件骨架 + 事件监听 + 前置拦截 + Dify 分发 + 拟人延迟 + 备忘闭环 + 日志 | Phase 2 加固完成 |
+| [`plans/2026-10-18-phase3-1-plugin-core.md`](./plans/2026-10-18-phase3-1-plugin-core.md) | 插件骨架 + 事件监听 + ~~前置拦截~~（现为前置噪音判定）+ Dify 分发 + 拟人延迟 + 备忘闭环 + 日志 | Phase 2 加固完成 |
 | [`plans/2026-10-18-phase3-2-file-tasks.md`](./plans/2026-10-18-phase3-2-file-tasks.md) | 文件下载 / xlsx·docx 读写 / pypdf 只读 / NEED_INPUT 反问 / 文件回传 | 3-1 |
 | [`plans/2026-10-18-phase3-3-send-bridge.md`](./plans/2026-10-18-phase3-3-send-bridge.md) | 主动发送桥（Spring Boot → LangBot / NapCat）+ 延迟 + OUT 日志 + 幂等 | ✅ 已实现（`QQMessageAssistantPython/send_bridge`，待真机冒烟） |
 
-### 前端团队文档索引
+### 后续优化（[`design_overview.md`](./design_overview.md) §5）进度
 
-| 文档 | 谁读 | 内容 |
+| 项 | 状态 | 落点 |
 |---|---|---|
-| [`team/README.md`](./team/README.md) | 两人共同 | 共享手册：项目、接口、工程规范、Git、AI 协作、两人交接 |
-| [`team/A-前端开发手册.md`](./team/A-前端开发手册.md) | A | A 的职责、任务卡、交付顺序、评审与演示 |
-| [`team/B-前端开发手册.md`](./team/B-前端开发手册.md) | B | B 的职责、任务卡、交付顺序、评审与演示 |
+| §5.1 QQ 私聊验证码登录（密码 + 图形码兜底） | ✅ 完成 | `api_contract.md` §16、`auth/` |
+| §5.2 自动回复总开关「彻底一个字都不说」 | ✅ 完成 | `core/reply.py` 静默上下文、`reply_gate.py` |
+| §5.3 限流（API + reply-context 令牌桶） | ✅ 完成 | `design_overview.md` §5.3 |
+| §5.4 NapCat 掉线补拉 | ✅ 完成 | `core/backfill.py` / `core/napcat.py`、`api_contract.md` §15 |
+| §5.5 规则页噪音过滤（取代原拦截规则）/ Token 账本 / 常量收口 / 密钥外置 | ✅ 完成 | `design_overview.md` §5.5、`api_contract.md` §17、`core_features.md` §14 |
+| §5.6 中期项 / §5.7 暂缓项 | ⏸ 按触发条件 | `design_overview.md` §5.6–§5.7 |
+
+> **2026-11 功能变更**：原「拦截规则」运行时彻底下线（CRUD 接口、插件规则缓存、模板回复全删），
+> 噪音过滤顶到它原来的前置位置；前端 `/rules` 改为噪音过滤页，设置页不再放该分区。
+> 两张旧表保留不 DROP。见 `api_contract.md` §七 / §17.7。
+>
+> 全量回归：Java 442/442（60 类）、插件 211/211、发送桥 31/31、`npm run build` 通过。
+> 插件当前版本 **0.2.32**（本轮饼图只改 Spring 汇总 VO / Service / Mapper 与 Vue `/usage`，
+> 插件不用动、不用重新打包）。细节见 [`../README.md`](../README.md) 的「测试」一节与
+> [`../deploy/README.md`](../deploy/README.md) §10.3（共享测试库 FULLTEXT 维护）。
 
 > 仓库根的 `.github/pull_request_template.md` 已配置，PR 会自动带出自查清单。
 

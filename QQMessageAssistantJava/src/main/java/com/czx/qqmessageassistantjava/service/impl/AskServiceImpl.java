@@ -3,6 +3,7 @@ package com.czx.qqmessageassistantjava.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.czx.qqmessageassistantjava.client.DifyWorkflowClient;
 import com.czx.qqmessageassistantjava.common.BusinessException;
+import com.czx.qqmessageassistantjava.constant.AppSettingKeys;
 import com.czx.qqmessageassistantjava.dto.AskRequest;
 import com.czx.qqmessageassistantjava.dto.ClarifyAnswer;
 import com.czx.qqmessageassistantjava.entity.AskTrace;
@@ -21,6 +22,7 @@ import com.czx.qqmessageassistantjava.retrieval.RrfFusion;
 import com.czx.qqmessageassistantjava.retrieval.SourceFormat;
 import com.czx.qqmessageassistantjava.service.AppSettingService;
 import com.czx.qqmessageassistantjava.service.AskService;
+import com.czx.qqmessageassistantjava.service.ChatAliasService;
 import com.czx.qqmessageassistantjava.service.ContactService;
 import com.czx.qqmessageassistantjava.service.EmbeddingJobService;
 import com.czx.qqmessageassistantjava.vo.AskResponse;
@@ -106,6 +108,7 @@ public class AskServiceImpl implements AskService {
     private final RetrievalService retrievalService;
     private final EmbeddingJobService embeddingJobService;
     private final AppSettingService appSettingService;
+    private final ChatAliasService chatAliasService;
 
     /** 检索前同步补跑的向量条数上限（spec §5.2）；测试 profile 调小以便断言。 */
     @Value("${app.retrieval.pre-run-index-limit:500}")
@@ -118,7 +121,8 @@ public class AskServiceImpl implements AskService {
                           AskTraceMapper askTraceMapper,
                           RetrievalService retrievalService,
                           EmbeddingJobService embeddingJobService,
-                          AppSettingService appSettingService) {
+                          AppSettingService appSettingService,
+                          ChatAliasService chatAliasService) {
         this.difyWorkflowClient = difyWorkflowClient;
         this.contactService = contactService;
         this.messageLogMapper = messageLogMapper;
@@ -127,6 +131,7 @@ public class AskServiceImpl implements AskService {
         this.retrievalService = retrievalService;
         this.embeddingJobService = embeddingJobService;
         this.appSettingService = appSettingService;
+        this.chatAliasService = chatAliasService;
     }
 
     @Override
@@ -341,7 +346,7 @@ public class AskServiceImpl implements AskService {
                     "stage", "resolve",
                     "question", question,
                     "known_contacts", knownContactsJson(),
-                    "owner_aliases", appSettingService.getOrDefault("owner_aliases", ""),
+                    "owner_aliases", appSettingService.getOrDefault(AppSettingKeys.OWNER_ALIASES, ""),
                     "current_time", currentTime()));
         } catch (Exception e) {
             log.warn("查询理解失败，按原问题检索：{}", e.toString());
@@ -664,6 +669,7 @@ public class AskServiceImpl implements AskService {
             return NoteSources.EMPTY;
         }
 
+        Map<String, String> aliasNames = chatAliasService.displayNames();
         Map<Long, String> sourceByNote = new HashMap<>();
         Map<Long, String> quoteByNote = new HashMap<>();
         for (Map.Entry<Long, List<Long>> entry : sourceIdsByNote.entrySet()) {
@@ -677,25 +683,36 @@ public class AskServiceImpl implements AskService {
             if (found.isEmpty()) {
                 continue;
             }
-            sourceByNote.put(entry.getKey(), formatSources(found));
+            sourceByNote.put(entry.getKey(), formatSources(found, aliasNames));
             quoteByNote.put(entry.getKey(),
                     truncate(flatten(found.get(0).getContent()), QUOTE_LIMIT));
         }
         return new NoteSources(sourceByNote, quoteByNote);
     }
 
-    /** 群聊「群名 · 人名 · MM-dd HH:mm」，私聊「QQ 对方QQ · 人名 · MM-dd HH:mm」。 */
-    private static String formatSources(List<MessageLog> rows) {
+    /** 群聊「群名 · 人名 · MM-dd HH:mm」，私聊「QQ 对方QQ · 人名 · MM-dd HH:mm」；有别名先用别名。 */
+    private static String formatSources(List<MessageLog> rows, Map<String, String> aliasNames) {
         List<String> parts = new ArrayList<>();
         int shown = Math.min(rows.size(), SOURCE_MAX);
         for (int i = 0; i < shown; i++) {
-            parts.add(SourceFormat.messageSource(rows.get(i)));
+            MessageLog row = rows.get(i);
+            parts.add(SourceFormat.messageSource(row, aliasOf(row, aliasNames)));
         }
         if (rows.size() > SOURCE_MAX) {
             // spec §7.5「其余以等 N 条收尾」：N 是剩余条数，不是总数
             parts.add("等 " + (rows.size() - SOURCE_MAX) + " 条");
         }
         return String.join("；", parts);
+    }
+
+    /** 群聊按群号取别名，私聊按对方 QQ 取。 */
+    private static String aliasOf(MessageLog row, Map<String, String> aliasNames) {
+        if (aliasNames == null) {
+            return null;
+        }
+        boolean group = row.getChatId() != null;
+        Long key = group ? row.getChatId() : row.getSenderId();
+        return aliasNames.get(ChatAliasService.key(key, group ? "GROUP" : "PRIVATE"));
     }
 
     private static EvidenceVO toEvidence(Candidate candidate, NoteSources sources) {

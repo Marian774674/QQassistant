@@ -1,9 +1,16 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { getToken } from '@/auth/session'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', redirect: '/home' },
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('@/views/LoginView.vue'),
+      meta: { title: '登录', public: true },
+    },
     {
       path: '/home',
       name: 'home',
@@ -53,6 +60,12 @@ const router = createRouter({
       meta: { title: '设置' },
     },
     {
+      path: '/password',
+      name: 'password',
+      component: () => import('@/views/PasswordView.vue'),
+      meta: { title: '修改密码' },
+    },
+    {
       path: '/files',
       name: 'files',
       component: () => import('@/views/FilesView.vue'),
@@ -65,10 +78,16 @@ const router = createRouter({
       meta: { title: '消息日志' },
     },
     {
+      path: '/usage',
+      name: 'usage',
+      component: () => import('@/views/UsageView.vue'),
+      meta: { title: 'Token 用量' },
+    },
+    {
       path: '/rules',
       name: 'rules',
       component: () => import('@/views/RulesView.vue'),
-      meta: { title: '拦截规则' },
+      meta: { title: '噪音过滤' },
     },
     { path: '/:pathMatch(.*)*', redirect: '/home' },
   ],
@@ -76,6 +95,17 @@ const router = createRouter({
     // 滚动容器是 .screen 而不是 window，位置由 AppShell 自己记
     return false
   },
+})
+
+router.beforeEach((to) => {
+  const loggedIn = Boolean(getToken())
+  if (to.meta.public === true) {
+    return loggedIn && to.name === 'login' ? { name: 'home' } : true
+  }
+  if (!loggedIn) {
+    return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  return true
 })
 
 router.afterEach((to) => {

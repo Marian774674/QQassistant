@@ -34,6 +34,9 @@ class ReplyContextTest {
     @Autowired
     private MessageLogMapper messageLogMapper;
 
+    @Autowired
+    private ChatAliasService chatAliasService;
+
     private static final Long CHAT = 9_960_000L;
 
     @Test
@@ -113,6 +116,45 @@ class ReplyContextTest {
     }
 
     @Test
+    void replyContext_exposesTheMasterSwitchSeparatelyFromTheSessionSwitch() {
+        // 会话开关关掉 ≠ 总开关关掉：前者只是「这个群不闲聊」，备忘确认语仍要发
+        chatSettingService.upsert(CHAT + 11, "GROUP", "三班群", null, false);
+
+        ReplyContextVO ctx = chatSettingService.replyContext(CHAT + 11, "GROUP", 15);
+
+        assertThat(ctx.getEnabled()).isFalse();
+        assertThat(ctx.getGlobalEnabled()).isTrue();
+    }
+
+    @Test
+    void replyContext_globalSwitchOffIsVisibleOnItsOwn() {
+        chatSettingService.upsert(CHAT + 12, "GROUP", "三班群", null, true);
+        appSettingService.putAll(Map.of("reply_enabled", "false"));
+
+        ReplyContextVO ctx = chatSettingService.replyContext(CHAT + 12, "GROUP", 15);
+
+        // 插件靠 globalEnabled 决定「彻底闭嘴」，靠 enabled 决定「这个会话要不要闲聊」
+        assertThat(ctx.getGlobalEnabled()).isFalse();
+        assertThat(ctx.getEnabled()).isFalse();
+    }
+
+    @Test
+    void replyContext_carriesTheOwnerQqSoFileTasksCanTellOwnerFromOthers() {
+        // 插件要靠这个字段区分「别人发来的文件」和「主人自己在用工具」：
+        // 总开关关掉后前者必须闭嘴，后者仍要回
+        appSettingService.putAll(Map.of("owner_sender_id", "123456789"));
+
+        assertThat(chatSettingService.replyContext(CHAT + 9, "PRIVATE", 15).getOwnerSenderId())
+                .isEqualTo("123456789");
+    }
+
+    @Test
+    void replyContext_ownerQqIsEmptyWhenNotBound() {
+        assertThat(chatSettingService.replyContext(CHAT + 10, "PRIVATE", 15).getOwnerSenderId())
+                .isEmpty();
+    }
+
+    @Test
     void replyContext_rejectsAnUnknownKind() {
         org.assertj.core.api.Assertions.assertThatThrownBy(
                         () -> chatSettingService.replyContext(CHAT + 5, "FRIENDS", 15))
@@ -155,6 +197,28 @@ class ReplyContextTest {
         ReplyContextVO ctx = chatSettingService.replyContext(PEER, "PRIVATE", 15);
 
         assertThat(ctx.getEnabled()).isFalse();
+    }
+
+    @Test
+    void replyContext_privateRecentMessagesFallBackToAliasWhenNameMissing() {
+        // 私聊的昵称不是每条日志都带得回来；用户给它起过名字就该显示名字，而不是空白
+        Long peer = PEER + 100;
+        chatAliasService.saveAliases(peer, "PRIVATE", "黄哥,阿黄");
+        MessageLog row = new MessageLog();
+        row.setSenderId(peer);
+        row.setSenderName(null);
+        row.setChatId(null);
+        row.setDirection("IN");
+        row.setMsgType("text");
+        row.setContent("在吗");
+        row.setCreatedAt(LocalDateTime.now().minusMinutes(5));
+        row.setDedupeKey("reply-ctx-alias-" + System.nanoTime());
+        messageLogMapper.insert(row);
+
+        ReplyContextVO ctx = chatSettingService.replyContext(peer, "PRIVATE", 15);
+
+        assertThat(ctx.getRecentMessages()).hasSize(1);
+        assertThat(ctx.getRecentMessages().get(0).getSenderName()).isEqualTo("黄哥");
     }
 
     private static final Long PEER = 9_960_777L;

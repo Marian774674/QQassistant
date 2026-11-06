@@ -1,7 +1,7 @@
 # QQ 消息智能助手 · 接口文档（API Contract）
 
 > 本文是 Spring Boot 端 + LangBot 端的**对外接口契约**，供开发时对照实现。
-> 组件职责见 [`architecture.md`](../../../../../design/architecture.md)；表结构见 [`database_schema.md`](../../../../../design/database_schema.md)；各接口的设计出处见 [`optimization_schemes.md`](../../../../../design/optimization_schemes.md)。
+> 组件职责见 [`architecture.md`](./architecture.md)；表结构见 [`database_schema.md`](./database_schema.md)；各接口的设计出处见 [`optimization_schemes.md`](./optimization_schemes.md)。
 > 状态：**草案 → 定稿**。实现前如对某个字段有疑问，先改本文档再改代码。
 
 ---
@@ -17,7 +17,7 @@
 | 系统错误 | `code = 500`，HTTP 500 |
 | 时间格式 | ISO-8601 本地时间，如 `2026-10-15T14:30:00`（`LocalDateTime` 默认序列化） |
 | 枚举 | 字符串字面量，取值见各接口字段说明 |
-| 鉴权 | 个人项目，暂不做（内网 localhost） |
+| 鉴权 | 网页接口走登录态；`/api/agent/**` 走 `X-Agent-Token`；`/api/auth/captcha`、`/api/auth/login`、`/api/auth/qq/**`、`/api/health` 免登录（见 §15 / §16） |
 | 分页 | 暂不做；列表接口返回全量（必要时用 `limit` 参数） |
 | 幂等 | 见各接口说明；`check` 类接口可重复调用 |
 
@@ -34,6 +34,14 @@
 
 | 分组 | Method | Path | 调用方 | 幂等 | 用途 |
 |---|---|---|---|---|---|
+| 登录 | GET | `/api/auth/captcha` | 登录页 | 否 | 图形验证码（密码登录用） |
+| | POST | `/api/auth/login` | 登录页 | 否 | 账号 + 密码 + 图形码换会话 |
+| | GET | `/api/auth/qq/status` | 登录页 | 是 | QQ 登录是否可用 + 脱敏主人号 |
+| | POST | `/api/auth/qq/code` | 登录页 | 否 | 机器人私聊推送 6 位一次性码 |
+| | POST | `/api/auth/qq/verify` | 登录页 | 否 | 验证码换会话（与密码登录同源） |
+| | POST | `/api/auth/logout` | Vue | 是 | 注销当前会话 |
+| | GET | `/api/auth/me` | Vue | 是 | 当前登录账号 |
+| | POST | `/api/auth/password` | Vue | 否 | 修改密码 |
 | 草稿 | POST | `/api/drafts` | Dify / LangBot | 否 | 创建草稿 |
 | | GET | `/api/drafts` | Vue | 是 | 草稿列表 |
 | | POST | `/api/drafts/{id}/confirm` | Vue | 否 | 确认草稿 |
@@ -48,13 +56,9 @@
 | | GET | `/api/memos/open` | LangBot（→Dify） | 是 | 未终结备忘摘要，供模型指认「改哪条」 |
 | | GET | `/api/memos/{id}/history` | Vue | 是 | 变更记录（AI / 手动） |
 | Agent 写入口 | POST | `/api/agent/ops` | Dify HTTP 节点 | **是（`eventId`）** | 备忘新建/修改/完成/取消 |
-| 防重 | POST | `/api/collection-tasks/check` | Dify / LangBot | **是** | 查是否已回复 |
-| | POST | `/api/collection-tasks/mark` | Dify / LangBot | 否 | 标记已回复 |
-| | GET | `/api/collection-tasks/rules` | LangBot | 是 | 拉取前置拦截规则 |
-| 拦截规则 | GET | `/api/intercept-rules` | Vue | 是 | 规则列表 |
-| | POST | `/api/intercept-rules` | Vue | 否 | 新建规则 |
-| | PUT | `/api/intercept-rules/{id}` | Vue | 否 | 修改规则 |
-| | DELETE | `/api/intercept-rules/{id}` | Vue | 否 | 删除规则 |
+| 防重（兼容保留） | POST | `/api/collection-tasks/check` | 暂无调用方 | **是** | 查是否已回复 |
+| | POST | `/api/collection-tasks/mark` | 暂无调用方 | 否 | 标记已回复 |
+| 前置噪音判定 | POST | `/api/agent/noise-filter/check` | LangBot 插件 | 是 | 单条消息是否噪音（取代原拦截规则，§17.7） |
 | 画像·事实 | GET | `/api/profile/{senderId}` | Dify | 是 | 会话注入（含事实 + 画像） |
 | | PUT | `/api/profile/facts` | Dify | 否 | 高置信事实写入（覆盖） |
 | | GET | `/api/profile/facts` | Vue 总控台 | 是 | 事实列表 |
@@ -64,7 +68,10 @@
 | 画像·风格 | GET | `/api/style-profile/{senderId}` | Vue | 是 | 查看当前画像 |
 | | POST | `/api/style-profile/update` | Dify 总结工作流 | 否 | 写回画像 |
 | 设置 | GET | `/api/settings` | Vue | 是 | 读取全部配置 |
-| | PUT | `/api/settings` | Vue | 否 | 更新配置 |
+| | PUT | `/api/settings` | Vue | 否 | 更新配置（5.5 起只接受白名单键，见 §10.2） |
+| 噪音过滤 | GET | `/api/settings/noise-filter` | Vue | 是 | 当前规则 + 出厂默认值（§17.1） |
+| | PUT | `/api/settings/noise-filter` | Vue | 是 | 保存四个 `noise_filter_*` 键（§17.2） |
+| | POST | `/api/settings/noise-filter/preview` | Vue | 是 | 按**草稿规则**试跑，不写库（§17.3） |
 | 文件任务 | GET | `/api/file-tasks` | Vue | 是 | 只读任务列表 |
 | | POST | `/api/file-tasks/sync` | LangBot | 否 | 状态镜像同步 |
 | 会话映射 | GET | `/api/conversations/resolve` | LangBot | **是** | 取当前 Dify conversation_id |
@@ -76,6 +83,11 @@
 | 历史查询 | POST | `/api/ask` | Vue | 否 | 一句话回查聊天记录、事实、备忘、文件 |
 | 记忆归纳 | POST | `/api/memory/rebuild` | Vue / 运维 | 否 | 游标清零，全量补算事实 |
 | 自动回复 | GET | `/api/chat-settings/reply-context` | LangBot | 是 | 开关 + 限流快照 + 子提示词 + 最近消息 |
+| 掉线补拉 | GET | `/api/agent/napcat/targets` | LangBot 插件 | 是 | 待补拉会话 + 各自游标（上限 50） |
+| | POST | `/api/agent/napcat/cursor` | LangBot 插件 | **是（只前进）** | 推进某会话已补到的 `message_seq` |
+| Token 账本 | POST | `/api/agent/token-usage` | LangBot 插件 | 否 | 上报一笔模型用量（§17.4） |
+| | GET | `/api/token-usage/summary` | Vue | 是 | 7/30/90 天汇总 + 按任务/来源/日/会话分账（§17.5） |
+| | GET | `/api/token-usage/recent` | Vue | 是 | 最近明细，默认 50 条（§17.6） |
 
 ### B. LangBot 对外 API（Phase 3 实现，供 Spring Boot 调用）
 
@@ -178,13 +190,27 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `senderId` | long | 是 | 用户 |
-| `chatId` | long | 否 | 会话 |
+| `senderName` | string | 否 | 发送者昵称；拿不到可省 |
+| `chatId` | long | 否 | 会话。**私聊必须省略**——填了就会被当成群消息，私聊会话在网页上消失 |
+| `chatName` | string | 否 | 群名；私聊不填 |
 | `conversationId` | string | 否 | Dify conversation_id |
 | `messageId` | string | 否 | 平台消息 id（桥侧发送成功时回报） |
 | `dedupeKey` | string | 否 | 幂等键；相同值重复写入被跳过 |
 | `direction` | string | 是 | `IN`（收到）\| `OUT`（发出） |
 | `msgType` | string | 是 | `text` \| `image` \| `file` … |
 | `content` | string | 否 | 文本内容 |
+| `replyKind` | string | 否 | 仅 `OUT`：`TASK` \| `CHAT` |
+| `createdAtEpochSeconds` | long | 否 | 消息发生时刻（Unix 秒）。**只有补拉会传**；不传按写入时刻 |
+
+**去重键约定（2026-11 起）**：实时路径与掉线补拉统一用 `dedupeKey = "msg:" + message_id`。
+
+补拉会把同一批消息从 NapCat 历史里再取一遍，两边唯一对得上的就是 `message_id`；
+实时路径以前用随机 uuid，同一条消息会在 `message_log` 里出现两次。
+拿不到 `message_id` 时退化为唯一键——此时只保「同一批重试」不重复。
+
+**`createdAtEpochSeconds` 为什么是 epoch 而不是 ISO 串**：插件跑在容器里，
+容器时区未必是 `Asia/Shanghai`，传墙钟时间会整体偏 8 小时；epoch 由后端按 JVM 时区换算，
+和实时日志（`LocalDateTime.now()`）同一个轴。整理的时间窗、夜间归纳的批次都依赖这个轴。
 
 **响应** `data` = 实际写入条数（int；被 `dedupeKey` 挡掉的条目不计入）。
 
@@ -429,34 +455,26 @@ Dify 的 `OP_HTTP` 节点直接调用本接口。**鉴权**：请求头 `X-Agent
 
 **响应** `data` = true。
 
-### 6.3 `GET /api/collection-tasks/rules` — 拉取前置拦截规则
+### 6.3 已下线：`GET /api/collection-tasks/rules`
 
-**调用方**：LangBot（启动 + 定时轮询，实现**热更新**）。
-**响应** `data` = 启用中的拦截规则数组（按 `priority` 升序）：
-
-```json
-{ "code": 0, "message": "ok",
-  "data": [ { "id": 1, "name": "学号", "keywords": "学号,姓名,专业",
-              "regex": "(学号|姓名|专业)\\s*[:：]?\\s*", "replyTemplate": "学号 2023001，姓名 张三",
-              "priority": 10 } ] }
-```
-
-> 命中后 LangBot **仍须**调 `check` 防重，再决定是否发送。
+原端点供插件启动 / 定时拉取前置拦截规则，已随「拦截规则」整体下线删除。
+插件的前置过滤改走 `POST /api/agent/noise-filter/check`（§17.7），
+**不再从 Spring 拉规则、也不再本地缓存**。
+`check` / `mark` 两个防重端点保留兼容，但当前没有调用方。
 
 ---
 
-## 七、拦截规则管理（`intercept_rule`）
+## 七、拦截规则管理（已下线）
 
-### 7.1 `GET /api/intercept-rules` — 列表
-**响应** `data` = 全部规则（含 `enabled=false`）。
-
-### 7.2 `POST /api/intercept-rules` — 新建
-**请求体**：`{ name, keywords, regex, replyTemplate, priority, enabled }`（`name` 必填，其余可选）。
-
-### 7.3 `PUT /api/intercept-rules/{id}` — 修改
-**请求体**：同新建，部分更新。
-
-### 7.4 `DELETE /api/intercept-rules/{id}` — 删除
+> **2026-11 变更**：用户要求「噪音过滤直接替换原来的拦截规则功能，原来的拦截规则直接废弃」。
+> 运行时链路**彻底下线**：`/api/intercept-rules` 四个 CRUD、`GET /api/collection-tasks/rules`、
+> 插件侧 `core/rules.py` 规则缓存 / 60s 热更新 / 模板回复 / `check`+`mark` 防重调用全部删除；
+> Java 侧实体、Mapper、Service、Controller 也已删除。
+> `intercept_rule` / `collection_task` 两张表**保留不 DROP**（存量数据不动，避免不可逆破坏），
+> 但不再被任何运行时代码读写；新库仍会按 `db/schema.sql` 建出空表以兼容历史迁移脚本。
+>
+> 前端 `/rules` 页改为「噪音过滤」配置页（规则读写见 §17.1–17.3），
+> 消息入口的单条判定见 §17.7。原「命中规则 → 查防重 → 发模板回复」的流程**不再存在**。
 
 ---
 
@@ -526,6 +544,11 @@ Dify 的 `OP_HTTP` 节点直接调用本接口。**鉴权**：请求头 `X-Agent
 
 ### 10.2 `PUT /api/settings` — 更新配置
 **请求体**：kv 对象（部分更新），如 `{ "summary_frequency": "WEEKLY" }`。
+
+**白名单（5.5）**：只接受 `AppSettingKeys.USER_EDITABLE` 里的键；越权键（`auth_password_hash`、
+`memory_cursor`、`last_digest_run` 等系统自己维护的键）返回 `code=400`「配置键不允许从网页修改」，
+请求整体不落库。四个 `noise_filter_*` 键也在白名单里，但建议走 §17.1 / §17.2 的专用接口
+（保存前会编译正则、校验长度、拒绝嵌套量词，通用接口不做这些检查）。
 
 ---
 
@@ -803,7 +826,9 @@ FILE 草稿确认发送成功后，Spring 直接把对应 `taskRef` 的 `status`
 
 ```json
 {
+  "globalEnabled": true,
   "enabled": true,
+  "ownerSenderId": "123456789",
   "replyPrompt": "我是张三，说话随意一点，别提我工作",
   "rateLimit": 20,
   "outLastHour": 3,
@@ -816,19 +841,44 @@ FILE 草稿确认发送成功后，Spring 直接把对应 `taskRef` 的 `status`
 
 | 字段 | 语义 |
 |---|---|
-| `enabled` | `app_setting.reply_enabled`（总开关，缺省 `true`）**且** `chat_setting.auto_reply_enabled`；没建开关行 = `false`（不报错） |
+| `globalEnabled` | `app_setting.reply_enabled` 本身，**不含**会话开关与令牌桶。`false` = 彻底闭嘴，连 `TASK` 一起停 |
+| `enabled` | `globalEnabled` **且** `chat_setting.auto_reply_enabled` **且** 令牌桶有余额；没建开关行 = `false`（不报错） |
+| `ownerSenderId` | `app_setting.owner_sender_id`；空串 = 还没绑定。插件拿它区分「别人发来的东西」和「主人自己在用工具」 |
 | `replyPrompt` | `app_setting.reply_prompt`；空串 = 主人没写 |
 | `rateLimit` | `app_setting.reply_rate_limit`，默认 **20**；非法值也回落默认 |
 | `outLastHour` | 该会话最近一小时 `direction='OUT' AND reply_kind='CHAT'` 的行数 |
 | `recentMessages` | 该会话最近 `limit` 条（两个方向都要），**按时间正序**；`content` 压掉换行、截 200 字 |
 
-**总开关（`app_setting.reply_enabled`）**：一键闭嘴。只有明确的
+**总开关（`app_setting.reply_enabled`）**：一键**彻底闭嘴**。只有明确的
 `false` / `0` / `no` / `off` 才算关，**没配过一律当开**——它是紧急闸，
-不能因为升级或新装把用户逐个打开的会话顺手关掉。它只影响「替你说日常话」，
-备忘、查资料、文件填写照常（那些走 `TASK`）。
+不能因为升级或新装把用户逐个打开的会话顺手关掉。
+
+关掉后**不再产生任何自动发言**：`CHAT` 闲聊、`TASK` 的备忘确认语、文件任务应答全部停。
+动作照跑——备忘照建、状态照改、文件照写，只是不往外吐一个字。
+（原「拦截规则回复」已随该功能下线删除，见 §七。）
+落地方式是在插件最底层压 `reply_text`（`core.reply.silence()`），而不是逐个分支判断：
+直接回话的点散在 `file_task` / `dispatch` 等分支里共七八处，漏一个就等于没关。
+
+**两层开关别混成一个字段**：`globalEnabled` 是总开关本身；`enabled` 是
+「总开关 AND 会话开关 AND 令牌桶」。会话开关关掉只是「这个群不闲聊」，
+`TASK` 仍要发；把两者合并就再也表达不了「彻底闭嘴」。
+旧版 Spring 不返回 `globalEnabled` 时，插件按 `true` 处理（否则升级插件会让人全哑）。
+
+**文件任务的例外（2026-11 修正）**：文件消息以前绕过了门控——`file_task.ingest()` 内部
+直接 `reply_text`，所以总开关关掉后对方发个 PDF，机器人照样回「这个格式我只能读不能改」。
+现在的判定在插件侧、下载之前：
+
+```
+may_reply = globalEnabled and (enabled or sender_id == ownerSenderId)
+```
+
+- 总开关关掉 → **谁的都不看、不存、不回**（连 Dify 都不调）；
+- 总开关开着、只是会话开关关掉 → 别人发文件不回，**主人自己**发文件仍处理
+  （那是主人在用工具，不是替主人说话）；
+- 拿不到 `ownerSenderId`（未绑定 / Spring 不通）→ 一律按「不是主人」处理（fail closed）。
 
 **为什么计 `reply_kind='CHAT'` 而不是所有 OUT**：限流只该约束「替主人闲聊」。
-把拦截回复、备忘确认语算进来，会让一条日更通知把当天的自动回复额度全吃掉。
+把备忘确认语算进来，会让一条日更通知把当天的自动回复额度全吃掉。
 
 **索引**：`message_log` 的 `idx_chat_created (chat_id, created_at)` 同时覆盖最近消息与这一小时的 `COUNT`。
 
@@ -840,7 +890,300 @@ FILE 草稿确认发送成功后，Spring 直接把对应 `taskRef` 的 `status`
 
 ---
 
-## 十五、待 Phase 4 确认的集成点
+## 十五、NapCat 掉线补拉（`/api/agent/napcat`）
+
+NapCat 掉线期间 QQ 根本没把消息推给它，任何下游 MQ 都变不出来。
+真正能补的是 **NapCat 重新上线后向 QQ 回查历史**，而回查必须由插件做
+（红线：Spring 不直连 NapCat）。所以这里只有两个接口：给「补哪些会话」和「补到哪了」。
+
+> **调用时机（插件 0.2.32 起）**：每 10s 探 `get_status`（服务）与 `get_login_info`（账号），
+> 恢复就绪时立即调一次；另每 300s（`napcat_backfill_sweep_s`）无条件兜底调一次。
+> 边沿不能是唯一触发条件——登录过期、漏采样的重登、LangBot WS 断开时 NapCat 服务
+> 一直报在线，`offline → online` 边沿根本不出现。补拉幂等，重复调用只多几次本机 HTTP。
+> 这两个接口的契约本身不变。
+
+两个接口都在 `/api/agent/**` 下，走 `X-Agent-Token` 共享通道——插件没有浏览器会话。
+
+### 15.1 `GET /api/agent/napcat/targets` — 待补拉会话 + 游标
+
+**Query**：`limit`（可选，默认 50，最大 200）。
+
+**响应** `data` = 数组：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `chatType` | string | `GROUP` \| `PRIVATE` |
+| `chatId` | long | 群号；私聊为对方 QQ |
+| `chatName` | string | 群名；**私聊恒为 `null`**（补写日志时也不带，否则和实时日志长得不一样） |
+| `lastMessageSeq` | long | 已补到的 `message_seq`；`0` = 从最新一页开始 |
+
+**目标怎么挑**（顺序即优先级）：
+
+1. 用户在设置页**开了自动回复或整理**的会话——掉线漏消息只发生在真正关心的会话里，
+   撞上 50 个上限时不能被一堆闲聊群挤掉；
+2. 近 7 天有 `message_log` 的会话，按最近活跃倒序。
+
+两路合并后按 `(chatType, chatId)` 去重。为什么只取 7 天：几个月没说话的群补一遍，
+除了多打几十次 QQ 接口没有收益，还更容易触发风控。
+
+**游标为什么是 `message_seq` 而不是时间戳**：同一秒里可能有好几条消息，
+时间戳既不能排序也不能做「大于游标」的截断，补拉会把整页重复写一遍。
+
+### 15.2 `POST /api/agent/napcat/cursor` — 推进游标
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `chatType` | string | 是 | `GROUP` \| `PRIVATE` |
+| `chatId` | long | 是 | 群号；私聊为对方 QQ |
+| `lastMessageSeq` | long | 是 | 已经**成功写进** `message_log` 的最新 `message_seq` |
+
+**响应** `data` = 推进后的实际游标（long）。
+
+- **只前进不后退**：SQL 是 `GREATEST(last_message_seq, ?)`，重放一个更小的值不会把游标改小。
+  改小意味着下一轮把已经补过的几百条再拉一遍。
+- **必须先写日志再推进**：写一半就推进，没写进去的那批消息永远不会再补。
+- 参数不合法回 HTTP 200 + `code=400`（与 `/api/agent/ops` 同一套约定）——
+  插件的 HTTP 客户端只在非 2xx 时抛错，混用会让「参数写错了」被当成「后端没起来」。
+
+**补拉范围**（在插件侧固定，不开放配置）：
+
+| 项 | 值 |
+|---|---|
+| 单次会话数 | 50 |
+| 每会话条数 | 200 |
+| 每会话翻页 | 5 页 × 40 条 |
+| 请求间隔 | 1 req/s |
+
+**重放边界**：补回来的消息**只写 `message_log`**，不进 Dify、不触发自动回复——
+拿几小时前的消息去跑语义决策只会得到一堆过时的回复。整理、夜间归纳、向量索引
+都从 `message_log` 读，它们会自然吃到补回来的内容。
+
+---
+
+## 十六、登录认证（`/api/auth`）
+
+单管理员会话。除 `captcha` / `login` / `qq/**` 外，所有 `/api/**` 都要求
+`Authorization: Bearer <token>`；缺失或过期统一返回 HTTP 401 + `{code:401}`。
+会话存 Redis `auth:session:<token>`，TTL 30 分钟，**每次校验滑动续期**。
+
+### 16.1 图形验证码（密码登录用）
+
+`GET /api/auth/captcha` → `{ captchaId, image }`，`image` 是 `data:image/png;base64,...`。
+正文存 `auth:captcha:<id>`，TTL 2 分钟；**无论对错，校验一次即删**。
+
+> **图片是 `createLineCaptcha(120, 40, 4, 20)` 生成的 120×40、4 位字符**。前端展示容器
+> 至少要留够 120px 宽，且必须用 `object-fit: contain`（或按原比例显示）；
+> 曾经用 108px 容器 + `object-fit: cover` + `overflow: hidden`，图被按高度放大后
+> 左右各裁掉一截，首尾字符残缺、用户无法辨认。改动登录页样式时别把这条改回去。
+
+### 16.2 密码登录
+
+`POST /api/auth/login`
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `username` | string | `app_setting.auth_username` |
+| `password` | string | BCrypt 比对 |
+| `captchaId` | string | 上一步拿到的 id |
+| `captchaCode` | string | 4 位，大小写不敏感 |
+
+→ `{ token, username }`。失败一律 400 + 人话原因（"验证码已过期，请刷新" / "用户名或密码错误"）。
+
+### 16.3 QQ 授权登录（默认入口）
+
+**身份只认 `app_setting.owner_sender_id`**（设置页「我的 QQ 号」），该键为空时回落到
+`app.auth.owner-qq`（环境变量 `AUTH_OWNER_QQ`）。其他 QQ 号一律拒绝——码永远到不了别人手里。
+
+#### `GET /api/auth/qq/status`
+
+→ `{ bound: boolean, maskedQq: string }`。`maskedQq` 形如 `123****89`（头 3 尾 2，不足 6 位则头尾各 1）。
+前端据此决定默认停在哪个页签：`bound=false` 时直接切到密码登录并提示去绑定。
+
+#### `POST /api/auth/qq/code`
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `qq` | string | 5–12 位数字，必须等于已绑定的主人号 |
+
+→ `{ sent, expiresInSeconds, retryAfterSeconds }`
+
+| 场景 | `sent` | 说明 |
+|---|---|---|
+| 正常发出 | `true` | `expiresInSeconds=300`，`retryAfterSeconds=60` |
+| 冷却期内重发 | `false` | **不算错误**（`code=0`），`retryAfterSeconds` 为剩余秒数；不产生新码、不推送 |
+
+错误（HTTP 400）：
+
+| 消息 | 触发 |
+|---|---|
+| `QQ 号应该是 5–12 位数字` | 格式不对 |
+| `还没有绑定主人 QQ 号：先用密码登录，在「设置 → 我的 QQ 号」里填上` | 两个来源都为空 |
+| `这个 QQ 号不是已绑定的主人账号` | 与主人号不一致 |
+| `验证码发送失败，确认 QQ 机器人在线，或改用密码登录` | 发送桥/机器人不可用；**此时已写入的码会被删除**，不会留下「查得到但收不到」的状态 |
+
+推送内容：`【值守台】登录验证码 123456，5 分钟内有效。` + 一句防骗提示。
+`delayMs=0`（登录码不做拟人延迟），`bizRef=auth-login:<qq>:<uuid>` **每次唯一**——
+发送桥按 `bizRef` 幂等，复用键会让第二次登录收不到码。
+
+#### `POST /api/auth/qq/verify`
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `qq` | string | 同发码 |
+| `code` | string | 6 位数字 |
+
+→ `{ token, username }`，与密码登录**完全相同的会话**（`AuthService.createSession`），
+前端不需要按登录方式分叉。
+
+| 错误消息 | 触发 |
+|---|---|
+| `请输入收到的验证码` | `code` 为空 |
+| `验证码已过期，请重新获取` | `auth:qq:code:<qq>` 不存在或已 TTL |
+| `验证码不对，还可以试 N 次` | 比对失败，`N` 为剩余次数 |
+| `错误次数过多，验证码已作废，请重新获取` | 第 6 次失败；同时删除码与计数 |
+
+实现约束：
+
+- 码一次性，校验成功即删 `code` / `attempt` / `cooldown` 三个键；
+- 比对走 `MessageDigest.isEqual`（常量时间），不用 `String.equals`；
+- 错误计数先 `INCR` 再比对，成功才清零——否则失败次数永远不累加；
+- 每次重新发码都重置计数，避免历史失败把新码一起拖垮。
+
+### 16.4 会话相关
+
+| 接口 | 说明 |
+|---|---|
+| `POST /api/auth/logout` | 删除当前 token 的会话 |
+| `GET /api/auth/me` | → `{ username }`；拦截器已放行 Agent 身份（`username="agent"`） |
+| `POST /api/auth/password` | `{ oldPassword, newPassword }`；新密码 ≥ 6 位，成功即写 `auth_password_hash` |
+
+> **前端入口（2026-11 补齐）**：网页「更多 → 系统 → 修改密码」（`/password`）调用本接口，
+> 表单三项为旧密码 / 新密码 / 确认新密码，前端另拦「新旧相同」「两次不一致」。
+> 成功后前端依次调 `POST /api/auth/logout` 作废当前会话、清本地 token、
+> 跳 `/login?changed=1`（登录页默认切到密码栏并给出持久提示）。
+> **边界**：后端只更新哈希，**不主动清除其它已签发的会话**，它们按 30 分钟 TTL 自然过期；
+> 单用户内网自用下可接受，若将来要多端强踢需在此接口里遍历 `auth:session:*`。
+
+---
+
+## 十七、5.5：噪音过滤（规则页 + 插件前置判定）与 Token 用量账本（`/api/settings/noise-filter`、`/api/agent/noise-filter`、`/api/token-usage`）
+
+> 鉴权：`/api/settings/noise-filter/**` 与 `/api/token-usage/**` 走登录态；
+> `POST /api/agent/token-usage` 由 `X-Agent-Token` 鉴权（同 §15）。
+
+### 17.1 `GET /api/settings/noise-filter` — 读取规则
+
+**响应** `data`：
+`{ enabled, keywords, regex, keepRegex, defaultKeywords, defaultRegex, defaultKeepRegex }`。
+`default*` 是 `TuningDefaults` 的出厂值，供前端「恢复默认」，不随库里当前值变化。
+
+### 17.2 `PUT /api/settings/noise-filter` — 保存规则
+
+**请求体**：`{ enabled, keywords, regex, keepRegex }`（四个字段都给）。
+只写 `noise_filter_enabled / noise_filter_keywords / noise_filter_regex / noise_filter_keep_regex` 四个键。
+保存前编译正则、检查长度（关键词 ≤ 2000、正则 ≤ 1000）、拒绝嵌套量词（如 `(a+)+`）；
+坏正则返回 `code=400`，**一个键都不写**。
+
+### 17.3 `POST /api/settings/noise-filter/preview` — 试跑
+
+**请求体**：`{ texts: string[], enabled?, keywords?, regex?, keepRegex? }`。
+后四个字段是**草稿**：传了就按编辑框里的当前值判定，没传才用库里已保存的值；**不写库**。
+最多 20 句、每句截 200 字；草稿里的坏正则同样拒绝。
+**响应** `data`：`{ enabled, items: [{ text, kept, reason }] }`。`reason` 与单条判定同源
+（`MessageNoiseFilter.dropReason()`），取值为 `blank` / `keyword` / `punctuation` / `repeat` / `null`；
+`null` 表示保留（含命中 `keep_regex` 被放行、非文本、噪音过滤开关关闭）。
+
+### 17.4 `POST /api/agent/token-usage` — 插件上报一笔用量
+
+**请求体**：`{ source, task, model, promptTokens, completionTokens, totalTokens, chatId }`。
+`source` 归一为 `spring|plugin`，`task` ≤ 32 字符、`model` ≤ 64；
+`totalTokens` 缺失时由 prompt + completion 派生，单次上限 1e7；`model` 可空（显示「未标注」）。
+**响应** `data` = 新增行 `id`。业务错误返回 **HTTP 200 + `code=400`**，与 `/api/agent/**` 约定一致。
+
+### 17.5 `GET /api/token-usage/summary` — 汇总（Vue 只读）
+
+**Query**：`days`（默认 7，clamp 到 90）。
+**响应** `data`：
+`{ days, since, calls, promptTokens, completionTokens, totalTokens, byTask, bySource, byDay, byChat }`。
+`byTask` / `bySource` / `byDay` 三个分账数组元素形如 `{ task|source|day, calls, tokens }`；
+MySQL 别名大小写与 `SUM` 返回的 `BigDecimal` 已在服务端归一成小写键 + 数值，前端不做二次转换。
+
+**`byChat`：「花在哪个会话」饼图**（`TokenUsageChatVO[]`，元素 `{ chatId, label, kind, calls, tokens }`）：
+
+| `kind` | 含义 | `chatId` |
+|---|---|---|
+| `chat` | 某个真实群聊（按 `token_usage.chat_id` 分组，只取消耗最大的 Top 6） | 群号 |
+| `unassigned` | 账本里 `chat_id IS NULL` 的调用（问一句 / 画像抽取 / 夜间归纳 / 私聊自动回复） | `null` |
+| `other` | Top 6 之外合并的小会话，`label` 形如「其它 2 个会话」 | `null` |
+
+三条口径（已与需求确认）：
+
+- **无 `chatId` 的调用单列一块**，不丢、不摊进群聊，保证各扇之和等于 `totalTokens`；
+  账本没有 `kind` 列，私聊自动回复也传 `chatId = null`，**不同私聊对象暂时分不开**。
+- **真实会话只留 Top 6**（`TuningDefaults.TOKEN_USAGE_CHART_TOP_N`），其余合并成 `other`；
+  `unassigned` / `other` 都不参与 Top 6 竞争，永远各占一扇。0 token 的分组不画扇区、不占图例。
+- **展示名优先级**：`chat_alias.aliases` 第一段 > `chat_setting.chat_name` 第一段 > 「群 + 群号」。
+  SQL 只 JOIN `kind='GROUP'` 的命名行，避免「群号恰好等于某人 QQ」的私聊别名串进来；
+  逗号串按 `utils/name.ts#firstSegment` 同源分隔符在 Java 侧切第一段，SQL 不做字符串切分。
+
+> **后端不返回浮点占比**：只给 `tokens` / `calls`，前端按 `byChat` 之和算百分比与弧长，
+> 以后改 Top N 不用动接口。数组已按 `tokens` 降序排好，颜色分配才稳定。
+> 前端不引图表库，用 SVG `<circle>` + `stroke-dasharray` 画甜甜圈，圆中心放总量；
+> 图例复用全局 `.rows` / `.row` 卡片，`hoveredSlice` 联动扇形与图例。
+> `unassigned` 用冷灰、`other` 用最浅的暖褐，真实群聊走纸墨色系，三者在浅色纸底上都不可混。
+
+### 17.6 `GET /api/token-usage/recent` — 最近明细（Vue 只读）
+
+**Query**：`days`（默认 7，最大 90）、`limit`（默认 50，最大 200）。
+**响应** `data` = 行数组：
+`{ id, source, task, model, promptTokens, completionTokens, totalTokens, chatId, createdAt }`。
+
+> **账本边界（§17.4–17.6）**：只追加、只读展示，没有删除 / 清空接口，也不参与任何业务判定。
+
+> **前端展示约定（2026-11 调整）**：接口仍按 `limit=50` 一次拉齐，但 `/usage` 页面
+> 默认只渲染 12 条，「展开全部 / 收起」作为列表卡片的最后一行；否则 50 行明细会把上方的
+> 分账与按天图表挤出首屏。按天柱状图单日时柱子限宽 48px，不能靠 flex-grow 撑成整宽色块。
+> 明细列表**必须复用 `style.css` 的全局 `.rows` / `.row`**：`.rows` 自带卡片（发丝线 +
+> 圆角 + 纸底）与 `li + li` 行间线，`.row` 自带 `padding: 13px 16px`；页面 scoped 样式
+> 只允许调整行高 / 光标，**不得把横向 padding 改成 0 或再叠 `border-bottom`**，否则文字
+> 会贴到卡片边框、分隔线变粗（两轮截图反馈的根因）。右侧 tokens 做成「数字 + `tokens` 单位」
+> 的右对齐小统计块，整体垂直居中，避免单个数字飘在标题与副行之间。
+> §17.5 的会话占比图例**同样复用这套 `.rows` / `.row`**，只加一颗色块，不另做卡片样式。
+> Dify Workflow 的 blocking 响应只给 `data.total_tokens`，不拆 prompt/completion、不回传模型名；
+> 只有 chat-messages 的 `metadata.usage` 才有拆分。缺的数据记 0 / NULL /「未标注」，不猜。
+> 记账失败只 warn（表没迁移、库被锁都不影响调用），一条消息最多记一行。
+
+### 17.7 `POST /api/agent/noise-filter/check` — 插件前置噪音判定
+
+**调用方**：LangBot 插件（每条文本消息，在写 IN 日志之后、`triggered` 判断之前）。
+**鉴权**：`/api/agent/**` 的 `X-Agent-Token`（同 §15），网页登录态不可调。
+
+**请求体**：`{ text, msgType }`。规则**不从插件传**，Spring 一律读 `app_setting` 里
+四个 `noise_filter_*` 键，与整理 / 夜间归纳的 `filter()`、规则页的 `preview()`
+共用同一条 `MessageNoiseFilter` 链（§17.1–17.3）。
+
+**响应** `data` = `{ noise: boolean, reason: string }`；保留时 `reason` 为空串
+（不用 `null`，避免 `Map.of` / 前端判空分歧）。`reason` 取值同 §17.3：
+`blank` / `keyword` / `punctuation` / `repeat`。
+
+**约定**：
+
+- 非文本消息（`msgType != "text"`）一律判为保留；空文本判 `blank`；
+  命中 `keep_regex` 或含主人别名时优先放行。
+- **噪音过滤开关**（`noise_filter_enabled`）关闭时全部判为保留。它和自动回复总开关
+  （`reply_enabled`）是两回事：后者管「发不发言」，前者管「要不要进模型」，互不影响。
+- 命中噪音的消息**原文照常写 `message_log`**，只是不再进 Dify、不再自动回复。
+  它和「自动回复总开关关闭」不是一回事：总开关是不发言，这里是连模型都不调。
+- 插件侧 **fail-open**：接口异常 / 超时 / Spring 还是旧版没有该端点 / 响应为空，
+  一律当「非噪音」放行。判定失败最坏只是多处理一句废话，绝不能吞掉主人的消息。
+- 每条消息多一次 HTTP 判定，换来「网页改完立刻生效」与「单一规则链」：
+  避免 Java / Python 正则方言不一致（如 `\p{P}`），也避免插件缓存旧规则。
+- 原 `GET /api/collection-tasks/rules` 与 `/api/intercept-rules` CRUD 已删除，
+  见 §6.3 / §七。
+
+---
+
+## 十八、待 Phase 4 确认的集成点
 
 - **Dify 应用配置 API**：`POST /api/style-profile/update` 后更新画像 Prompt 的调用方式、鉴权、字段名。
 - **NapCat 文件收发 API**：Phase 3 随 `send_file` 一并确认。

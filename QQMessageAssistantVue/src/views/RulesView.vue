@@ -1,47 +1,66 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { Plus, ShieldCheck, Trash2 } from 'lucide-vue-next'
-import EmptyState from '@/components/EmptyState.vue'
+import { onMounted, ref } from 'vue'
 import ErrorState from '@/components/ErrorState.vue'
 import PageHead from '@/components/PageHead.vue'
-import Sheet from '@/components/Sheet.vue'
 import Skeleton from '@/components/Skeleton.vue'
-import { createRule, deleteRule, listRules, updateRule } from '@/api/rules'
-import type { InterceptRule, InterceptRuleBody } from '@/api/types'
-import { tapFeedback, useRefresh } from '@/composables/useRefresh'
+import {
+  getNoiseFilter,
+  previewNoiseFilter,
+  putNoiseFilter,
+  type NoiseFilterSettings,
+  type NoisePreviewItem,
+} from '@/api/rules'
+import { useRefresh } from '@/composables/useRefresh'
 import { useToast } from '@/composables/useToast'
 
+/**
+ * 噪音过滤配置页。原来的「拦截规则」（命中关键词 → 绕过模型回模板）已下线，
+ * 这个菜单位置由噪音过滤接管：消息入口、整理、夜间归纳共用同一套规则。
+ */
 const toast = useToast()
 
-const rules = ref<InterceptRule[]>([])
+const SAMPLE_TEXTS = ['666', '哈哈哈，明天 20:00 班会', '下周三交表', '……', '笑死我了']
+const REASON_LABEL: Record<string, string> = {
+  keyword: '命中噪音词',
+  repeat: '重复字符',
+  punctuation: '纯标点',
+  blank: '空内容',
+}
+
 const loading = ref(true)
 const error = ref('')
-
-const sheetOpen = ref(false)
-const editing = ref<InterceptRule | null>(null)
+const loaded = ref(false)
+const dirty = ref(false)
 const saving = ref(false)
 const formError = ref('')
-const confirmingDelete = ref(false)
-const togglingId = ref<number | null>(null)
-const testText = ref('')
 
-const form = reactive({
-  name: '',
-  keywords: '',
-  regex: '',
-  replyTemplate: '',
-  priority: 10,
-  enabled: true,
-})
+const enabled = ref(true)
+const keywords = ref('')
+const regex = ref('')
+const keepRegex = ref('')
+const defaults = ref<NoiseFilterSettings | null>(null)
 
-/** silent = 下拉刷新：保留当前列表，不闪骨架屏 */
+const previewText = ref(SAMPLE_TEXTS.join('\n'))
+const previewItems = ref<NoisePreviewItem[]>([])
+const previewing = ref(false)
+const previewError = ref('')
+
+/** silent = 下拉刷新：保留正在编辑的内容，不闪骨架屏 */
 async function load(silent = false) {
   if (!silent) {
     loading.value = true
     error.value = ''
   }
   try {
-    rules.value = await listRules()
+    const noise = await getNoiseFilter()
+    defaults.value = noise
+    if (!dirty.value) {
+      enabled.value = noise.enabled
+      keywords.value = noise.keywords ?? ''
+      regex.value = noise.regex ?? ''
+      keepRegex.value = noise.keepRegex ?? ''
+    }
+    loaded.value = true
   } catch (e) {
     const message = e instanceof Error ? e.message : '规则读取失败'
     if (silent) toast.error(message)
@@ -52,103 +71,41 @@ async function load(silent = false) {
 }
 
 onMounted(load)
-
 useRefresh(() => load(true))
 
-const sorted = computed(() =>
-  [...rules.value].sort((a, b) => a.priority - b.priority || a.id - b.id),
-)
-
-function openCreate() {
-  editing.value = null
-  form.name = ''
-  form.keywords = ''
-  form.regex = ''
-  form.replyTemplate = ''
-  form.priority = 10
-  form.enabled = true
-  formError.value = ''
-  confirmingDelete.value = false
-  testText.value = ''
-  sheetOpen.value = true
+function toggleEnabled() {
+  enabled.value = !enabled.value
+  dirty.value = true
 }
 
-function openEdit(rule: InterceptRule) {
-  editing.value = rule
-  form.name = rule.name
-  form.keywords = rule.keywords ?? ''
-  form.regex = rule.regex ?? ''
-  form.replyTemplate = rule.replyTemplate ?? ''
-  form.priority = rule.priority
-  form.enabled = rule.enabled
+function resetDefaults() {
+  const d = defaults.value
+  if (!d) return
+  enabled.value = true
+  keywords.value = d.defaultKeywords
+  regex.value = d.defaultRegex
+  keepRegex.value = d.defaultKeepRegex
+  dirty.value = true
   formError.value = ''
-  confirmingDelete.value = false
-  testText.value = ''
-  sheetOpen.value = true
 }
-
-/** 正则写错会让整条链路静默失效，所以边写边校验 */
-const regexCheck = computed(() => {
-  const source = form.regex.trim()
-  if (!source) return { state: 'empty' as const, message: '没填正则：只按关键词匹配' }
-  try {
-    new RegExp(source)
-    return { state: 'ok' as const, message: '正则可编译' }
-  } catch (e) {
-    return {
-      state: 'bad' as const,
-      message: e instanceof Error ? e.message : '正则语法错误',
-    }
-  }
-})
-
-const testResult = computed(() => {
-  const source = form.regex.trim()
-  const text = testText.value
-  if (!source || !text) return null
-  try {
-    const match = new RegExp(source).exec(text)
-    if (!match) return { hit: false, detail: '没有命中' }
-    const groups = match.slice(1).filter(Boolean)
-    return {
-      hit: true,
-      detail: groups.length ? `命中，捕获：${groups.join(' / ')}` : `命中：${match[0]}`,
-    }
-  } catch {
-    return { hit: false, detail: '正则无效，无法测试' }
-  }
-})
 
 async function save() {
-  if (!form.name.trim()) {
-    formError.value = '规则要有个名字'
-    return
-  }
-  if (regexCheck.value.state === 'bad') {
-    formError.value = '正则语法有错，先改好再保存'
-    return
-  }
-  saving.value = true
   formError.value = ''
-  const body: InterceptRuleBody = {
-    name: form.name.trim(),
-    keywords: form.keywords.trim() || null,
-    regex: form.regex.trim() || null,
-    replyTemplate: form.replyTemplate.trim() || null,
-    priority: form.priority,
-    enabled: form.enabled,
-  }
+  saving.value = true
   try {
-    if (editing.value) {
-      const updated = await updateRule(editing.value.id, body)
-      rules.value = rules.value.map((rule) => (rule.id === updated.id ? updated : rule))
-      toast.success('规则已更新')
-    } else {
-      const created = await createRule(body)
-      rules.value = [...rules.value, created]
-      toast.success('规则已创建')
-    }
-    sheetOpen.value = false
+    const saved = await putNoiseFilter({
+      enabled: enabled.value,
+      keywords: keywords.value,
+      regex: regex.value,
+      keepRegex: keepRegex.value,
+    })
+    dirty.value = false
+    defaults.value = saved
+    enabled.value = saved.enabled
+    keywords.value = saved.keywords ?? ''
+    regex.value = saved.regex ?? ''
+    keepRegex.value = saved.keepRegex ?? ''
+    toast.success('噪音过滤已保存')
   } catch (e) {
     formError.value = e instanceof Error ? e.message : '保存失败'
   } finally {
@@ -156,39 +113,30 @@ async function save() {
   }
 }
 
-async function toggle(rule: InterceptRule) {
-  togglingId.value = rule.id
-  tapFeedback()
-  const next = !rule.enabled
-  rules.value = rules.value.map((item) =>
-    item.id === rule.id ? { ...item, enabled: next } : item,
-  )
-  try {
-    const updated = await updateRule(rule.id, { enabled: next })
-    rules.value = rules.value.map((item) => (item.id === updated.id ? updated : item))
-  } catch (e) {
-    rules.value = rules.value.map((item) =>
-      item.id === rule.id ? { ...item, enabled: rule.enabled } : item,
-    )
-    toast.error(e instanceof Error ? e.message : '切换失败')
-  } finally {
-    togglingId.value = null
+async function runPreview() {
+  previewError.value = ''
+  const texts = previewText.value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (!texts.length) {
+    previewError.value = '先写几句话，一行一句'
+    return
   }
-}
-
-async function remove() {
-  const rule = editing.value
-  if (!rule) return
-  saving.value = true
+  previewing.value = true
   try {
-    await deleteRule(rule.id)
-    rules.value = rules.value.filter((item) => item.id !== rule.id)
-    sheetOpen.value = false
-    toast.push('规则已删除')
+    // 按编辑框里「还没保存」的草稿试跑，不写库
+    const result = await previewNoiseFilter(texts.slice(0, 20), {
+      enabled: enabled.value,
+      keywords: keywords.value,
+      regex: regex.value,
+      keepRegex: keepRegex.value,
+    })
+    previewItems.value = result.items
   } catch (e) {
-    formError.value = e instanceof Error ? e.message : '删除失败'
+    previewError.value = e instanceof Error ? e.message : '试跑失败'
   } finally {
-    saving.value = false
+    previewing.value = false
   }
 }
 </script>
@@ -197,399 +145,242 @@ async function remove() {
   <div class="page">
     <PageHead
       :back="{ to: '/more', label: '更多' }"
-      title="Rules"
-      sub="命中就绕过模型直接回复。保存后插件 60 秒内热更新。"
-    >
-      <template #actions>
-        <button type="button" class="add-btn" aria-label="新建规则" @click="openCreate">
-          <Plus :size="16" :stroke-width="2.4" aria-hidden="true" />
-        </button>
-      </template>
-    </PageHead>
+      title="噪音过滤"
+      sub="没信息量的话不进模型。原「拦截规则」已下线，这个位置现在归它。"
+    />
 
-    <ErrorState v-if="error" :message="error" hint="也可以下拉重试。" @retry="load" />
+    <ErrorState v-if="error" :message="error" hint="也可以下拉重试。" @retry="() => load()" />
 
     <Skeleton v-else-if="loading" :rows="3" />
 
-    <ul v-else-if="sorted.length" class="stack">
-      <li v-for="rule in sorted" :key="rule.id" class="rule" :class="{ off: !rule.enabled }">
-        <button type="button" class="rule-main" @click="openEdit(rule)">
-          <span class="rule-icon" aria-hidden="true">
-            <ShieldCheck :size="16" :stroke-width="1.8" />
+    <template v-else>
+      <p class="intro">
+        消息进来时先判一次：命中就<strong>不再调用模型、不再自动回复</strong>，但原文照常写进消息日志。
+        同一套规则也用在整理和夜间归纳之前，改一次三处同时生效。@我、问号、时间、作业这些一律保留。
+      </p>
+
+      <div class="card card-pad">
+        <div class="switch-row">
+          <span class="switch-text">
+            <span class="switch-label">启用过滤</span>
+            <span class="switch-hint">关掉后所有消息都照常进模型，token 用量会明显上升。</span>
           </span>
-          <span class="rule-text">
-            <span class="rule-name">{{ rule.name }}</span>
-            <span class="rule-meta">
-              <span v-if="rule.keywords" class="clamp-1">{{ rule.keywords }}</span>
-              <span v-else class="faint">无关键词</span>
-            </span>
-            <span v-if="rule.regex" class="rule-regex mono clamp-1">{{ rule.regex }}</span>
-          </span>
-          <span class="rule-priority num">P{{ rule.priority }}</span>
-        </button>
-
-        <button
-          type="button"
-          class="switch"
-          role="switch"
-          :aria-checked="rule.enabled"
-          :aria-label="`${rule.enabled ? '停用' : '启用'}规则 ${rule.name}`"
-          :disabled="togglingId === rule.id"
-          @click="toggle(rule)"
-        >
-          <span class="switch-knob" />
-        </button>
-      </li>
-    </ul>
-
-    <EmptyState
-      v-else
-      title="还没有拦截规则"
-      hint="比如报学号这类固定回复，配一条规则就能跳过模型，省 token 也更快。"
-    >
-      <button type="button" class="btn btn-sm btn-quiet" @click="openCreate">新建一条</button>
-    </EmptyState>
-
-    <Sheet
-      :open="sheetOpen"
-        :title="editing ? '编辑规则' : '新建规则'"
-      description="关键词与正则满足其一即命中；命中后仍会先查防重再发送。"
-      height="92%"
-      @close="sheetOpen = false"
-    >
-      <div class="form">
-        <div class="frow">
-          <label class="frow-label" for="rule-name">名称</label>
           <input
-            id="rule-name"
-            v-model="form.name"
-            class="frow-input"
-            type="text"
-            placeholder="报学号"
-            maxlength="64"
-          />
-        </div>
-
-        <div class="frow">
-          <label class="frow-label" for="rule-keywords">关键词</label>
-          <input
-            id="rule-keywords"
-            v-model="form.keywords"
-            class="frow-input"
-            type="text"
-            placeholder="学号,姓名,专业"
-          />
-        </div>
-
-        <div class="frow">
-          <label class="frow-label" for="rule-regex">正则</label>
-          <input
-            id="rule-regex"
-            v-model="form.regex"
-            class="frow-input mono"
-            type="text"
-            placeholder="(学号|姓名|专业)\s*[:：]?\s*"
-            spellcheck="false"
-          />
-          <p class="frow-hint" :class="{ bad: regexCheck.state === 'bad' }">
-            {{ regexCheck.message }}
-          </p>
-        </div>
-
-        <div class="frow">
-          <label class="frow-label" for="rule-reply">回复模板</label>
-          <textarea
-            id="rule-reply"
-            v-model="form.replyTemplate"
-            class="frow-input"
-            rows="2"
-            placeholder="学号 2023001，姓名 张三"
-          />
-        </div>
-
-        <div class="frow">
-          <label class="frow-label" for="rule-priority">优先级（小的先匹配）</label>
-          <input
-            id="rule-priority"
-            v-model.number="form.priority"
-            class="frow-input num"
-            type="number"
-            min="0"
-            max="999"
-          />
-        </div>
-
-        <div class="frow row-inline">
-          <span class="frow-label">启用</span>
-          <button
-            type="button"
+            type="checkbox"
             class="switch"
             role="switch"
-            :aria-checked="form.enabled"
-            aria-label="启用这条规则"
-            @click="form.enabled = !form.enabled"
-          >
-            <span class="switch-knob" />
-          </button>
+            :checked="enabled"
+            :aria-checked="enabled"
+            :disabled="!loaded"
+            aria-label="启用噪音过滤"
+            @change="toggleEnabled"
+          />
         </div>
 
-        <div class="frow">
-          <label class="frow-label" for="rule-test">命中测试</label>
-          <input
-            id="rule-test"
-            v-model="testText"
-            class="frow-input"
-            type="text"
-            placeholder="粘一条群消息进来试试"
-          />
-          <p v-if="testResult" class="test" :class="{ hit: testResult.hit }">
-            {{ testResult.detail }}
+        <div class="field">
+          <label for="noise-keywords">整句噪音词</label>
+          <textarea
+            id="noise-keywords"
+            v-model="keywords"
+            class="input textarea noise-textarea"
+            rows="2"
+            placeholder="666,哈哈哈,笑死我了"
+            @input="dirty = true"
+          ></textarea>
+          <p class="field-hint">
+            英文逗号分隔，只有「整句就是这个词」才算噪音。「好」「走」这种别放进来，可能是有效回复。
           </p>
         </div>
 
-        <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
+        <div class="field">
+          <label for="noise-regex">噪音正则</label>
+          <input
+            id="noise-regex"
+            v-model="regex"
+            class="input mono-input"
+            type="text"
+            spellcheck="false"
+            placeholder="^(.)\1{2,}$"
+            @input="dirty = true"
+          />
+          <p class="field-hint">留空停用。默认匹配三个及以上相同字符。写坏了保存时会直接报错。</p>
+        </div>
 
-        <div v-if="editing" class="delete-zone">
+        <div class="field">
+          <label for="noise-keep">强制保留正则</label>
+          <input
+            id="noise-keep"
+            v-model="keepRegex"
+            class="input mono-input"
+            type="text"
+            spellcheck="false"
+            placeholder="@|？|作业|截止|明天"
+            @input="dirty = true"
+          />
+          <p class="field-hint">
+            命中就不丢，优先级高于上面两条。默认覆盖 @、问号、文件、时间与事务词。
+          </p>
+        </div>
+
+        <div v-if="formError" class="error" role="alert">{{ formError }}</div>
+
+        <div class="noise-actions">
           <button
-            v-if="!confirmingDelete"
             type="button"
-            class="danger-link"
-            @click="confirmingDelete = true"
+            class="btn btn-quiet"
+            :disabled="!loaded || saving"
+            @click="resetDefaults"
           >
-            <Trash2 :size="13" aria-hidden="true" />
-            删除这条规则
+            恢复默认
           </button>
-          <div v-else class="confirm">
-            <p>删除后插件下次拉取规则时就不再包含它。确定吗？</p>
-            <div class="confirm-actions">
-              <button type="button" class="btn btn-sm btn-ghost" @click="confirmingDelete = false">
-                算了
-              </button>
-              <button type="button" class="btn btn-sm btn-danger" :disabled="saving" @click="remove">
-                确定删除
-              </button>
-            </div>
-          </div>
+          <button
+            type="button"
+            class="btn"
+            :class="dirty ? 'btn-primary' : 'btn-quiet'"
+            :disabled="!loaded || saving || !dirty"
+            @click="save"
+          >
+            {{ saving ? '保存中…' : dirty ? '保存' : '已保存' }}
+          </button>
+        </div>
+
+        <div class="preview">
+          <label for="noise-preview">试一试（一行一句，按当前编辑框内容判定，不用先保存）</label>
+          <textarea
+            id="noise-preview"
+            v-model="previewText"
+            class="input textarea noise-textarea"
+            rows="4"
+          ></textarea>
+          <button
+            type="button"
+            class="btn btn-quiet preview-btn"
+            :disabled="previewing || !loaded"
+            @click="runPreview"
+          >
+            {{ previewing ? '试跑中…' : '试跑' }}
+          </button>
+          <p v-if="previewError" class="error" role="alert">{{ previewError }}</p>
+          <ul v-if="previewItems.length" class="preview-list">
+            <li v-for="(item, i) in previewItems" :key="i">
+              <span class="preview-tag" :class="item.kept ? 'kept' : 'dropped'">
+                {{ item.kept ? '保留' : '丢弃' }}
+              </span>
+              <span class="preview-text">{{ item.text }}</span>
+              <span v-if="!item.kept && item.reason" class="preview-reason">
+                {{ REASON_LABEL[item.reason] ?? item.reason }}
+              </span>
+            </li>
+          </ul>
         </div>
       </div>
-
-      <template #footer>
-        <button type="button" class="btn btn-ghost" @click="sheetOpen = false">取消</button>
-        <button type="button" class="btn btn-primary" :disabled="saving" @click="save">
-          {{ saving ? '保存中…' : '保存' }}
-        </button>
-      </template>
-    </Sheet>
+    </template>
   </div>
 </template>
 
 <style scoped>
-/*
- * 页头右侧的新建入口：和返回圆同一排，直径必须对齐（32px），
- * 否则一排里两个圆一大一小，看着像没对齐。
- * 强调靠的是"这一页唯一的深色实心"，不是靠放大。
- * 视觉 32px、可点 44px —— 用伪元素把热区撑开，安卓手指够得着。
- */
-.add-btn {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--card-inverse);
-  color: #fff;
-  box-shadow: var(--shadow-card);
-  cursor: pointer;
-  flex: none;
-  transition: transform var(--dur-1) var(--ease-spring);
+.intro {
+  margin: 0 0 14px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.65;
 }
 
-.add-btn::after {
-  content: '';
-  position: absolute;
-  inset: -6px;
-  border-radius: 50%;
+.intro strong {
+  color: var(--ink);
+  font-weight: 600;
 }
 
-.add-btn:active {
-  transform: scale(0.92);
+.switch-row {
+  margin-bottom: 16px;
 }
 
-.clamp-1 {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* ── 表单（骨架在 style.css，这里只补本页专属） ───────────── */
+.mono-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
 }
 
-/* ── 规则卡 ───────────────────────────────────────────────── */
+.noise-textarea {
+  min-height: 64px;
+}
 
-.stack {
-  margin: 0;
+.noise-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.noise-actions .btn {
+  flex: 1 1 0;
+}
+
+/* ── 试跑 ─────────────────────────────────────────────────── */
+.preview {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline);
+}
+
+.preview > label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.preview-btn {
+  margin-top: 10px;
+}
+
+.preview-list {
+  margin: 12px 0 0;
   padding: 0;
   list-style: none;
 }
 
-.rule {
+.preview-list li {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
-  padding: 12px 12px 12px 14px;
-  border-radius: var(--r-lg);
-  background: var(--card);
-  box-shadow: var(--shadow-card);
-}
-
-.rule.off {
-  background: rgba(255, 255, 255, 0.6);
-  box-shadow: none;
-}
-
-.rule-main {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.rule-icon {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink-2);
-}
-
-.rule-text {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.rule-name {
-  font-size: 14.5px;
-  font-weight: 500;
-}
-
-.rule-meta {
-  color: var(--ink-3);
-  font-size: 11.5px;
-  min-width: 0;
-}
-
-.rule-regex {
-  color: var(--ink-3);
-  font-size: 10.5px;
-  min-width: 0;
-}
-
-.rule-priority {
-  color: var(--ink-3);
-  font-size: 10.5px;
-}
-
-/* ── 开关 ─────────────────────────────────────────────────── */
-
-.switch {
-  position: relative;
-  width: 44px;
-  height: 26px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--r-pill);
-  background: rgba(46, 38, 26, 0.14);
-  cursor: pointer;
-  flex: none;
-  transition: background-color var(--dur) var(--ease);
-}
-
-.switch[aria-checked="true"] {
-  background: var(--card-inverse);
-}
-
-.switch:disabled {
-  opacity: 0.5;
-}
-
-.switch-knob {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-  transition: transform var(--dur) var(--ease);
-}
-
-.switch[aria-checked="true"] .switch-knob {
-  transform: translateX(18px);
-}
-
-/* ── 抽屉表单 ─────────────────────────────────────────────── */
-/* 表单骨架在 style.css 里，和备忘、记忆共用一套；这里只剩规则页独有的「试一下」标签 */
-
-.row-inline {
-  grid-template-columns: 1fr auto;
-  align-items: center;
-}
-
-.test {
-  padding: 6px 9px;
-  border-radius: var(--r-xs);
-  background: rgba(46, 38, 26, 0.05);
-  color: var(--ink-2);
-  font-size: 11.5px;
-}
-
-.test.hit {
-  background: rgba(47, 122, 85, 0.12);
-  color: var(--ok);
-}
-
-.delete-zone {
-  margin-top: 4px;
-}
-
-.danger-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 8px 0;
-  border: 0;
-  background: transparent;
-  color: var(--danger);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--hairline);
   font-size: 12.5px;
-  cursor: pointer;
 }
 
-.confirm {
-  padding: 14px;
-  border-radius: var(--r-md);
-  background: var(--danger-wash);
-  border: 1px solid rgba(191, 58, 43, 0.2);
-  color: var(--danger);
-  font-size: 12.5px;
-  line-height: 1.55;
+.preview-list li:last-child {
+  border-bottom: 0;
 }
 
-.confirm-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
+.preview-tag {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
 }
 
+.preview-tag.kept {
+  color: var(--ink-2);
+  background: var(--fill, rgba(127, 127, 127, 0.12));
+}
+
+.preview-tag.dropped {
+  color: #b42318;
+  background: rgba(180, 35, 24, 0.1);
+}
+
+.preview-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+
+.preview-reason {
+  flex: 0 0 auto;
+  color: var(--ink-3);
+  font-size: 11px;
+}
 </style>

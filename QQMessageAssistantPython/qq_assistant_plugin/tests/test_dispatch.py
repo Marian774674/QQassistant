@@ -27,8 +27,6 @@ def settings():
         delay_per_char_ms=0,
         delay_jitter_ms=0,
         delay_max_ms=0,
-        intercept_refresh_s=60,
-        intercept_scope="group",
     )
 
 

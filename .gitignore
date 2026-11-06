@@ -1,3 +1,8 @@
+# ── 本机私密配置：模板进仓库，填好值的不进 ──────────────────────────
+deploy/.env
+deploy/java.properties
+**/application-local.yaml
+**/application-local.yml
 
 # 发送桥运行时幂等状态（进程内生成，不入库）
 QQMessageAssistantPython/send_bridge/data/
@@ -5,3 +10,7 @@ QQMessageAssistantPython/send_bridge/data/
 # 智能检索的工作区与模型文件（本地生成，不入库）
 .superpowers/
 QQMessageAssistantJava/models/
+
+# pytest 干净 basetemp：必须放在插件目录之外，否则 lbp build 会把测试临时文件一并打进 .lbpkg
+.pytest_tmp*/
+**/.pytest_tmp*/

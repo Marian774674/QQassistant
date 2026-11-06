@@ -10,6 +10,7 @@ import com.czx.qqmessageassistantjava.mapper.FileTaskMapper;
 import com.czx.qqmessageassistantjava.mapper.MemoMapper;
 import com.czx.qqmessageassistantjava.mapper.MemoryNoteMapper;
 import com.czx.qqmessageassistantjava.mapper.MessageLogMapper;
+import com.czx.qqmessageassistantjava.service.ChatAliasService;
 import com.czx.qqmessageassistantjava.service.EmbeddingJobService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,6 +75,7 @@ public class RetrievalServiceImpl implements RetrievalService {
     private final EmbeddingService embeddingService;
     private final EmbeddingIndex embeddingIndex;
     private final EmbeddingJobService embeddingJobService;
+    private final ChatAliasService chatAliasService;
 
     public RetrievalServiceImpl(MemoryNoteMapper memoryNoteMapper,
                                 MessageLogMapper messageLogMapper,
@@ -81,7 +83,8 @@ public class RetrievalServiceImpl implements RetrievalService {
                                 FileTaskMapper fileTaskMapper,
                                 EmbeddingService embeddingService,
                                 EmbeddingIndex embeddingIndex,
-                                EmbeddingJobService embeddingJobService) {
+                                EmbeddingJobService embeddingJobService,
+                                ChatAliasService chatAliasService) {
         this.memoryNoteMapper = memoryNoteMapper;
         this.messageLogMapper = messageLogMapper;
         this.memoMapper = memoMapper;
@@ -89,6 +92,7 @@ public class RetrievalServiceImpl implements RetrievalService {
         this.embeddingService = embeddingService;
         this.embeddingIndex = embeddingIndex;
         this.embeddingJobService = embeddingJobService;
+        this.chatAliasService = chatAliasService;
     }
 
     @Override
@@ -97,14 +101,15 @@ public class RetrievalServiceImpl implements RetrievalService {
                 ? new QueryPlan(null, null, null, null, null, null)
                 : plan;
         Set<String> excluded = excludeKeys == null ? Set.of() : excludeKeys;
+        Map<String, String> aliasNames = chatAliasService.displayNames();
 
         Map<Channel, List<Candidate>> hits = new LinkedHashMap<>();
         collect(hits, Channel.NOTE, () -> noteChannel(safePlan, excluded));
-        collect(hits, Channel.MSG_PERSON, () -> personChannel(safePlan, excluded));
-        collect(hits, Channel.MSG_MENTION, () -> mentionChannel(safePlan, excluded));
-        collect(hits, Channel.MSG_LEXICAL, () -> lexicalChannel(safePlan, excluded));
+        collect(hits, Channel.MSG_PERSON, () -> personChannel(safePlan, excluded, aliasNames));
+        collect(hits, Channel.MSG_MENTION, () -> mentionChannel(safePlan, excluded, aliasNames));
+        collect(hits, Channel.MSG_LEXICAL, () -> lexicalChannel(safePlan, excluded, aliasNames));
         if (semanticAvailable()) {
-            collect(hits, Channel.MSG_SEMANTIC, () -> semanticChannel(safePlan, excluded));
+            collect(hits, Channel.MSG_SEMANTIC, () -> semanticChannel(safePlan, excluded, aliasNames));
         }
         collect(hits, Channel.MEMO, () -> memoChannel(safePlan, excluded));
         collect(hits, Channel.FILE, () -> fileChannel(safePlan, excluded));
@@ -164,7 +169,8 @@ public class RetrievalServiceImpl implements RetrievalService {
     }
 
     /** msg-person：主体本人发的 IN 消息，时间倒序，≤200。 */
-    private List<Candidate> personChannel(QueryPlan plan, Set<String> excluded) {
+    private List<Candidate> personChannel(QueryPlan plan, Set<String> excluded,
+                                          Map<String, String> aliasNames) {
         if (plan.subjects().isEmpty()) {
             return List.of();
         }
@@ -172,7 +178,7 @@ public class RetrievalServiceImpl implements RetrievalService {
         append(out, new HashSet<>(), excluded,
                 messageLogMapper.selectBySenders(
                         plan.subjects(), fetchLimit(MSG_PERSON_LIMIT, excluded)),
-                this::messageCandidate, MSG_PERSON_LIMIT, true);
+                row -> messageCandidate(row, aliasNames), MSG_PERSON_LIMIT, true);
         return out;
     }
 
@@ -183,7 +189,8 @@ public class RetrievalServiceImpl implements RetrievalService {
      * 同一个 key 被多个 alias 命中就该计多次；RRF 的 {@code collectScores}
      * 自会按通道内最佳名次处理重复。
      */
-    private List<Candidate> mentionChannel(QueryPlan plan, Set<String> excluded) {
+    private List<Candidate> mentionChannel(QueryPlan plan, Set<String> excluded,
+                                           Map<String, String> aliasNames) {
         List<Candidate> out = new ArrayList<>();
         for (String entity : plan.entities()) {
             if (isBlank(entity)) {
@@ -193,7 +200,7 @@ public class RetrievalServiceImpl implements RetrievalService {
             append(batch, new HashSet<>(), excluded,
                     messageLogMapper.searchFulltext(
                             entity.trim(), fetchLimit(MSG_MENTION_LIMIT, excluded)),
-                    this::messageCandidate, MSG_MENTION_LIMIT, false);
+                    row -> messageCandidate(row, aliasNames), MSG_MENTION_LIMIT, false);
             out.addAll(batch);
         }
         return out;
@@ -203,7 +210,8 @@ public class RetrievalServiceImpl implements RetrievalService {
      * msg-lexical：每条 query 各 ≤100，结果顺序拼接。
      * 与 mention 同理不去重——计数要保留「按查询串累加」的原始命中数。
      */
-    private List<Candidate> lexicalChannel(QueryPlan plan, Set<String> excluded) {
+    private List<Candidate> lexicalChannel(QueryPlan plan, Set<String> excluded,
+                                           Map<String, String> aliasNames) {
         List<Candidate> out = new ArrayList<>();
         for (String query : plan.queries()) {
             if (isBlank(query)) {
@@ -213,7 +221,7 @@ public class RetrievalServiceImpl implements RetrievalService {
             append(batch, new HashSet<>(), excluded,
                     messageLogMapper.searchFulltext(
                             query.trim(), fetchLimit(MSG_LEXICAL_LIMIT, excluded)),
-                    this::messageCandidate, MSG_LEXICAL_LIMIT, false);
+                    row -> messageCandidate(row, aliasNames), MSG_LEXICAL_LIMIT, false);
             out.addAll(batch);
         }
         return out;
@@ -224,7 +232,8 @@ public class RetrievalServiceImpl implements RetrievalService {
      * 索引给的是 id 与相似度；按搜索顺序回查 message_log，不能直接用数据库返回顺序。
      * 空内容没有可检索的东西，跳过。
      */
-    private List<Candidate> semanticChannel(QueryPlan plan, Set<String> excluded) {
+    private List<Candidate> semanticChannel(QueryPlan plan, Set<String> excluded,
+                                            Map<String, String> aliasNames) {
         List<String> queries = plan.queries().stream()
                 .filter(query -> !isBlank(query))
                 .map(String::trim)
@@ -268,7 +277,7 @@ public class RetrievalServiceImpl implements RetrievalService {
             if (row == null || isBlank(row.getContent())) {
                 continue;
             }
-            Candidate candidate = messageCandidate(row);
+            Candidate candidate = messageCandidate(row, aliasNames);
             String key = candidate.key();
             if (excluded.contains(key) || !seen.add(key)) {
                 continue;
@@ -346,16 +355,22 @@ public class RetrievalServiceImpl implements RetrievalService {
         return average;
     }
 
-    private Candidate messageCandidate(MessageLog row) {
-        String chatNumber = row.getChatId() != null
+    private Candidate messageCandidate(MessageLog row, Map<String, String> aliasNames) {
+        boolean group = row.getChatId() != null;
+        String chatNumber = group
                 ? String.valueOf(row.getChatId())
                 : row.getSenderId() != null ? String.valueOf(row.getSenderId()) : "";
+        String alias = aliasNames == null ? null
+                : aliasNames.get(ChatAliasService.key(row.getChatId() != null ? row.getChatId() : row.getSenderId(),
+                        group ? "GROUP" : "PRIVATE"));
         String chatName = blankToNull(row.getChatName());
         if (chatName == null) {
             chatName = blankToNull(row.getSenderName());
         }
-        String label = "QQ " + chatNumber + (chatName == null ? "" : " · " + chatName);
-        String source = SourceFormat.messageSource(row);
+        String label = alias != null
+                ? (group ? "群 " : "QQ ") + alias
+                : "QQ " + chatNumber + (chatName == null ? "" : " · " + chatName);
+        String source = SourceFormat.messageSource(row, alias);
         String quote = truncate(flatten(row.getContent()), QUOTE_LIMIT);
         return new Candidate("msg", row.getId(), label, quote, row.getCreatedAt(), source, quote);
     }

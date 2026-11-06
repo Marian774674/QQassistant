@@ -1,6 +1,7 @@
 package com.czx.qqmessageassistantjava.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -31,4 +32,8 @@ public class ChatSetting {
     private Boolean digestEnabled;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    /** 用户起的名字（chat_alias 第一个），展示优先；不落 chat_setting 表 */
+    @TableField(exist = false)
+    private String aliases;
 }

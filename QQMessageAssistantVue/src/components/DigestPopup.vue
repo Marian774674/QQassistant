@@ -1,19 +1,26 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import Sheet from '@/components/Sheet.vue'
 import type { DigestItem } from '@/api/digest'
 import { formatTime } from '@/utils/datetime'
+import { firstSegment, fullNameHint } from '@/utils/name'
 
-defineProps<{
+const props = defineProps<{
   item: DigestItem | null
 }>()
 
 const emit = defineEmits<{ close: [] }>()
+
+/** 和列表卡片同一套收口：弹窗标题也只显示第一个名字 */
+const shownName = computed(() => firstSegment(props.item?.chatName) || '群消息')
+const fullName = computed(() => fullNameHint(shownName.value, props.item?.chatName))
 </script>
 
 <template>
   <Sheet
     :open="item !== null"
-    :title="item?.chatName || '群消息'"
+    :title="shownName"
+    :title-hint="fullName"
     description="这条可能得你亲自看一眼"
     @close="emit('close')"
   >

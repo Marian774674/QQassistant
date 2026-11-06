@@ -29,4 +29,14 @@ public class MessageLogItem {
     private String msgType;
     @Schema(description = "仅 OUT：TASK|CHAT", allowableValues = {"TASK", "CHAT"})
     private String replyKind;
+    /**
+     * 消息发生时刻（Unix 秒）。只有补拉会传：补回来的消息必须落在它原本的时间点上，
+     * 否则整理的时间窗、夜间归纳的批次都会把它当成「刚刚发生」。
+     *
+     * <p>用 epoch 而不是 ISO 字符串：插件跑在容器里，容器时区未必是 Asia/Shanghai，
+     * 传墙钟时间会整体偏 8 小时；epoch 由后端按自己的时区换算，和实时日志同一个轴。
+     * 不传则退化为「写入时刻」。
+     */
+    @Schema(description = "消息发生时刻（Unix 秒）；补拉专用，不传按写入时刻")
+    private Long createdAtEpochSeconds;
 }

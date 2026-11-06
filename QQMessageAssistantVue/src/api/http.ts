@@ -1,3 +1,4 @@
+import { clearToken, getToken } from '@/auth/session'
 import type { ApiResult } from './types'
 
 export class ApiError extends Error {
@@ -24,6 +25,7 @@ function withQuery(path: string, query?: Query): string {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const token = getToken()
   let response: Response
   try {
     response = await fetch(path, {
@@ -31,6 +33,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(init.headers ?? {}),
       },
     })
@@ -43,6 +46,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     body = (await response.json()) as ApiResult<T>
   } catch {
     body = null
+  }
+
+  // 会话过期：清掉本地 token，回登录页并记住原地址
+  if (response.status === 401 && path !== '/api/auth/login') {
+    clearToken()
+    if (window.location.pathname !== '/login') {
+      const redirect = encodeURIComponent(window.location.pathname + window.location.search)
+      window.location.assign(`/login?redirect=${redirect}`)
+    }
   }
 
   if (!response.ok || !body || body.code !== 0) {

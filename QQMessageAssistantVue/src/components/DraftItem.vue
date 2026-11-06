@@ -7,6 +7,7 @@ import type { Draft, DraftType } from '@/api/types'
 import { useToast } from '@/composables/useToast'
 import { formatDateTime } from '@/utils/datetime'
 import { draftStatusMeta, draftTypeIcon, draftTypeLabel } from '@/utils/meta'
+import { firstSegment, joinNames } from '@/utils/name'
 
 const props = defineProps<{ draft: Draft }>()
 
@@ -23,6 +24,7 @@ const ACTION_LABEL: Record<DraftType, string> = {
   FILE: '发送',
   MEMO: '记下',
   FACT: '记下',
+  NAMING: '保存名字',
 }
 
 /** 回复和文件是「以你的身份发出去」，发出去就收不回，必须先问一句 */
@@ -59,6 +61,9 @@ function field(key: string): string {
   return typeof value === 'string' ? value : ''
 }
 
+/** 命名草稿的输入框：预填建议名（群名/昵称），用户可以改成任意多个 */
+const nameInput = ref(field('suggestedName'))
+
 /**
  * 回复草稿要让人看清「在回谁」。
  * 新草稿把对方那句话存在 payload.sourceContent；老草稿没有，只能退回 title——
@@ -71,6 +76,21 @@ const context = computed(() => {
   const title = (props.draft.title ?? '').trim()
   return title && title !== field('content').trim() ? title : ''
 })
+
+/**
+ * 对方的名字：用户起过名字就用第一个（后端放 sourceDisplayName），
+ * 再把插件记下的昵称附在后面——群聊里「群名 · 发言人」才看得清是谁。
+ * 两个字段都可能是逗号串起来的多个名字，所以各自只取第一段，
+ * 否则同一个名字会连着出现两三遍，把整段引用挤成两行。
+ */
+const contextName = computed(() =>
+  joinNames(firstSegment(field('sourceDisplayName')), firstSegment(field('sourceSenderName'))),
+)
+
+/** 悬停时才看得到的完整名字（含被省略号吃掉的别名），不参与布局 */
+const contextFullName = computed(() =>
+  joinNames(field('sourceDisplayName'), field('sourceSenderName')),
+)
 
 const headline = computed(() => {
   const { title, type } = props.draft
@@ -100,11 +120,16 @@ const preview = computed(() => {
 })
 
 async function resolve(action: 'confirm' | 'reject') {
+  const aliases = nameInput.value.trim()
+  if (action === 'confirm' && props.draft.type === 'NAMING' && !aliases) {
+    toast.error('先给它起个名字')
+    return
+  }
   busy.value = true
   try {
     if (action === 'confirm') {
-      await confirmDraft(props.draft.id)
-      toast.success('已确认')
+      await confirmDraft(props.draft.id, props.draft.type === 'NAMING' ? { aliases } : undefined)
+      toast.success(props.draft.type === 'NAMING' ? '名字已保存' : '已确认')
       emit('resolved', props.draft.id, 'confirmed')
     } else {
       await rejectDraft(props.draft.id)
@@ -131,11 +156,24 @@ async function resolve(action: 'confirm' | 'reject') {
     </header>
 
     <p v-if="context" class="context">
-      <span class="context-label">对方</span>
+      <span class="context-label">对方{{ contextName ? ' · ' : '' }}</span>
+      <span v-if="contextName" class="context-name" :title="contextFullName">{{ contextName }}</span>
       {{ context }}
     </p>
     <p class="headline">{{ headline }}</p>
     <p v-if="preview" class="preview clamp-3">{{ preview }}</p>
+
+    <div v-if="isPending && draft.type === 'NAMING'" class="naming">
+      <input
+        v-model="nameInput"
+        type="text"
+        class="naming-input"
+        maxlength="255"
+        placeholder="多个名字用逗号分隔，例如：三班群,班群"
+        aria-label="给这个会话起个名字"
+      />
+      <p class="naming-hint">第一个名字用于展示，全部保留下来方便以后匹配。</p>
+    </div>
 
     <div v-if="isPending && confirming" class="confirm">
       <p class="confirm-text">{{ confirmHint }}</p>
@@ -157,7 +195,7 @@ async function resolve(action: 'confirm' | 'reject') {
       </button>
       <button type="button" class="btn btn-sm btn-ghost" :disabled="busy" @click="resolve('reject')">
         <X :size="14" :stroke-width="2.4" aria-hidden="true" />
-        拒绝
+        {{ draft.type === 'NAMING' ? '不用了' : '拒绝' }}
       </button>
     </div>
   </article>
@@ -224,8 +262,30 @@ async function resolve(action: 'confirm' | 'reject') {
 }
 
 .context-label {
-  margin-right: 5px;
   font-weight: 600;
+}
+
+/* 名字再长也只占一行，超出打省略号；摸上去可以横向滚动看全（和会话列表一致） */
+.context-name {
+  display: inline-block;
+  max-width: 68%;
+  margin-right: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  user-select: none;
+}
+
+.context-name:hover,
+.context-name:active {
+  overflow-x: auto;
+  text-overflow: clip;
+  scrollbar-width: none;
+}
+
+.context-name::-webkit-scrollbar {
+  display: none;
 }
 
 .headline {
@@ -246,6 +306,32 @@ async function resolve(action: 'confirm' | 'reject') {
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;
+}
+
+.naming {
+  margin-top: 11px;
+}
+
+.naming-input {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--card-soft, rgba(255, 255, 255, 0.7));
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+.naming-input:focus {
+  outline: none;
+  border-color: var(--ink-3);
+}
+
+.naming-hint {
+  margin-top: 5px;
+  color: var(--ink-3);
+  font-size: 11.5px;
 }
 
 .actions {

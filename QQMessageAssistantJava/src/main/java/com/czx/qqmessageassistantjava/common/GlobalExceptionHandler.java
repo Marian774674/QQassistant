@@ -2,6 +2,7 @@ package com.czx.qqmessageassistantjava.common;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -32,6 +33,13 @@ public class GlobalExceptionHandler {
         }
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Result.fail(400, message));
+    }
+
+    @ExceptionHandler(RedisConnectionFailureException.class)
+    public ResponseEntity<Result<Void>> handleRedis(RedisConnectionFailureException e){
+        log.error("Redis 连接失败", e);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(Result.fail(503, "Redis 未启动或连接失败，登录/会话不可用"));
     }
 
     @ExceptionHandler(Exception.class)

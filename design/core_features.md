@@ -76,6 +76,25 @@ QQ ─► NapCat ─► 插件 ──┬─ 未 @：只写 message_log，结束
 
 **一条硬规矩**：所有 LLM 产出都必须带 `source_msg_ids`，能点回原文。整理、归纳、查询三条路都一样。
 
+**入口的第二个来源：掉线补拉。** NapCat 掉线期间 QQ 根本没把消息推给它，
+所以插件回查历史，把游标之后的消息补写进 `message_log`——
+**只写日志，不进 Dify、不触发自动回复**。触发有两条：`get_status`（服务）与
+`get_login_info`（账号）都就绪且刚恢复时**立即补**，以及每 300 秒一次的
+**无条件周期兜底**。不能只靠「离线 → 在线」边沿：登录过期时 NapCat 进程和
+HTTP 服务都还在，重登也可能落在两次探活之间被漏采样，LangBot 与 NapCat 的
+WS 断开时 NapCat 更是完全正常——这三种情况边沿都不出现，只靠边沿就一直不补。
+
+```
+NapCat 重连 / 重登 / 周期兜底 ─► 插件 core/backfill.py ─► GET  /api/agent/napcat/targets（补哪些、补到哪）
+                                     ─► NapCat get_*_msg_history（直连，Spring 不碰 QQ 协议）
+                                     ─► POST /api/message-logs（dedupeKey = msg:<message_id>）
+                                     ─► POST /api/agent/napcat/cursor（写成功才推进）
+```
+
+补回来的消息在 `message_log` 里和实时消息长得一模一样，所以整理、归纳、检索
+不需要任何改动就会自然吃到它们。去重靠 `message_id`：补拉页与实时消息重叠是正常现象。
+细节见 [`design_overview.md`](./design_overview.md) §5.4 与 [`api_contract.md`](./api_contract.md) §15。
+
 ### 5.2 新增数据表
 
 | 表 | 作用 | 谁写 | 谁读 |
@@ -308,10 +327,31 @@ Spring 侧新增 `client/DifyWorkflowClient`（`POST /v1/workflows/run`，blocki
 
 群里只有 `@机器人` 或带前缀才算触发，私聊直接算；**不加「主动插话」**——这条不变。
 
-**总开关**（设置页「自动回复」分区顶部）：一键把 `CHAT` 全停，不用一个个群去关。
+**总开关**（设置页「自动回复」分区顶部）：一键把**所有自动发言**停掉，不用一个个群去关。
 存 `app_setting.reply_enabled`，**没配过 = 开**——它是紧急闸，不能因为升级把已经
-逐个打开的会话顺手关掉。判定在 Spring 的 `reply-context` 里做（`enabled = 总开关 AND 会话开关`），
-插件不用改：它本来就只认一个 `enabled`。`TASK` 照旧不受影响。
+逐个打开的会话顺手关掉。
+
+判定在 Spring 的 `reply-context` 里做，但**要下发两个字段**：
+
+| 字段 | 含义 | 关掉之后 |
+|---|---|---|
+| `globalEnabled` | 总开关本身 | 彻底闭嘴：`CHAT`、`TASK`、文件任务应答全停（原「拦截回复」已随拦截规则下线） |
+| `enabled` | 总开关 AND 会话开关 AND 令牌桶 | 只停 `CHAT`，`TASK` 照发 |
+
+合并成一个字段就再也表达不了「彻底闭嘴」——会话开关关掉时 `enabled` 也是 false，
+但那时备忘确认语必须照发。
+
+> **2026-11 修正：文件消息与内部回话不能再绕过这道闸。**
+> 原来 `file_task.ingest()` 在下载阶段就自己 `reply_text`，压根没经过 `reply_gate`，
+> 于是总开关关掉后，别人发一个 PDF 仍会收到「这个格式我只能读不能改」。
+> 现在两层兜底：
+> 1. 文件消息在下载**之前**判 `may_reply = globalEnabled and (enabled or sender_id == ownerSenderId)`，
+>    不满足就不下载、不建任务、不调 Dify、不回复；
+> 2. 本轮一旦判定总开关关闭，`_respond` 整段跑在 `core.reply.silence()` 里，
+>    `reply_text` 变空操作——`FILE_FILL` 的填写结果、文件过期提示这些藏在
+>    `file_task` / `dispatch` 里的直接回话一并被压住，不用逐个调用点去改。
+>
+> 拿不到 `ownerSenderId`（未绑定 / Spring 不通）时按「不是主人」处理。
 
 `send_kind` 是决策信封的新字段，按仓库规矩**先改 `design/agent_contract.md` 再动代码**
 （`agent_contract.md:5`「任何一侧改字段，先改本文件」）。插件拿不到这个字段时按 `TASK` 处理，
@@ -320,7 +360,7 @@ Spring 侧新增 `client/DifyWorkflowClient`（`POST /v1/workflows/run`，blocki
 ### 8.1.1 为什么不在插件里数一个计数器
 
 `message_log` 已经逐条记录 OUT，`reply_kind` 一列就能把「日常应答」和
-「拦截回复 / 草稿发送 / 提醒推送」分开；再维护一张计数表就要处理窗口滑动和重启丢状态。
+「备忘确认语 / 草稿发送 / 提醒推送」分开；再维护一张计数表就要处理窗口滑动和重启丢状态。
 宁可每条问一次 SQL（一行 `COUNT`，走 `idx_sender_created`）。
 
 ### 8.2 注入什么
@@ -478,3 +518,62 @@ CREATE TABLE `chat_digest_item` (
 2. **自动回复第一周只在你自己的测试群开**，跑稳了再扩到别的群。
 3. **夜间归纳每天 0:10 处理前一天新增**；首次启用时把历史全量补算一次
    （`POST /api/memory/rebuild`），接受一次跑几分钟与相应的 token 开销。
+
+## 14. 5.5 已落地：噪音过滤（规则页 + 前置判定）/ Token 账本 / 常量收口 / 密钥外置
+
+> 这四项都不改「谁做语义判断」的边界：**Spring 管状态与预过滤、插件管收发与 I/O、Dify 管语义**。
+> 逐字段契约见 [`api_contract.md`](./api_contract.md) §17，表结构见
+> [`database_schema.md`](./database_schema.md) §17，总览见
+> [`design_overview.md`](./design_overview.md) §5.5。
+
+**噪音过滤取代原「拦截规则」，落在规则页 `/rules`**（设置页不再放这个分区）。
+四个键 `noise_filter_enabled / _keywords / _regex / _keep_regex` 从「只能改库」变成网页可编辑。
+插件在写 IN 日志之后、触发判断之前，对每条文本消息调
+`POST /api/agent/noise-filter/check`：命中的消息**原文照常入 `message_log`**，
+但不进 Dify、不自动回复。三个容易踩的点：
+
+- **试跑必须按草稿**：用户在编辑框改完还没保存时点「试跑」，后端要用请求体里带的值判定，
+  不能读库里已保存的旧规则，否则「改了没生效」的错觉会被当成 bug。草稿和保存走同一套校验
+  （编译正则、限长、拒绝 `(a+)+` 这类嵌套量词），但草稿**绝不写库**。
+- **保留正则优先**：命中 `keep_regex`（@、时间、作业、考试…）的句子即使像噪音也保留，
+  避免把「哈哈哈 @我 明天交表」误杀。
+- **规则只存 Spring 一份，判定必须 fail-open**：插件不拉规则、不缓存、不做本地正则匹配，
+  避免 Java / Python 正则方言差异（如 `\p{P}`）和「改了半天不生效」。Spring 未升级、
+  接口异常、响应为空时一律按「非噪音」放行——最坏只是多处理一句废话，绝不能吞掉主人的消息。
+  代价是每条文本消息多一次 HTTP 判定，换来规则即时生效与单一判定链。
+
+**Token 账本是旁路，不是链路**。只追加、只读展示，不参与任何业务判定：
+
+| 来源 | 取数位置 | 能拿到什么 |
+|---|---|---|
+| `source=spring` | `DifyWorkflowClient` 成功响应 | Workflow 的 `data.total_tokens`，不拆输入输出、无模型名 |
+| `source=plugin` | `core/usage.py` 解析 chat-messages | `metadata.usage` 的 prompt / completion / total 拆分 |
+
+插件侧用 fire-and-forget 上报并吞掉异常，一条消息最多记一行；Spring 没开、表没迁移、
+数据库被锁都只是少一笔统计，**不能让回复 / 整理 / 问答失败**。模型名 Dify 不回传，
+留空显示「未标注」，不猜。
+
+**「花在哪个会话」是分账视角，不是新链路**。`summary` 多返回一个 `byChat` 数组，
+按 `token_usage.chat_id` 分组，前端画甜甜圈并列出每扇占比：
+
+- 只认群号。`chat_id IS NULL` 的调用（问一句 / 画像抽取 / 夜间归纳 / 私聊自动回复）
+  合并成「未归属会话」，**单列一块**，这样占比之和才等于总量，也不会把私聊误算成某个群。
+- 真实群聊按消耗降序只画 **Top 6**，其余合并「其它会话」；两块非真实会话不参与 Top N 竞争。
+  服务端只给 `tokens` / `calls`，不返回浮点占比，改 Top N 不用动接口。
+- 展示名取 `chat_alias.aliases` / `chat_setting.chat_name` 的第一段，且**只 JOIN
+  `kind='GROUP'` 的命名行**；否则群号撞上某人 QQ 时私聊别名会串进群聊桶。
+- 账本里没有 `kind` 列，私聊自动回复也传 `chatId = null`，**不同私聊对象暂时分不开**；
+  这是已知口径边界，不是漏统计。
+
+**常量收口的两条硬约束**：
+
+- `PUT /api/settings` 只接受 `AppSettingKeys.USER_EDITABLE` 白名单。`auth_password_hash`、
+  补拉游标、归纳锚点这类系统键不允许网页改写，否则一次误提交就能把登录锁死或把补拉游标倒退。
+- 能配置的（`digest_max_messages` / `digest_max_attempts` / 四个噪音键）走 `app_setting`；
+  不能配置的（刷新阈值、默认关键词、账本窗口上限）集中在 `TuningDefaults`。
+  `intSetting()` 对写坏 / 越界的值一律回落出厂值——「用户填了个错别字」不能让整理整体停摆。
+
+**密钥外置**：`application.yaml` 不再有明文口令、API Key、部署专用 IP；本机私密值放
+`deploy/java.properties`（已 gitignore），生产走环境变量。`SecretsHygieneTest` 会扫描主配置，
+防止凭据被写回去。注意**删掉当前文件不等于删掉 Git 历史**，轮换清单见
+[`../deploy/README.md`](../deploy/README.md) §10.2。

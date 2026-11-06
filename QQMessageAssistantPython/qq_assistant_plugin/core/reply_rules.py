@@ -23,6 +23,8 @@ RULES = (
 # Spring 调不通时的兜底：宁可闭嘴（enabled=False），也不能让整轮挂掉
 EMPTY_CONTEXT = {
     "enabled": False,
+    # 空串 = 不知道主人是谁 → 总开关关掉时一律不放行文件任务（fail closed）
+    "ownerSenderId": "",
     "replyPrompt": "",
     "rateLimit": 20,
     "outLastHour": 0,
@@ -54,4 +56,11 @@ def normalize(context) -> dict:
                     ctx[key] = default
             elif value is not None:
                 ctx[key] = str(value)
+
+    # 总开关单独处理，不能进 EMPTY_CONTEXT：那里的布尔默认会把「字段缺失」变成 False，
+    # 而这里缺字段必须当「没关」——旧版 Spring 不返回它，升级插件不能让人从此全哑。
+    raw_global = context.get("globalEnabled") if isinstance(context, dict) else None
+    if isinstance(raw_global, str):
+        raw_global = raw_global.strip().lower() not in ("false", "0", "no", "off")
+    ctx["globalEnabled"] = True if raw_global is None else bool(raw_global)
     return ctx

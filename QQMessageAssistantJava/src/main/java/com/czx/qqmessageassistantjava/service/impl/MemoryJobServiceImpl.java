@@ -2,6 +2,7 @@ package com.czx.qqmessageassistantjava.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.czx.qqmessageassistantjava.client.DifyWorkflowClient;
+import com.czx.qqmessageassistantjava.constant.AppSettingKeys;
 import com.czx.qqmessageassistantjava.entity.Contact;
 import com.czx.qqmessageassistantjava.entity.MemoryNote;
 import com.czx.qqmessageassistantjava.entity.MessageLog;
@@ -10,6 +11,7 @@ import com.czx.qqmessageassistantjava.mapper.MessageLogMapper;
 import com.czx.qqmessageassistantjava.service.AppSettingService;
 import com.czx.qqmessageassistantjava.service.ContactService;
 import com.czx.qqmessageassistantjava.service.MemoryJobService;
+import com.czx.qqmessageassistantjava.service.MessageNoiseFilter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -43,7 +45,7 @@ public class MemoryJobServiceImpl implements MemoryJobService {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
 
-    static final String ENABLED_KEY = "memory_job_enabled";
+    static final String ENABLED_KEY = AppSettingKeys.MEMORY_JOB_ENABLED;
     static final String CURSOR_KEY = "memory_job_cursor";
     /** 一批最多送这么多条；多了下一轮继续 */
     static final int BATCH_LIMIT = 200;
@@ -63,19 +65,22 @@ public class MemoryJobServiceImpl implements MemoryJobService {
     private final DifyWorkflowClient difyWorkflowClient;
     private final AppSettingService appSettingService;
     private final TransactionTemplate transactionTemplate;
+    private final MessageNoiseFilter noiseFilter;
 
     public MemoryJobServiceImpl(MessageLogMapper messageLogMapper,
                                 MemoryNoteMapper memoryNoteMapper,
                                 ContactService contactService,
                                 DifyWorkflowClient difyWorkflowClient,
                                 AppSettingService appSettingService,
-                                TransactionTemplate transactionTemplate) {
+                                TransactionTemplate transactionTemplate,
+                                MessageNoiseFilter noiseFilter) {
         this.messageLogMapper = messageLogMapper;
         this.memoryNoteMapper = memoryNoteMapper;
         this.contactService = contactService;
         this.difyWorkflowClient = difyWorkflowClient;
         this.appSettingService = appSettingService;
         this.transactionTemplate = transactionTemplate;
+        this.noiseFilter = noiseFilter;
     }
 
     @Override
@@ -93,9 +98,29 @@ public class MemoryJobServiceImpl implements MemoryJobService {
             return 0;
         }
 
-        Set<Long> messageIds = batch.stream().map(MessageLog::getId)
+        // 游标按原始批次推进：被噪音过滤掉的消息也算「处理过」，
+        // 否则它们会让游标永远卡在同一批 666/哈哈哈 上。
+        long maxId = batch.stream().map(MessageLog::getId)
+                .filter(java.util.Objects::nonNull)
+                .mapToLong(Long::longValue)
+                .max().orElse(cursor());
+
+        MessageNoiseFilter.FilterOutcome filtered = noiseFilter.filter(batch);
+        List<MessageLog> kept = filtered.kept();
+        if (kept.isEmpty()) {
+            appSettingService.putAll(Map.of(CURSOR_KEY, String.valueOf(maxId)));
+            log.info("夜间归纳：本批 {} 条消息全是噪音（{}），跳过 Dify，游标 → {}",
+                    batch.size(), filtered.reasons(), maxId);
+            return 0;
+        }
+        if (filtered.dropped() > 0) {
+            log.info("夜间归纳：噪音过滤 {} 条（{}），保留 {} 条送 Dify",
+                    filtered.dropped(), filtered.reasons(), kept.size());
+        }
+
+        Set<Long> messageIds = kept.stream().map(MessageLog::getId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        Set<Long> senders = batch.stream().map(MessageLog::getSenderId)
+        Set<Long> senders = kept.stream().map(MessageLog::getSenderId)
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
@@ -103,9 +128,9 @@ public class MemoryJobServiceImpl implements MemoryJobService {
         // 本批 upsert 出来的联系人不能反过来授权同一批 note（spec §6）。
         List<Contact> knownContacts = knownContacts();
         Map<String, Object> outputs = difyWorkflowClient.run("extract", Map.of(
-                "messages", renderMessages(batch),
+                "messages", renderMessages(kept),
                 "known_contacts", knownContactsJson(knownContacts),
-                "owner_aliases", appSettingService.getOrDefault("owner_aliases", "")));
+                "owner_aliases", appSettingService.getOrDefault(AppSettingKeys.OWNER_ALIASES, "")));
 
         List<Map<String, Object>> contacts = parseArray(outputs.get("contacts"));
         List<Map<String, Object>> notes = parseArray(outputs.get("notes"));
@@ -117,19 +142,18 @@ public class MemoryJobServiceImpl implements MemoryJobService {
                             + "批次 {} 条 id {}..{} 下次会重跑；"
                             + "若反复出现，先检查 Dify「记忆与整理」应用是否已按最新 DSL 重新导入并发布（end 输出名 contacts/notes）",
                     contacts == null ? "bad" : "ok", notes == null ? "bad" : "ok", cursor,
-                    batch.size(), messageIds.iterator().next(),
+                    kept.size(), messageIds.iterator().next(),
                     messageIds.stream().max(Long::compareTo).orElse(cursor));
             return 0;
         }
 
-        long maxId = messageIds.stream().mapToLong(Long::longValue).max().orElse(cursor);
         AtomicInteger written = new AtomicInteger();
         transactionTemplate.executeWithoutResult(status -> {
-            written.set(write(contacts, notes, senders, messageIds, batch, knownContacts));
+            written.set(write(contacts, notes, senders, messageIds, kept, knownContacts));
             appSettingService.putAll(Map.of(CURSOR_KEY, String.valueOf(maxId)));
         });
-        log.info("夜间归纳：消息 {} 条 → contact {} 个 / note {} 条，游标 → {}",
-                batch.size(), contacts.size(), written.get(), maxId);
+        log.info("夜间归纳：消息 {} 条（噪音过滤 {} 条）→ contact {} 个 / note {} 条，游标 → {}",
+                batch.size(), filtered.dropped(), contacts.size(), written.get(), maxId);
         return written.get();
     }
 

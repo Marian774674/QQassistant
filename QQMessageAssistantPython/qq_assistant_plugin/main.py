@@ -13,12 +13,13 @@ import httpx
 from langbot_plugin.api.definition.plugin import BasePlugin
 
 from core import file_store
+from core.backfill import BackfillService
 from core.config import load_settings, read_plugin_config
 from core.dify_client import DifyClient
 from core.dispatch import Dispatcher
 from core.logging_queue import MessageLogQueue
+from core.napcat import NapcatClient
 from core.reply import reply_text
-from core.rules import RuleCache
 from core.spring_client import SpringClient
 
 log = logging.getLogger(__name__)
@@ -58,7 +59,8 @@ class qqassistantplugin(BasePlugin):
                  os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"),
                  os.environ.get("NO_PROXY") or os.environ.get("no_proxy"))
         self.spring = SpringClient(self.settings.spring_base_url,
-                                   self.settings.spring_timeout)
+                                   self.settings.spring_timeout,
+                                   self.settings.spring_agent_token)
         self.dify = DifyClient(self.settings.dify_base_url,
                                self.settings.dify_api_key,
                                self.settings.dify_timeout)
@@ -66,22 +68,22 @@ class qqassistantplugin(BasePlugin):
         self.log_queue = MessageLogQueue(self.spring)
         self.log_queue.start()
 
-        self.rule_cache = RuleCache(self.spring)
-        # 不能 await：Spring Boot 没启动时会阻塞最多 spring_timeout 秒，
-        # LangBot 的插件初始化可能因此超时，整个插件收不到任何事件。
-        self._initial_rule_task = asyncio.create_task(self.rule_cache.refresh())
-
         self.dispatcher = Dispatcher(self.spring, self.settings, reply_text)
+
+        # 掉线补拉：NapCat 掉线期间 QQ 根本没推消息给它，重新上线后只能回查历史。
+        # 后台循环，不 await——探不到 NapCat 只是补拉不干活，不能拖住插件初始化。
+        self.napcat = NapcatClient(self.settings.napcat_api_url,
+                                   self.settings.napcat_token)
+        self.backfill = BackfillService(self.spring, self.napcat, self.settings)
+        self.backfill.start()
 
         for module in ("openpyxl", "docx", "pypdf"):
             if importlib.util.find_spec(module) is None:
                 log.warning("缺少文件依赖 %s：文件任务会在处理时失败，请检查插件 requirements", module)
 
-        self._rule_task = asyncio.create_task(self._refresh_rules_loop())
-        log.info("QQ assistant plugin initialized: spring=%s dify=%s scope=%s napcat=%s difyWf=%s data=%s",
+        log.info("QQ assistant plugin initialized: spring=%s dify=%s noiseGate=spring napcat=%s difyWf=%s data=%s",
                  self.settings.spring_base_url,
                  self.settings.dify_base_url,
-                 self.settings.intercept_scope,
                  self.settings.napcat_api_url or "<未配置，文件下载不可用>",
                  "已配置（可选，Chatflow 内部调用）"
                  if (self.settings.dify_file_workflow_key or "").strip()
@@ -162,20 +164,13 @@ class qqassistantplugin(BasePlugin):
                 log.warning("Dify 自检：%s 调用 /info 失败：%s", name, e)
                 file_store.debug(f"DIFY 自检 {name} /info 失败：{e}")
 
-    async def _refresh_rules_loop(self) -> None:
-        # RuleCache.refresh 内部已吞异常，循环不会因单次拉取失败而终止
-        while True:
-            await asyncio.sleep(self.settings.intercept_refresh_s)
-            await self.rule_cache.refresh()
-
     async def terminate(self) -> None:
         # 注意：当前 SDK 版本（langbot_plugin 0.7.x）没有 async 关闭钩子，
         # 本方法不会被自动调用；保留它以备升级或手动清理。
         # 日志队列每 1s flush，进程被杀最多丢 1 秒日志，可接受。
-        self._rule_task.cancel()
-        self._initial_rule_task.cancel()
         self._napcat_check_task.cancel()
         self._dify_check_task.cancel()
+        await self.backfill.stop()
         await self.log_queue.stop()
         await self.spring.close()
         await self.dify.close()

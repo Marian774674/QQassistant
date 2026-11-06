@@ -21,4 +21,10 @@ public class DifyProperties {
     private String apiKey = "";
 
     private int timeoutMs = 60000;
+
+    /**
+     * 账本里的模型标注。Dify 的 Workflow blocking 响应不回传模型名，
+     * 这里由部署者自己填（如 qwen-plus）；留空则在账本里显示「未标注」，不猜。
+     */
+    private String model = "";
 }

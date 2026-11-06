@@ -141,6 +141,19 @@ class MemoryJobServiceTest {
         verifyNoInteractions(difyWorkflowClient);
     }
 
+    /** 一整批都是「哈哈哈」时不能白调一次 Dify；游标仍要往前走，否则永远卡在这批噪音上。 */
+    @Test
+    void runOnce_skipsDifyAndAdvancesTheCursorWhenTheBatchIsAllNoise() {
+        List<Long> ids = seedMessages(3, "哈哈哈");
+        armCursor(ids.get(0));
+
+        assertThat(memoryJobService.runOnce()).isZero();
+
+        verifyNoInteractions(difyWorkflowClient);
+        assertThat(appSettingService.getOrDefault("memory_job_cursor", ""))
+                .isEqualTo(String.valueOf(ids.get(ids.size() - 1)));
+    }
+
     @Test
     void runOnce_returnsZeroOnTheSecondPassWithoutCallingDifyAgain() {
         List<Long> ids = seedMessages(1);
@@ -153,6 +166,10 @@ class MemoryJobServiceTest {
     }
 
     private List<Long> seedMessages(int count) {
+        return seedMessages(count, "我生日是 11 月 11 日");
+    }
+
+    private List<Long> seedMessages(int count, String content) {
         List<Long> ids = new java.util.ArrayList<>();
         for (int i = 0; i < count; i++) {
             MessageLog row = new MessageLog();
@@ -162,7 +179,7 @@ class MemoryJobServiceTest {
             row.setChatName("三班群");
             row.setDirection("IN");
             row.setMsgType("text");
-            row.setContent("我生日是 11 月 11 日");
+            row.setContent(content);
             row.setCreatedAt(LocalDateTime.now());
             row.setDedupeKey("memjob-" + System.nanoTime() + "-" + i);
             messageLogMapper.insert(row);

@@ -10,7 +10,8 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "langbot")
 public class LangBotProperties {
 
-    private String baseUrl= "http://192.168.100.128:5300";
+    /** 由 application.yaml 的 ${LANGBOT_BRIDGE_URL} 注入；这里只留一个中性的本机兜底 */
+    private String baseUrl = "http://127.0.0.1:5301";
 
     private int connectTimeoutMs = 3000;
 

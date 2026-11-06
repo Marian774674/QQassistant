@@ -10,6 +10,7 @@ import type { ChatSetting } from '@/api/chatSettings'
 import { getSettings, putSettings } from '@/api/settings'
 import { useRefresh } from '@/composables/useRefresh'
 import { useToast } from '@/composables/useToast'
+import { firstSegment, fullNameHint } from '@/utils/name'
 
 const toast = useToast()
 
@@ -108,8 +109,20 @@ async function savePrefs() {
   }
 }
 
+/** 群名里常带「，低代码」这类后缀，界面上只留第一段；别名同理，逗号分隔只取第一个 */
 function chatLabel(chat: ChatSetting) {
-  return chat.chatName || (chat.kind === 'PRIVATE' ? `QQ ${chat.chatId}` : `群 ${chat.chatId}`)
+  // 只展示第一个称呼；后面的是给匹配用的，别把整串抖在界面上
+  return (
+    firstSegment(chat.aliases) ||
+    firstSegment(chat.chatName) ||
+    (chat.kind === 'PRIVATE' ? `QQ ${chat.chatId}` : `群 ${chat.chatId}`)
+  )
+}
+
+/** 悬停/长按时给完整名字：截断只是版面上的取舍，不该让人永远看不到全名 */
+function chatTitle(chat: ChatSetting) {
+  const full = (chat.aliases ?? '').trim() || (chat.chatName ?? '').trim()
+  return fullNameHint(chatLabel(chat), full)
 }
 </script>
 
@@ -232,7 +245,7 @@ function chatLabel(chat: ChatSetting) {
 
         <ul v-else class="chats">
           <li v-for="chat in groups" :key="`${chat.kind}:${chat.chatId}`" class="chat">
-            <p class="chat-name">{{ chatLabel(chat) }}</p>
+            <p class="chat-name" :title="chatTitle(chat)">{{ chatLabel(chat) }}</p>
             <div class="chat-switches">
               <label class="mini">
                 <input
@@ -260,7 +273,8 @@ function chatLabel(chat: ChatSetting) {
           </li>
         </ul>
         <p v-if="groups.length" class="faint note">
-          自动回复管的是<span>替你说日常话</span>；备忘、查资料、文件填写不受这个开关影响，照常工作。
+          自动回复管的是<span>替你说日常话</span>；备忘和查资料照常。
+          别人发来的文件要这个开关开着才会处理，你自己发文件不受影响。
         </p>
       </section>
 
@@ -278,7 +292,7 @@ function chatLabel(chat: ChatSetting) {
 
         <ul v-else class="chats">
           <li v-for="chat in privates" :key="`PRIVATE:${chat.chatId}`" class="chat">
-            <p class="chat-name">{{ chatLabel(chat) }}</p>
+            <p class="chat-name" :title="chatTitle(chat)">{{ chatLabel(chat) }}</p>
             <div class="chat-switches">
               <label class="mini">
                 <input
@@ -373,19 +387,42 @@ function chatLabel(chat: ChatSetting) {
   display: flex;
   align-items: center;
   gap: 12px;
+  /* 行本身也要能收缩，否则子项的 min-width: 0 传不下去 */
+  min-width: 0;
   padding: 12px 14px;
   border-radius: var(--r-md);
   background: var(--card);
   box-shadow: var(--shadow-card);
 }
 
+/*
+ * 名字是唯一允许被压缩的东西。
+ * flex: 1 + min-width: 0 缺一不可——flex 项默认 min-width: auto，
+ * 少了那一行，overflow/text-overflow 根本不生效，长名字会把开关挤变形。
+ */
 .chat-name {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
   font-size: 14px;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* 长按拖动是「滚动」，不该同时选中文字 */
+  user-select: none;
+}
+
+/* 想看全名时：省略号让位给横向滚动，滚动条不占位也不显示 */
+.chat-name:hover,
+.chat-name:active {
+  overflow-x: auto;
+  text-overflow: clip;
+  scrollbar-width: none;
+}
+
+.chat-name::-webkit-scrollbar {
+  display: none;
 }
 
 .chat-switches {
@@ -393,6 +430,8 @@ function chatLabel(chat: ChatSetting) {
   align-items: center;
   gap: 14px;
   margin-left: auto;
+  /* 开关组绝不参与压缩：名字再长，也不许把「自动回复」挤成两行 */
+  flex: 0 0 auto;
 }
 
 .mini {
@@ -401,6 +440,8 @@ function chatLabel(chat: ChatSetting) {
   gap: 6px;
   color: var(--ink-3);
   font-size: 11.5px;
+  /* 标签自己也不许折行 */
+  white-space: nowrap;
   cursor: pointer;
 }
 

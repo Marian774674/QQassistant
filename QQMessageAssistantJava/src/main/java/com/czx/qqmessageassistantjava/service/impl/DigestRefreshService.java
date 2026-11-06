@@ -2,6 +2,8 @@ package com.czx.qqmessageassistantjava.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.czx.qqmessageassistantjava.common.FlexibleLocalDateTimeDeserializer;
+import com.czx.qqmessageassistantjava.constant.AppSettingKeys;
+import com.czx.qqmessageassistantjava.constant.TuningDefaults;
 import com.czx.qqmessageassistantjava.entity.ChatSetting;
 import com.czx.qqmessageassistantjava.entity.MessageLog;
 import com.czx.qqmessageassistantjava.mapper.MessageLogMapper;
@@ -31,13 +33,13 @@ public class DigestRefreshService {
     private static final Logger log = LoggerFactory.getLogger(DigestRefreshService.class);
 
     /** 上次真正跑整理的时间；和用户点「都看过了」的 last_digest_seen 是两回事 */
-    static final String LAST_RUN_KEY = "last_digest_run";
-    static final String MIN_MESSAGES_KEY = "digest_refresh_min_messages";
-    static final String MIN_MINUTES_KEY = "digest_refresh_min_minutes";
-    static final int DEFAULT_MIN_MESSAGES = 100;
-    static final int DEFAULT_MIN_MINUTES = 60;
+    static final String LAST_RUN_KEY = AppSettingKeys.DIGEST_LAST_RUN;
+    static final String MIN_MESSAGES_KEY = AppSettingKeys.DIGEST_REFRESH_MIN_MESSAGES;
+    static final String MIN_MINUTES_KEY = AppSettingKeys.DIGEST_REFRESH_MIN_MINUTES;
+    static final int DEFAULT_MIN_MESSAGES = TuningDefaults.DIGEST_REFRESH_MIN_MESSAGES;
+    static final int DEFAULT_MIN_MINUTES = TuningDefaults.DIGEST_REFRESH_MIN_MINUTES;
     /** 从没整理过：按最近一天算，和 GET /api/digest 的缺省窗口一致 */
-    private static final int DEFAULT_LOOKBACK_HOURS = 24;
+    private static final int DEFAULT_LOOKBACK_HOURS = TuningDefaults.DIGEST_LOOKBACK_HOURS;
 
     private final ChatDigestService chatDigestService;
     private final ChatSettingService chatSettingService;
@@ -60,7 +62,7 @@ public class DigestRefreshService {
 
     DigestRefreshVO refresh(LocalDateTime now) {
         DigestRefreshVO vo = new DigestRefreshVO();
-        boolean enabled = "1".equals(appSettingService.getOrDefault("digest_enabled", "0"));
+        boolean enabled = "1".equals(appSettingService.getOrDefault(AppSettingKeys.DIGEST_ENABLED, "0"));
         vo.setEnabled(enabled);
 
         LocalDateTime lastRun = FlexibleLocalDateTimeDeserializer.parseFlexible(
@@ -82,11 +84,20 @@ public class DigestRefreshService {
             return vo;
         }
 
-        int saved = digestEnabledGroups(lastRun, now);
+        Outcome outcome = digestEnabledGroups(lastRun, now);
         vo.setRefreshed(true);
-        vo.setSaved(saved);
-        // 跑过就把锚点往前推；没到阈值时不动，窗口继续累积
-        appSettingService.putAll(Map.of(LAST_RUN_KEY, now.withNano(0).toString()));
+        vo.setSaved(outcome.saved());
+        // 三种情况可以推锚点：窗口里本来就没消息、至少整理出内容、窗口里全是已过滤的噪音。
+        // 「全是噪音」也必须推进，否则每进一次首页都会把同一批 666/哈哈哈 重新过滤一遍；
+        // 但「模型返回空 / Dify 抖动」不推——否则这一窗口会被永久跳过，
+        // 首页只会显示「没什么事」，用户却明明在群里看到过消息。
+        if (count == 0 || (outcome.failed() == 0
+                && (outcome.saved() > 0 || outcome.noiseOnly()))) {
+            appSettingService.putAll(Map.of(LAST_RUN_KEY, now.withNano(0).toString()));
+        } else {
+            log.warn("窗口 {} → {} 有 {} 条消息，但整理结果为空或失败，保留锚点等待重试",
+                    lastRun, now, count);
+        }
         return vo;
     }
 
@@ -103,20 +114,32 @@ public class DigestRefreshService {
     }
 
     /** 和每小时调度同一套筛选：只整理勾了「整理」的群，一个群失败不连累别的 */
-    private int digestEnabledGroups(LocalDateTime start, LocalDateTime end) {
+    private Outcome digestEnabledGroups(LocalDateTime start, LocalDateTime end) {
         int saved = 0;
+        int failed = 0;
+        boolean noiseOnly = false;
         for (ChatSetting group : chatSettingService.listAll()) {
             if (!"GROUP".equals(group.getKind()) || !Boolean.TRUE.equals(group.getDigestEnabled())) {
                 continue;
             }
             try {
-                saved += chatDigestService.digestChat(
+                ChatDigestService.DigestOutcome result = chatDigestService.digestChat(
                         group.getChatId(), group.getChatName(), start, end);
+                saved += result.saved();
+                noiseOnly = noiseOnly || result.noiseOnly();
             } catch (Exception e) {
+                failed++;
                 log.warn("整理群 {} 失败，跳过", group.getChatId(), e);
             }
         }
-        return saved;
+        return new Outcome(saved, failed, noiseOnly);
+    }
+
+    /**
+     * 一轮整理的结果：写了几条、几个群失败、是否全是被噪音过滤的窗口。
+     * 失败数决定锚点能不能往前推；{@code noiseOnly} 让「全噪音」也能推进，避免反复重扫。
+     */
+    private record Outcome(int saved, int failed, boolean noiseOnly) {
     }
 
     private int intSetting(String key, int fallback) {

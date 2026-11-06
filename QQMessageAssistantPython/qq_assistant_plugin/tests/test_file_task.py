@@ -59,7 +59,6 @@ def settings(tmp_path, monkeypatch):
         bot_uuid="u", bot_qq=12345, group_prefix="!",
         fact_auto_threshold=0.85,
         delay_base_ms=0, delay_per_char_ms=0, delay_jitter_ms=0, delay_max_ms=0,
-        intercept_refresh_s=60, intercept_scope="group",
     )
 
 

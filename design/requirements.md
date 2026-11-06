@@ -67,7 +67,7 @@
 | 编号 | 用例 | 触发 | 主要输出 | 关联需求 |
 |---|---|---|---|---|
 | UC-01 | 私聊普通聊天 | 私聊发一条文本 | 拟人延迟后的回复，或草稿，或静默 | FR-1, FR-2 |
-| UC-02 | 群内收集通知自动回复 | 群消息命中拦截规则或意图 | 回复一次并标记已回 | FR-1, FR-3 |
+| UC-02 | 群内收集通知自动回复（历史用例，见 FR-3'） | 原为「群消息命中拦截规则或意图」；拦截规则已废弃 | 现行由 Dify 决策信封决定是否回复；命中噪音的消息原文入日志、不回复 | FR-1, FR-3' |
 | UC-03 | 记录备忘并分级提醒 | 消息含邀约/截止时间 | `memo` + 多条 `memo_reminder`，到期推送 | FR-4 |
 | UC-04 | 先说要求再发文件 | 「我要发个文件，把姓名填上」→ 发文件 | 不回问、直接按已述要求填 | FR-5 |
 | UC-05 | 先发文件再补要求 | 发文件 → 「姓名张三，学号2023001」 | 追问一次后按补充信息填 | FR-5 |
@@ -84,7 +84,7 @@
 ### 3.1 架构
 
 ```
-QQ ──► NapCat（QQ 协议）──► LangBot + QQ 助手插件（路由 / 拦截 / 拟人延迟 / 文件 I/O）
+QQ ──► NapCat（QQ 协议）──► LangBot + QQ 助手插件（路由 / 噪音判定 / 拟人延迟 / 文件 I/O）
                                   ├──► Dify Chatflow（意图、对话状态、决策「填什么 / 发不发」）
                                   └──► Spring Boot（状态机、持久化、定时调度、草稿中心）
                                               └──► Vue3（首页 / 备忘 / 草稿 / 问一句 / 记忆与设置）
@@ -105,9 +105,9 @@ Spring Boot ──► 发送桥 send_bridge ──► LangBot / NapCat（主动�
 | 组件 | 负责 | 不负责 |
 |---|---|---|
 | **NapCat** | QQ 协议、收发消息与文件、HTTP/WS 接口 | 任何业务判断 |
-| **LangBot + 插件** | 事件归一化、群聊触发判定、正则前置拦截、拟人延迟、文件下载/解析/回写/回传、动作执行、幂等 | 长期业务状态、定时任务 |
+| **LangBot + 插件** | 事件归一化、群聊触发判定、前置噪音判定（实时调 Spring）、拟人延迟、文件下载/解析/回写/回传、动作执行、幂等 | 长期业务状态、定时任务 |
 | **Dify** | 意图识别、对话状态（本轮是否在等文件）、语义生成、决策 envelope | 持久化、文件二进制、定时 |
-| **Spring Boot** | 12 张表的持久化、提醒调度、草稿确认分发、画像存取 | 文件流、直连 QQ |
+| **Spring Boot** | 持久化（Phase 1 定 12 张表，现为 21 张）、提醒调度、草稿确认分发、画像存取 | 文件流、直连 QQ |
 | **Vue** | 展示、人工确认、手动编辑与配置 | 业务判定逻辑 |
 
 ---
@@ -141,15 +141,28 @@ Spring Boot ──► 发送桥 send_bridge ──► LangBot / NapCat（主动�
 
 **降级**：Dify 返回的 Answer 不是合法决策 JSON 时，**不得把原文发给用户**，一律降级为 `SILENT` 并记录告警。
 
-### FR-3 统一回复任务（防重 + 前置拦截）
+### FR-3 统一回复任务（原「防重 + 前置拦截」，2026-11 已废弃）
 
-**FR-3.1 前置拦截**：高频固定回复（如报学号）由插件按「关键词 + 正则」在本地拦截，绕过 Dify 以省 token、降延迟。
-**FR-3.2 规则热更新**：规则存于 Spring 的 `intercept_rule` 表，插件定时拉取（默认 60s），改规则不需改代码、不需重启。
-**FR-3.3 拦截后仍查防重**：命中规则后必须先调 `collection-tasks/check`，确认本 `task_key` 未回复过才发；发完调 `mark`。
-**FR-3.4 `task_key` 定义**：`chat_id + task_type + 时间窗口`（当天 / 本周可配）。既防重，又不误拦新批次。
-**FR-3.5 未命中**：交给 Dify 识别，走同一条 check / mark 防重路径。
+> **变更**：用户明确要求「噪音过滤直接替换原来的拦截规则功能，原来的拦截规则直接废弃」。
+> 本组 FR-3.1–FR-3.5 保留为历史设计记录，**不再作为当前验收依据**。
+> 拦截规则 CRUD、`GET /api/collection-tasks/rules`、插件侧规则缓存 / 模板回复 /
+> `check` + `mark` 调用已从运行时删除；`intercept_rule` / `collection_task` 两张表保留不 DROP。
+> 前端 `/rules` 页改版为「噪音过滤」配置页。
 
-**验收**：同一收集任务在群内被两人同时触发，只产生一条回复。
+**现行替代方案（FR-3'）**：
+
+- **FR-3'.1 前置噪音判定**：插件在写完 IN 日志后、触发判断前，对每条文本消息调
+  `POST /api/agent/noise-filter/check`；命中则**原文保留在 `message_log`**，但不进 Dify、不自动回复。
+- **FR-3'.2 规则单一来源**：四个 `noise_filter_*` 键只存 Spring 的 `app_setting`，
+  与整理 / 夜间归纳共用 `MessageNoiseFilter`；插件不拉规则、不缓存、不做本地正则匹配，
+  网页改完立即生效。契约见 [`api_contract.md`](./api_contract.md) §17.1–17.3、§17.7。
+- **FR-3'.3 判定必须 fail-open**：Spring 未升级 / 接口异常 / 响应为空时一律按「非噪音」放行，
+  绝不能因为过滤失败吞掉消息。
+- **FR-3'.4 防重**：原 `collection_task` 防重链路随拦截规则一起下线，`check` / `mark`
+  端点仅作兼容保留、当前无调用方。自动回复的频控由 `reply-context` 令牌桶负责。
+
+**验收（现行）**：规则页保存一条纯标点规则后，群里发「……」应只见日志、不见回复；
+把 Spring 停掉后发正常消息，仍应照常进 Dify 并回复。
 
 ### FR-4 备忘录与分级提醒
 
@@ -239,7 +252,9 @@ Spring Boot ──► 发送桥 send_bridge ──► LangBot / NapCat（主动�
 
 ### FR-10 配置与运维
 
-**FR-10.1 插件配置项**：Spring 地址与超时、Dify 地址/Key/超时/文件工作流 Key、NapCat 地址与 Token、机器人 UUID 与 QQ、群触发前缀、事实自动写入阈值、文件确认阈值、拟人延迟四参数、拦截刷新周期与作用域。
+**FR-10.1 插件配置项**：Spring 地址与超时、Dify 地址/Key/超时/文件工作流 Key、NapCat 地址与 Token、机器人 UUID 与 QQ、群触发前缀、事实自动写入阈值、文件确认阈值、拟人延迟四参数、掉线补拉开关与周期（探活轮询 `napcat_backfill_interval_s`、启动延迟 `napcat_backfill_start_delay_s`、**兜底回查 `napcat_backfill_sweep_s`**）、Token 用量上报开关。（原「拦截刷新周期与作用域」已随拦截规则下线删除；噪音规则在网页 `/rules` 配置，插件侧无对应配置项。）
+
+> **兜底回查周期是必需的，不是可选调优**：`FR-10.2` 之外，登录过期、被漏采样的重登、LangBot 与 NapCat 之间 WS 断开这三类故障都不会产生「离线 → 在线」边沿，只靠边沿触发的补拉会永久停摆（见 `design_overview.md` §5.4）。因此 `napcat_backfill_sweep_s` 默认 300 秒、下限 30 秒，即使从未探到掉线也要周期性回查一次；补拉本身幂等（`dedupeKey = msg:<message_id>` + 游标只进不退）。
 **FR-10.2 敏感信息**：API Key / Token / 数据库口令一律走配置或 `.env`，**不得**硬编码进代码或提交进仓库。
 **FR-10.3 部署**：LangBot（含插件运行时）+ NapCat + 发送桥以 Docker Compose 部署在 Linux 虚拟机；Spring Boot 与 Dify 可独立部署。
 **FR-10.4 暴露面**：插件运行器调试口（5401）绝不对外映射；WebUI 默认只绑 `127.0.0.1`，优先 SSH 隧道访问。
@@ -250,7 +265,9 @@ Spring Boot ──► 发送桥 send_bridge ──► LangBot / NapCat（主动�
 
 ## 5. 数据需求
 
-共 12 张表，字段级定义与 DDL 见 [`database_schema.md`](./database_schema.md)。
+Phase 1 定义 12 张表，字段级定义与 DDL 见 [`database_schema.md`](./database_schema.md)。
+后续随 Phase 2 / 3、智能检索、掉线补拉、Token 账本逐步扩展到 **21 张表**，
+以 `QQMessageAssistantJava/src/main/resources/db/schema.sql` 与 `db/migrations/` 为准。
 
 | # | 表 | 用途 | 保留要求 |
 |---|---|---|---|
@@ -258,8 +275,8 @@ Spring Boot ──► 发送桥 send_bridge ──► LangBot / NapCat（主动�
 | 2 | `message_log` | 统一消息日志 | 至少覆盖风格总结窗口；可定期归档 |
 | 3 | `memo` | 备忘主体 | 长期 |
 | 4 | `memo_reminder` | 提醒计划（按级别展开为多行） | 随备忘 |
-| 5 | `collection_task` | 防重状态 | 按时间窗口清理 |
-| 6 | `intercept_rule` | 前置拦截规则 | 长期 |
+| 5 | `collection_task` | ~~防重状态~~ 已废弃，表保留不 DROP | 数据可长期留存，运行时不再读写 |
+| 6 | `intercept_rule` | ~~前置拦截规则~~ 已废弃，表保留不 DROP | 数据可长期留存，运行时不再读写 |
 | 7 | `profile_fact` | 事实记忆 kv | 长期 |
 | 8 | `style_profile` | 风格画像正文 | 保留历史版本可查 |
 | 9 | `app_setting` | 全局配置 | 长期 |
@@ -281,7 +298,7 @@ Spring Boot ──► 发送桥 send_bridge ──► LangBot / NapCat（主动�
 | 草稿 | `POST/GET /api/drafts`、`POST /api/drafts/{id}/confirm`、`POST /api/drafts/{id}/reject` | 插件 / Dify / Vue |
 | 消息日志 | `POST /api/message-logs`、`GET /api/message-logs` | 插件 / 发送桥 / Vue |
 | 备忘录 | `POST /api/memos`、`GET /api/memos`、`PATCH /api/memos/{id}` | Dify / Vue / 插件 |
-| 防重与拦截 | `POST /api/collection-tasks/check`、`/mark`、`GET /api/collection-tasks/rules`、`/api/intercept-rules` CRUD | 插件 / Vue |
+| 防重与前置过滤（已改版） | `POST /api/agent/noise-filter/check`（插件唯一入口）；`GET/PUT /api/settings/noise-filter`、`POST .../preview`（Vue `/rules`）；`/api/collection-tasks/check`、`/mark` 仅兼容保留 | 插件 / Vue |
 | 画像与设置 | `/api/profile/{senderId}`、`/api/profile/facts` CRUD、`/api/style-profile/{senderId}`、`/api/style-profile/update`、`GET/PUT /api/settings` | 插件 / Dify / Vue |
 | 文件任务 | `GET /api/file-tasks`、`POST /api/file-tasks/sync` | Vue / 插件 |
 | 会话映射 | `/api/conversations/resolve`、`/bind`、`/reset` | 插件 |
@@ -316,7 +333,7 @@ Dify Chatflow 的 Start 节点共 **14 个变量**，且必须与插件发送的
 |---|---|
 | NFR-1.1 | 普通私聊消息端到端（QQ 发出 → 收到回复）通常在拟人延迟 + 模型耗时之内；Dify 超时默认 60s |
 | NFR-1.2 | 拟人延迟上限 15s，超过即封顶 |
-| NFR-1.3 | 前置拦截命中时不得调用 Dify |
+| NFR-1.3 | 前置噪音判定命中时不得调用 Dify（原「前置拦截」，已废弃） |
 | NFR-1.4 | 发送桥最坏耗时（15s 延迟 + 10s HTTP）25s，Java 读超时必须大于该值（当前 35s），否则会出现「Java 已回滚但桥仍发出」的重复发送 |
 | NFR-1.5 | Vue 列表接口单次响应 < 1s（数据量为个人级） |
 
@@ -425,7 +442,7 @@ Dify Chatflow 的 Start 节点共 **14 个变量**，且必须与插件发送的
 |---|---|---|---|
 | FR-1 接入触发 | ✅ | ✅ | 🟡 |
 | FR-2 拟人回复/草稿 | ✅ | ✅ | 🟡 |
-| FR-3 防重拦截 | ✅ | 部分（拦截在插件侧） | ⬜ |
+| ~~FR-3 防重拦截~~ → FR-3' 前置噪音过滤 | ✅（拦截规则已下线，判定在 Spring 侧） | — | ⬜ 待真机验收 |
 | FR-4 备忘提醒 | ✅（调度默认关闭，需显式开启） | ✅ | ⬜ |
 | FR-5 文件任务 | ✅ | 🟡 Chatflow 已搭，Code 节点待修 | ⬜ |
 | FR-6 记忆 | ✅（事实）/ 🟡（风格总结任务） | 🟡 | ⬜ |
@@ -433,7 +450,7 @@ Dify Chatflow 的 Start 节点共 **14 个变量**，且必须与插件发送的
 | FR-8 草稿中心 | ✅ | — | ⬜ |
 | FR-9 消息日志 | ✅ | — | ✅ |
 | FR-10 部署运维 | ✅ | — | 🟡 |
-| Vue 前端（FR-6.5 / FR-8 界面） | ✅ 11 页：首页 / 备忘 / 草稿 / 问一句 / 更多（记忆、群设置、拦截规则、文件任务、消息日志、设置） | — | 🟡 |
+| Vue 前端（FR-6.5 / FR-8 界面） | ✅ 14 页：首页 / 备忘 / 草稿 / 问一句 / 更多（记忆、群设置、噪音过滤（原「拦截规则」）、文件任务、消息日志、Token 用量（含「花在哪个会话」占比饼图：Top 6 群聊 + 其它 + 未归属）、设置、修改密码）等 | — | 🟡 |
 
 **当前已知阻塞**：Dify Chatflow 的 `CLOCK` Code 节点代码首行带缩进，运行时报
 `IndentationError: unexpected indent`（`File "<fd3>", line 1`），导致所有消息返回 400。修法：该节点 Ctrl+A 全删后重新粘贴顶格代码，或导入清理版 DSL。详见 `dify_chatflow.md` §12。
@@ -444,7 +461,7 @@ Dify Chatflow 的 Start 节点共 **14 个变量**，且必须与插件发送的
 |---|---|
 | 决策 envelope | Dify Answer 节点输出的纯 JSON，含 `action` 与各动作 payload |
 | 降级 | 异常或低置信时退回更安全的行为（草稿 / 静默 / 追问），而不是报错或乱发 |
-| 前置拦截 | 插件在调用 Dify 之前用关键词 + 正则直接命中固定回复 |
+| ~~前置拦截~~ → 前置噪音判定 | 原为插件本地关键词 + 正则命中固定回复（已废弃）；现为插件在触发判断前调 Spring `POST /api/agent/noise-filter/check`，命中只留原文、不进 Dify、不回复，判定失败 fail-open 放行 |
 | `task_key` | 防重键：`chat_id + task_type + 时间窗口` |
 | `task_ref` | 插件侧文件任务 id，用于跨轮引用同一份文件 |
 | 拟人延迟 | 私聊发送前按字数模拟的等待时间（含随机抖动） |

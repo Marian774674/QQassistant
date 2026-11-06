@@ -12,7 +12,6 @@ import com.czx.qqmessageassistantjava.controller.MemoController;
 import com.czx.qqmessageassistantjava.dto.MemoCreateRequest;
 import com.czx.qqmessageassistantjava.dto.MemoPatchRequest;
 import com.czx.qqmessageassistantjava.entity.Draft;
-import com.czx.qqmessageassistantjava.entity.InterceptRule;
 import com.czx.qqmessageassistantjava.entity.Memo;
 import com.czx.qqmessageassistantjava.entity.MemoReminder;
 import com.czx.qqmessageassistantjava.mapper.MemoMapper;

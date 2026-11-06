@@ -1,0 +1,28 @@
+# Spring Boot 本地私密配置模板（Java .properties 格式）
+# 用法：cp java.properties.example java.properties，然后填真实值。
+# java.properties 已被 .gitignore 排除，切勿提交；生产环境直接用系统环境变量，不建这个文件。
+#
+# application.yaml 通过 spring.config.import 读它，也可以由环境变量同名覆盖。
+# 变量名怎么对应：application.yaml 里的 ${DB_PASSWORD} 就是下面这行的 key。
+
+# ── 数据库 ─────────────────────────────────────────────────────────────
+DB_URL=jdbc:mysql://127.0.0.1:3306/qq_assistant?useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&transformedBitIsBoolean=true&allowMultiQueries=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=Asia/Shanghai
+DB_USERNAME=qq_assistant
+DB_PASSWORD=
+
+# ── 主动发送桥（send_bridge），不是 LangBot 官方端口 ────────────────────
+LANGBOT_BRIDGE_URL=http://127.0.0.1:5301
+
+# ── Dify「记忆与整理」Workflow ─────────────────────────────────────────
+DIFY_WORKFLOW_BASE_URL=http://127.0.0.1/v1
+DIFY_WORKFLOW_API_KEY=
+# 账本里的模型标注，Dify 不回传模型名；可留空
+DIFY_WORKFLOW_MODEL=
+
+# ── 其余仍走环境变量（不在本文件里）────────────────────────────────────
+# AGENT_OPS_TOKEN       Dify HTTP 节点回写 /api/agent/* 的令牌，≥32 位随机串
+# AUTH_INITIAL_PASSWORD 首次登录初始密码；不设则启动日志打印随机临时密码
+# AUTH_OWNER_QQ         QQ 授权登录的收码账号
+# AUTH_USERNAME         登录账号，默认 admin
+# REDIS_HOST/REDIS_PORT/REDIS_PASSWORD/REDIS_DATABASE
+# EMBEDDING_HTTP_BASE_URL / EMBEDDING_HTTP_API_KEY / EMBEDDING_HTTP_MODEL

@@ -4,6 +4,7 @@ import com.czx.qqmessageassistantjava.entity.ChatSetting;
 import com.czx.qqmessageassistantjava.mapper.MessageLogMapper;
 import com.czx.qqmessageassistantjava.service.AppSettingService;
 import com.czx.qqmessageassistantjava.service.ChatDigestService;
+import com.czx.qqmessageassistantjava.service.ChatDigestService.DigestOutcome;
 import com.czx.qqmessageassistantjava.service.ChatSettingService;
 import com.czx.qqmessageassistantjava.vo.DigestRefreshVO;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,7 +68,7 @@ class DigestRefreshServiceTest {
         when(chatSettingService.listAll()).thenReturn(List.of(
                 group(9L, "三班群", true),
                 group(10L, "游戏群", false)));
-        when(chatDigestService.digestChat(9L, "三班群", LAST_RUN, NOW)).thenReturn(3);
+        when(chatDigestService.digestChat(9L, "三班群", LAST_RUN, NOW)).thenReturn(new DigestOutcome(3, false));
 
         DigestRefreshVO result = service.refresh(NOW);
 
@@ -85,7 +86,7 @@ class DigestRefreshServiceTest {
         when(chatSettingService.listEnabledGroupIds()).thenReturn(List.of(9L));
         when(messageLogMapper.selectCount(any())).thenReturn(2L);
         when(chatSettingService.listAll()).thenReturn(List.of(group(9L, "三班群", true)));
-        when(chatDigestService.digestChat(9L, "三班群", twoHoursAgo, NOW)).thenReturn(1);
+        when(chatDigestService.digestChat(9L, "三班群", twoHoursAgo, NOW)).thenReturn(new DigestOutcome(1, false));
 
         DigestRefreshVO result = service.refresh(NOW);
 
@@ -100,9 +101,66 @@ class DigestRefreshServiceTest {
         when(chatSettingService.listEnabledGroupIds()).thenReturn(List.of(9L));
         when(messageLogMapper.selectCount(any())).thenReturn(40L);
         when(chatSettingService.listAll()).thenReturn(List.of(group(9L, "三班群", true)));
-        when(chatDigestService.digestChat(9L, "三班群", LAST_RUN, NOW)).thenReturn(1);
+        when(chatDigestService.digestChat(9L, "三班群", LAST_RUN, NOW)).thenReturn(new DigestOutcome(1, false));
 
         assertThat(service.refresh(NOW).isRefreshed()).isTrue();
+    }
+
+    /**
+     * 线上复现：窗口里有消息，但模型返回空（或 Dify 抖动），一条都没写。
+     * 此时绝不能推锚点，否则这批消息永久消失，首页只剩「没什么事」。
+     */
+    @Test
+    void emptyResultWithMessages_keepsTheAnchorForRetry() {
+        stubSettings("1", LAST_RUN, "1", "60");
+        when(chatSettingService.listEnabledGroupIds()).thenReturn(List.of(9L));
+        when(messageLogMapper.selectCount(any())).thenReturn(4L);
+        when(chatSettingService.listAll()).thenReturn(List.of(group(9L, "三班群", true)));
+        when(chatDigestService.digestChat(9L, "三班群", LAST_RUN, NOW))
+                .thenReturn(new DigestOutcome(0, false));
+
+        DigestRefreshVO result = service.refresh(NOW);
+
+        assertThat(result.isRefreshed()).isTrue();
+        assertThat(result.getSaved()).isZero();
+        verify(appSettingService, never()).putAll(any());
+    }
+
+    /**
+     * 窗口里全是 666/哈哈哈：一条都没写，但这不是失败，消息已经「处理过」。
+     * 锚点必须推进，否则每次进首页都会把同一批噪音重新过滤一遍。
+     */
+    @Test
+    void allNoiseWindow_advancesTheAnchorWithoutRetrying() {
+        stubSettings("1", LAST_RUN, "1", "60");
+        when(chatSettingService.listEnabledGroupIds()).thenReturn(List.of(9L));
+        when(messageLogMapper.selectCount(any())).thenReturn(4L);
+        when(chatSettingService.listAll()).thenReturn(List.of(group(9L, "三班群", true)));
+        when(chatDigestService.digestChat(9L, "三班群", LAST_RUN, NOW))
+                .thenReturn(new DigestOutcome(0, true));
+
+        DigestRefreshVO result = service.refresh(NOW);
+
+        assertThat(result.isRefreshed()).isTrue();
+        assertThat(result.getSaved()).isZero();
+        verify(appSettingService).putAll(
+                Map.of(DigestRefreshService.LAST_RUN_KEY, NOW.toString()));
+    }
+
+    @Test
+    void failedGroup_keepsTheAnchorForRetry() {
+        stubSettings("1", LAST_RUN, "1", "60");
+        when(chatSettingService.listEnabledGroupIds()).thenReturn(List.of(9L));
+        when(messageLogMapper.selectCount(any())).thenReturn(4L);
+        when(chatSettingService.listAll()).thenReturn(List.of(group(9L, "三班群", true)));
+        when(chatDigestService.digestChat(9L, "三班群", LAST_RUN, NOW))
+                .thenThrow(new IllegalStateException("Dify 超时"));
+
+        DigestRefreshVO result = service.refresh(NOW);
+
+        assertThat(result.isRefreshed()).isTrue();
+        assertThat(result.getSaved()).isZero();
+        verify(appSettingService, never()).putAll(any());
     }
 
     @Test

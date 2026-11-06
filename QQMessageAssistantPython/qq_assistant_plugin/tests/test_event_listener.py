@@ -5,6 +5,7 @@
    这句是“补充字段”还是普通聊天。
 2. 文件消息必须先下载/抽取，再把 event_type=file + structure 送 Chatflow。
 """
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -13,7 +14,7 @@ import pytest
 from langbot_plugin.api.entities.builtin.platform import message as pm
 
 from components.event_listener.default import DefaultEventListener
-from core import conversation_store, file_store
+from core import conversation_store, file_store, reply
 
 
 class FakeCtx:
@@ -35,9 +36,10 @@ def deps(tmp_path, monkeypatch):
     monkeypatch.setattr(file_store, "BASE", tmp_path / "files")
     conversation_store.clear_cache()
     d = SimpleNamespace(
-        settings=SimpleNamespace(group_prefix="!", bot_qq=12345, intercept_scope="off",
+        settings=SimpleNamespace(group_prefix="!", bot_qq=12345,
                                  bot_uuid="bot-1", fact_auto_threshold=0.85),
         spring=SimpleNamespace(
+            check_noise=AsyncMock(return_value={"noise": False, "reason": ""}),
             profile=AsyncMock(return_value={"facts": {}, "stylePrompt": ""}),
             list_open_memos=AsyncMock(return_value=[]),
             reply_context=AsyncMock(return_value={
@@ -124,6 +126,135 @@ async def test_file_message_ingests_then_sends_file_inputs(deps):
     assert inputs["file_task_ref"] == "ft_1"
     assert inputs["file_kind"] == "xlsx"
     assert deps.dify.chat.await_args.args[0] == "把姓名填上"
+
+
+@pytest.mark.asyncio
+async def test_file_from_others_is_ignored_when_the_switch_is_off(deps):
+    """总开关关掉后，别人发来的文件连下载都不做。
+
+    以前文件分支绕过了 reply_gate：ingest() 内部直接回「这个格式我只能读不能改」，
+    开关关着也照发。
+    """
+    deps.spring.reply_context = AsyncMock(return_value={
+        "enabled": False, "ownerSenderId": "9999", "replyPrompt": "", "rateLimit": 20,
+        "outLastHour": 0, "recentMessages": []})
+    chain = pm.MessageChain([pm.File(type="File", id="f1", name="报告.pdf", size=1, url="")])
+    ctx = FakeCtx(chain, sender_id="1001")
+
+    with patch("core.file_task.ingest", AsyncMock(return_value=None)) as ingest:
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    ingest.assert_not_awaited()
+    deps.dify.chat.assert_not_awaited()
+    deps.dispatcher.handle.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_owner_file_task_still_runs_when_the_switch_is_off(deps):
+    """主人自己发文件是用工具，不是替主人说话：总开关关掉也要处理。"""
+    deps.spring.reply_context = AsyncMock(return_value={
+        "enabled": False, "ownerSenderId": "1001", "replyPrompt": "", "rateLimit": 20,
+        "outLastHour": 0, "recentMessages": []})
+    chain = pm.MessageChain([pm.File(type="File", id="f1", name="名单.xlsx", size=1, url="")])
+    ctx = FakeCtx(chain, sender_id="1001")
+    task = {"taskRef": "ft_1", "senderId": 1001, "chatId": None,
+            "structure": {"kind": "xlsx"}, "originalName": "名单.xlsx"}
+
+    with patch("core.file_task.ingest", AsyncMock(return_value=task)) as ingest:
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    ingest.assert_awaited_once()
+    deps.dify.chat.assert_awaited_once()
+    # 文件分支取过的快照要复用，不能为同一轮再打一次接口
+    assert deps.spring.reply_context.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_file_is_ignored_for_everyone_when_the_master_switch_is_off(deps):
+    """总开关关掉 = 彻底不说话，主人自己发的文件也不再处理。
+
+    会话开关（enabled=False）时主人仍可用工具；总开关（globalEnabled=False）不一样，
+    那是一个「全停」的手势。
+    """
+    deps.spring.reply_context = AsyncMock(return_value={
+        "enabled": False, "globalEnabled": False, "ownerSenderId": "1001",
+        "replyPrompt": "", "rateLimit": 20, "outLastHour": 0, "recentMessages": []})
+    chain = pm.MessageChain([pm.File(type="File", id="f1", name="名单.xlsx", size=1, url="")])
+    ctx = FakeCtx(chain, sender_id="1001")
+
+    with patch("core.file_task.ingest", AsyncMock(return_value=None)) as ingest:
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    ingest.assert_not_awaited()
+    deps.dify.chat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_noise_message_short_circuits_before_the_model(deps):
+    """命中噪音的消息照常入 IN 日志，但不进模型、不回话（顶替原拦截规则的位置）。"""
+    deps.spring.check_noise = AsyncMock(
+        return_value={"noise": True, "reason": "punctuation"})
+    logged = []
+    deps.log_queue = SimpleNamespace(enqueue=logged.append)
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="……")]))
+
+    await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    deps.spring.check_noise.assert_awaited_once_with("……", "text")
+    deps.dify.chat.assert_not_awaited()
+    assert logged and logged[0]["direction"] == "IN"
+    assert logged[0]["content"] == "……"
+
+
+@pytest.mark.asyncio
+async def test_noise_check_failure_keeps_the_message(deps):
+    """Spring 判定接口不可用时一律放行，绝不能反过来把主人的话吞掉。"""
+    deps.spring.check_noise = AsyncMock(side_effect=RuntimeError("spring down"))
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="你好")]))
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    assert deps.dify.chat.await_args.args[0] == "你好"
+
+
+def _bare_listener(deps):
+    """跳过 handler 注册，只为拿到一个能调 `_handle` 的 self。"""
+
+    class _Bare(DefaultEventListener):
+        def __init__(self):  # noqa: D107 - 故意不调父类，注册需要插件运行时
+            self.plugin = deps
+
+    return _Bare()
+
+
+@pytest.mark.asyncio
+async def test_total_mute_wraps_the_whole_turn_in_silence(deps):
+    """总开关关掉时，这一轮的分发必须跑在 reply.silence() 里。
+
+    Dify 的动作照跑（备忘照建、文件照写），但任何直接回话——
+    包括 file_task 里那七八处 `reply_text`——都该变成空操作。
+    """
+    deps.spring.reply_context = AsyncMock(return_value={
+        "enabled": False, "globalEnabled": False, "ownerSenderId": "9999",
+        "replyPrompt": "", "rateLimit": 20, "outLastHour": 0, "recentMessages": []})
+    deps.dify.chat = AsyncMock(return_value={
+        "answer": '{"action":"SEND","send_kind":"TASK","content":"记下了"}',
+        "conversation_id": "conv-1"})
+    seen = {}
+
+    async def fake_handle(data, ctx, sender_id, chat_id, **kwargs):
+        seen["silenced"] = reply.is_silenced()
+        seen["content"] = data.get("content")
+
+    deps.dispatcher.handle = fake_handle
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="明天交实验报告")]))
+
+    await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    assert seen["silenced"] is True
+    # 动作还在，只是话被清空了
+    assert seen["content"] == ""
 
 
 @pytest.mark.asyncio
@@ -331,6 +462,8 @@ async def test_needs_confirm_creates_a_reply_draft_instead_of_sending(deps):
         "conversation_id": "conv-1"})
     deps.dispatcher.handle = AsyncMock(return_value=None)
     ctx = FakeCtx(pm.MessageChain([pm.Plain(text="!明天三点你能来吗")]), launcher_id="222")
+    ctx.event.sender_name = "小张"
+    ctx.event.group_name = "三班群"
 
     with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
         await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=True)
@@ -343,6 +476,9 @@ async def test_needs_confirm_creates_a_reply_draft_instead_of_sending(deps):
     assert draft.args[3] is None
     # 对方问了什么必须存下来，否则确认时看不到自己在回谁
     assert draft.args[4]["sourceContent"] == "明天三点你能来吗"
+    # 草稿卡要显示「谁在哪个群说的」，只给 QQ 号用户认不出
+    assert draft.args[4]["sourceSenderName"] == "小张"
+    assert draft.args[4]["sourceChatName"] == "三班群"
     assert deps.dispatcher.handle.await_args.args[0]["content"] == ""
 
 
@@ -438,3 +574,83 @@ async def test_draft_failure_leaves_a_trace_and_logs_the_apology(deps):
     assert sent[-1]["direction"] == "OUT"
     assert sent[-1]["content"] == reply_text.await_args.args[1]
     assert sent[-1]["replyKind"] == "TASK"
+
+
+@pytest.mark.asyncio
+async def test_inbound_log_uses_a_stable_message_id_dedupe_key(deps):
+    """补拉会把同一条消息从 NapCat 历史里再取一遍。
+
+    两边的 dedupeKey 必须由 message_id 算出来才对得上；以前这里是随机 uuid，
+    同一条消息会在 message_log 里出现两次。
+    """
+    sent = []
+    deps.log_queue = SimpleNamespace(enqueue=lambda payload: sent.append(payload))
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="在吗")]))
+    ctx.event.message_id = "7711223344"
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    inbound = sent[0]
+    assert inbound["direction"] == "IN"
+    assert inbound["messageId"] == "7711223344"
+    assert inbound["dedupeKey"] == "msg:7711223344"
+
+
+@pytest.mark.asyncio
+async def test_inbound_log_without_a_platform_id_still_gets_a_unique_key(deps):
+    """老适配器拿不到 message_id：退化成唯一键，至少同一批重试不会重复写。"""
+    sent = []
+    deps.log_queue = SimpleNamespace(enqueue=lambda payload: sent.append(payload))
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="在吗")]))
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    assert sent[0]["dedupeKey"].startswith("msg:")
+    assert len(sent[0]["dedupeKey"]) > len("msg:")
+
+
+@pytest.mark.asyncio
+async def test_successful_chat_reports_token_usage_as_a_side_effect(deps):
+    """账本必须旁路：Dify 成功一次记一行，回复流程照原样走。"""
+    deps.spring.record_token_usage = AsyncMock(return_value=1)
+    deps.settings.dify_chat_model = "qwen-plus"
+    deps.dify.chat = AsyncMock(return_value={
+        "answer": '{"action":"SILENT"}',
+        "conversation_id": "conv-1",
+        "metadata": {"usage": {"prompt_tokens": 10, "completion_tokens": 2,
+                               "total_tokens": 12}},
+    })
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="!在吗")]), launcher_id="8888")
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=True)
+
+    for _ in range(3):
+        await asyncio.sleep(0)
+    deps.spring.record_token_usage.assert_awaited_once()
+    body = deps.spring.record_token_usage.await_args.args[0]
+    assert body["source"] == "plugin" and body["task"] == "chat"
+    assert body["totalTokens"] == 12
+    assert body["chatId"] == 8888
+    assert body["model"] == "qwen-plus"
+    deps.dispatcher.handle.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_token_usage_can_be_switched_off(deps):
+    deps.spring.record_token_usage = AsyncMock(return_value=1)
+    deps.settings.token_usage_enabled = False
+    deps.dify.chat = AsyncMock(return_value={
+        "answer": '{"action":"SILENT"}',
+        "metadata": {"usage": {"total_tokens": 12}},
+    })
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="在吗")]))
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    for _ in range(3):
+        await asyncio.sleep(0)
+    deps.spring.record_token_usage.assert_not_awaited()

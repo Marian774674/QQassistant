@@ -1,5 +1,6 @@
 package com.czx.qqmessageassistantjava.schedule;
 
+import com.czx.qqmessageassistantjava.constant.AppSettingKeys;
 import com.czx.qqmessageassistantjava.service.AppSettingService;
 import com.czx.qqmessageassistantjava.service.MemoryJobService;
 import org.slf4j.Logger;
@@ -38,7 +39,7 @@ public class MemoryScheduler {
 
     /** @return 写入的事实条数 */
     public int runOnce() {
-        if (!"1".equals(appSettingService.getOrDefault("memory_job_enabled", "0").trim())) {
+        if (!"1".equals(appSettingService.getOrDefault(AppSettingKeys.MEMORY_JOB_ENABLED, "0").trim())) {
             return 0;
         }
         return memoryJobService.runOnce();

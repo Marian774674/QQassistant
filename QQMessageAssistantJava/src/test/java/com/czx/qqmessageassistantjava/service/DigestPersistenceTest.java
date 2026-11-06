@@ -58,7 +58,7 @@ class DigestPersistenceTest {
                 item("十点开会，带材料", 5, ids.get(0)),
                 item("有人问进度，没人回", 2, ids.get(1)));
 
-        int saved = chatDigestService.digestChat(CHAT_ID, "多条目群", start, end);
+        int saved = chatDigestService.digestChat(CHAT_ID, "多条目群", start, end).saved();
 
         assertThat(saved).isEqualTo(2);
         assertThat(itemsOf(start)).extracting(ChatDigestItem::getSummary)
@@ -160,7 +160,8 @@ class DigestPersistenceTest {
 
     @SafeVarargs
     private void stubItems(Map<String, Object>... items) {
-        when(difyWorkflowClient.run(eq("digest"), anyMap()))
+        // 5.5：整理调用多带一个 chatId（只给 Token 账本分账用），stub 必须匹配三参重载。
+        when(difyWorkflowClient.run(eq("digest"), anyMap(), eq(CHAT_ID)))
                 .thenReturn(Map.of("items", List.of(items)));
     }
 }

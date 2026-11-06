@@ -59,7 +59,7 @@
 flowchart LR
   subgraph edge["QQ 侧 · Docker"]
     QQ([QQ]) <--> NC[NapCat]
-    NC <--> LB["LangBot + qq_assistant 插件<br/>路由 · 拦截 · 拟人延迟"]
+    NC <--> LB["LangBot + qq_assistant 插件<br/>路由 · 噪音判定 · 拟人延迟"]
     LB <--> BR["send_bridge<br/>主动发送 · 幂等"]
     BR <--> NC
   end
@@ -67,16 +67,16 @@ flowchart LR
   LB <-->|"14 个输入变量 / 决策信封"| DF["Dify<br/>Chatflow + Workflow"]
   LB -->|"profile · memos · logs"| SB["Spring Boot 3.4<br/>状态机 · 调度 · 草稿中心"]
   SB <-->|"整理 · 归纳 · 回答"| DF
-  SB <--> DB[("MySQL 8 · 16 张表")]
+  SB <--> DB[("MySQL 8 · 21 张表")]
   SB <-->|"/api/*"| V["Vue 3<br/>11 个页面"]
 ```
 
 | 组件 | 只管 | 绝不管 |
 | --- | --- | --- |
 | **NapCat** | QQ 协议、收发消息与文件 | 任何业务判断 |
-| **LangBot 插件** | 事件归一化、群触发判定、正则拦截、拟人延迟、文件 IO、动作执行、幂等 | 长期状态、定时任务 |
+| **LangBot 插件** | 事件归一化、群触发判定、前置噪音判定（实时问 Spring）、拟人延迟、文件 IO、动作执行、幂等 | 长期状态、定时任务 |
 | **Dify** | 意图识别、对话状态、语义生成、决策信封 | 持久化、文件流、定时 |
-| **Spring Boot** | 16 张表的持久化、提醒调度、草稿分发、画像存取 | 文件流、直连 QQ |
+| **Spring Boot** | 21 张表的持久化、提醒调度、草稿分发、画像存取 | 文件流、直连 QQ |
 | **Vue** | 展示、人工确认、手动编辑 | 业务判定 |
 
 **四条不能越的线**（评审按这四条判）：
@@ -102,18 +102,19 @@ flowchart LR
 
 ## 数据模型
 
-16 张表，全部 `utf8mb4`，DDL 见 [`db/schema.sql`](QQMessageAssistantJava/src/main/resources/db/schema.sql)，增量脚本在 `db/migrations/`。
+21 张表，全部 `utf8mb4`，DDL 见 [`db/schema.sql`](QQMessageAssistantJava/src/main/resources/db/schema.sql)，增量脚本在 `db/migrations/`。
 
 | 域 | 表 |
 | --- | --- |
-| 消息与会话 | `message_log`（唯一事实源，带昵称与群名）、`conversation_session`（QQ 会话 ↔ Dify `conversation_id`） |
+| 消息与会话 | `message_log`（唯一事实源，带昵称与群名）、`conversation_session`（QQ 会话 ↔ Dify `conversation_id`）、`napcat_cursor`（掉线补拉游标） |
 | 备忘 | `memo`、`memo_reminder`（按级别展开为多行）、`memo_change_log` |
 | 草稿 | `draft`（`REPLY / FILE / MEMO / FACT` 四类共用） |
-| 群与规则 | `chat_setting`、`intercept_rule`、`collection_task`（防重状态） |
+| 群与规则 | `chat_setting`、`chat_alias`（会话展示名）；`intercept_rule` / `collection_task` 为历史保留表（拦截规则已废弃，运行时不再读写） |
 | 记忆 | `profile_fact`（事实 kv）、`style_profile`（画像，保留历史版本）、`contact`（人物别名）、`memory_note`（夜间归纳） |
 | 整理 | `chat_digest_item`（要点 + 证据 id） |
 | 文件 | `file_task`（插件状态机的只读镜像） |
-| 配置 | `app_setting` |
+| 配置与检索 | `app_setting`、`ask_trace`（问答轨迹）、`message_embedding`（语义向量） |
+| 用量账本 | `token_usage`（模型调用只追加记录，只读统计） |
 
 **状态真身与镜像**：文件任务的状态机活在插件里，Spring 只存镜像供前端读；会话映射有三层兜底（内存 → Spring → 本地 JSON）。
 
@@ -122,14 +123,33 @@ flowchart LR
 | 层 | 选型 | 备注 |
 | --- | --- | --- |
 | 前端 | Vue 3.5 + TypeScript + Vite | `<script setup>`，**零 UI 库**，390dp 画布优先，11 条路由全部懒加载 |
-| 后端 | Java 21 + Spring Boot 3.4.12 | MyBatis-Plus 3.5.9、RestClient、springdoc；16 个控制器 / 47 个端点 |
+| 后端 | Java 21 + Spring Boot 3.4.12 | MyBatis-Plus 3.5.9、RestClient、springdoc；19 个控制器 / 67 个端点（按 `@*Mapping` 注解核准，含登录 / 整理 / 会话别名等） |
 | 插件 | Python 3.12 + httpx | LangBot 插件形态，`openpyxl` / `python-docx` / `pypdf` 做文件 IO |
 | 发送桥 | Python 3.12 + FastAPI | 单职责：把「发文本 / 发文件」做成幂等 HTTP 接口 |
 | 编排 | Dify Chatflow + Workflow | 一份对话流做决策，一份「记忆与整理」做整理 / 归纳 / 回答；两份 DSL 已入库 |
 | 存储 | MySQL 8 | 单库单实例，时间由 Java 写本地时间（那台库跑 UTC） |
 | 部署 | Docker Compose | LangBot / 插件运行时 / NapCat / 发送桥，四个容器 |
 
-测试：Java 28 个测试类（`mvn test`），Python 177 个用例（插件 146 + 发送桥 31，`pytest`）。
+测试：Java 60 个测试类 / 442 个用例（`mvn -o test`），Python 242 个用例（插件 211 + 发送桥 31，`pytest`），Vue `npm run build`（含 `vue-tsc` 类型检查）。当前全绿。
+
+| 端 | 命令 |
+| --- | --- |
+| 后端 | `cd QQMessageAssistantJava && mvn -o test` |
+| 插件 | `cd QQMessageAssistantPython/qq_assistant_plugin && ../.venv/Scripts/python.exe -m pytest -q` |
+| 发送桥 | `cd QQMessageAssistantPython && .venv/Scripts/python.exe -m pytest send_bridge/tests -q` |
+| 前端 | `cd QQMessageAssistantVue && npm run build` |
+
+> **Windows 下 pytest 临时目录**：系统临时目录堆积到一定数量时，pytest 会在清理阶段
+> 报批量删除保护、退出码 1（用例其实已经全过）。用 `--basetemp` 指到仓库根的干净目录；
+> **不要放插件目录内**，否则 `lbp build` 会把测试临时文件一起打进 `.lbpkg`，
+> 判据与命令见 [`deploy/README.md`](deploy/README.md) §10.4。
+
+> **共享测试库的 FULLTEXT 维护**：`RetrievalServiceTest` / `AskSingleRoundTest` /
+> `RetrievalAcceptanceMatrixTest` 依赖 InnoDB `ngram` 全文索引。测试反复插入再删除种子数据，
+> 会在 `INNODB_FT_DELETED` 里累积「幽灵文档」；攒到几千条后中文 `MATCH … AGAINST` 的相关度
+> 被稀释，表现为**单跑全绿、全量跑一堆召回为空**。这不是业务缺陷，对测试库执行一次
+> `OPTIMIZE TABLE qq_assistant_test.message_log;` 重建索引即可，判据与步骤见
+> [`deploy/README.md`](deploy/README.md) §10.3。
 
 ## 本地跑起来
 
@@ -148,13 +168,22 @@ mysql -uroot -p qq_assistant < QQMessageAssistantJava/src/main/resources/db/sche
 
 ### 2. 后端（:8080）
 
-改 `QQMessageAssistantJava/src/main/resources/application.yaml` 里的 `spring.datasource` 与 `langbot.base-url`，然后：
+配置全部走环境变量（或本机私有的 `deploy/java.properties`，见下），**不要**改 `application.yaml` 填口令：
 
 ```bash
 cd QQMessageAssistantJava
+cp ../deploy/java.properties.example ../deploy/java.properties   # 填 DB_* 与 DIFY_WORKFLOW_API_KEY
 export AGENT_OPS_TOKEN=$(openssl rand -hex 16)   # Dify 回写用的令牌，留空则该入口整体 503
+export AUTH_INITIAL_PASSWORD=...                 # 初始登录密码，不设则启动日志打印临时密码
+export AUTH_OWNER_QQ=...                         # 主人 QQ 号，网页 QQ 登录的收码账号
 mvn spring-boot:run
 ```
+
+`application.yaml` 通过 `spring.config.import` 读取 `deploy/java.properties`；该文件已在 `.gitignore`，
+同名环境变量优先级更高。变量清单见 [`deploy/README.md` §10.1](deploy/README.md)，
+曾暴露过的密钥按 [§10.2 轮换清单](deploy/README.md) 逐项更换。
+
+登录需要 Redis（`spring.data.redis`，默认 `127.0.0.1:6379`）：会话、验证码、接口限流都放那里。
 
 接口文档：<http://localhost:8080/swagger-ui/index.html>。统一响应体 `{code, message, data}`，`code == 0` 才算成功。
 
@@ -196,12 +225,12 @@ docker compose up -d
 
 ```
 .
-├── QQMessageAssistantJava/       Spring Boot：16 控制器 / 47 端点 / 16 表 / 28 测试类
+├── QQMessageAssistantJava/       Spring Boot：19 控制器 / 67 端点 / 21 表 / 60 测试类
 │   └── src/main/resources/db/    schema.sql 与增量 migrations
 ├── QQMessageAssistantPython/
-│   ├── qq_assistant_plugin/      LangBot 插件：事件、拦截、文件 IO、决策执行、幂等
+│   ├── qq_assistant_plugin/      LangBot 插件：事件、前置噪音判定、文件 IO、决策执行、幂等
 │   └── send_bridge/              主动发送桥：幂等 + 拟人延迟 + 文件通道
-├── QQMessageAssistantVue/        Vue 3 前端：11 页，无 UI 库
+├── QQMessageAssistantVue/        Vue 3 前端：14 页，无 UI 库
 │   └── design/preview/           设计预览图（真机尺寸）
 ├── deploy/                       docker-compose.yml + .env.example + 部署手册
 └── design/                       设计文档（准据）与两份 Dify DSL
@@ -217,7 +246,7 @@ docker compose up -d
 | [`architecture.md`](design/architecture.md) | 组件边界与四条红线 |
 | [`api_contract.md`](design/api_contract.md) | Spring 对外接口逐字段契约 |
 | [`agent_contract.md`](design/agent_contract.md) | Dify ↔ 插件的信封协议与 `agent/ops` 窄写接口 |
-| [`database_schema.md`](design/database_schema.md) | 16 张表的字段级说明 |
+| [`database_schema.md`](design/database_schema.md) | 21 张表的字段级说明 |
 | [`dify_chatflow.md`](design/dify_chatflow.md) | Chatflow 节点图与已知坑 |
 | [`memory_workflow.md`](design/memory_workflow.md) | 夜间归纳与风格总结的调度 |
 | [`core_features.md`](design/core_features.md) | F1–F4 的重新定义与取舍 |
@@ -228,11 +257,11 @@ docker compose up -d
 | --- | --- |
 | 后端 / 插件 / 发送桥 | ✅ 可用，测试全绿 |
 | Dify 对话流 | ✅ 可用（DSL 已入库，导入后需重填密钥） |
-| Vue 前端 | ✅ 11 页，390 / 360 / 1280 三档验过 |
+| Vue 前端 | ✅ 14 页（含 Token 用量只读页与「花在哪个会话」占比饼图、修改密码页），390 / 360 / 1280 三档验过 |
 | 真机全链路验收 | 🟡 按 UC 逐条在跑，尚未全绿 |
 | 表格自动填写 | 🧊 冻结 |
 
-**已知限制**：单用户单实例，无鉴权、无分页，只在内网跑；整理与夜间归纳的调度默认关闭，需在 `app_setting` 里打开 `digest_enabled` / `memory_job_enabled`；PDF 只读不回写；群聊不共享上下文（每个群成员独立会话）。
+**已知限制**：单用户单实例，单管理员登录（QQ 私聊验证码 / 密码 + 图形码），无多用户与角色、无分页，只在内网跑；整理与夜间归纳的调度默认关闭，需在 `app_setting` 里打开 `digest_enabled` / `memory_job_enabled`；PDF 只读不回写；群聊不共享上下文（每个群成员独立会话）；NapCat 掉线期间的消息靠**重连回查 + 周期兜底**补回日志（补的是 `message_log`，不会补发任何回复；登录过期 / WS 断开这类没有掉线边沿的场景靠每 300 秒的兜底回查覆盖），且单次最多 50 个会话 × 200 条。
 
 ## 声明
 

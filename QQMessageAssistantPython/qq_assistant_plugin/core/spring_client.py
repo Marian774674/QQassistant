@@ -5,8 +5,10 @@ log = logging.getLogger(__name__)
 
 
 class SpringClient:
-    def __init__(self, base_url: str, timeout: float = 5.0):
-        self._client = httpx.AsyncClient(base_url=base_url, timeout=timeout)
+    def __init__(self, base_url: str, timeout: float = 5.0, agent_token: str = ""):
+        # 登录上线后业务接口要会话；插件没有浏览器会话，带共享 token 走 agent 通道
+        headers = {"X-Agent-Token": agent_token} if (agent_token or "").strip() else None
+        self._client = httpx.AsyncClient(base_url=base_url, timeout=timeout, headers=headers)
 
     async def close(self):
         await self._client.aclose()
@@ -22,25 +24,13 @@ class SpringClient:
     async def log_messages(self, items):
         return await self._request("POST", "/api/message-logs", json=items)
 
-    async def list_rules(self):
-        return await self._request("GET", "/api/collection-tasks/rules")
+    async def check_noise(self, text, msg_type="text"):
+        """单条噪音判定。规则只在 Spring 侧存一份，插件不缓存，网页改完立刻生效。
 
-    async def check_replied(self, chat_id, task_type, task_key) -> bool:
-        data = await self._request("POST", "/api/collection-tasks/check",
-                                   json={
-                                       "chatId": chat_id,
-                                       "taskType": task_type,
-                                       "taskKey": task_key
-                                   })
-        return bool(data["replied"])
-
-    async def mark_replied(self, chat_id, task_type, task_key):
-        await self._request("POST", "/api/collection-tasks/mark",
-                            json={
-                                "chatId": chat_id,
-                                "taskType": task_type,
-                                "taskKey": task_key
-                            })
+        拦截规则下线后，前置过滤不再拉规则表；判定失败由调用方按「非噪音」放行。
+        """
+        return await self._request("POST", "/api/agent/noise-filter/check",
+                                   json={"text": text, "msgType": msg_type})
 
     async def profile(self, sender_id):
         return await self._request("GET", f"/api/profile/{sender_id}")
@@ -119,3 +109,21 @@ class SpringClient:
 
     async def sync_file_task(self, body):
         return await self._request("POST", "/api/file-tasks/sync", json=body)
+
+    async def napcat_targets(self, limit=50):
+        """该补哪些会话、各自补到哪一条。补拉本身由插件直连 NapCat 做。"""
+        return await self._request("GET", "/api/agent/napcat/targets",
+                                   params={"limit": limit})
+
+    async def advance_napcat_cursor(self, chat_type, chat_id, last_message_seq):
+        """推进游标。后端是 GREATEST 语义，只会前进，重复调用安全。"""
+        return await self._request("POST", "/api/agent/napcat/cursor",
+                                   json={
+                                       "chatType": chat_type,
+                                       "chatId": chat_id,
+                                       "lastMessageSeq": last_message_seq,
+                                   })
+
+    async def record_token_usage(self, body):
+        """记一笔模型用量。账本是旁路边，失败由调用方吞掉，绝不回压消息流程。"""
+        return await self._request("POST", "/api/agent/token-usage", json=body)

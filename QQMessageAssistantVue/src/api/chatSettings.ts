@@ -7,6 +7,8 @@ export interface ChatSetting {
   chatId: number
   kind: ChatKind
   chatName: string | null
+  /** 用户起的名字（第一个），展示优先于 chatName */
+  aliases?: string | null
   autoReplyEnabled: boolean
   digestEnabled: boolean
 }

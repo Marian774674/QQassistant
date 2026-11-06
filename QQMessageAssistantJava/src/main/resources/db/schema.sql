@@ -280,3 +280,39 @@ CREATE TABLE IF NOT EXISTS `ask_trace` (
   PRIMARY KEY (`id`),
   KEY `idx_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='一次问答的检索轨迹';
+-- 会话展示名：群号/私聊对方 QQ → 用户起的名字（与 chat_setting 的开关语义分开）
+CREATE TABLE IF NOT EXISTS `chat_alias` (
+  `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `chat_id`    BIGINT UNSIGNED NOT NULL COMMENT '群号；私聊存对方 QQ',
+  `kind`       VARCHAR(8)  NOT NULL COMMENT 'GROUP|PRIVATE',
+  `aliases`    VARCHAR(255) NOT NULL DEFAULT '' COMMENT '逗号分隔；空串 = 用户拒绝命名',
+  `created_at` DATETIME NOT NULL,
+  `updated_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_chat_alias` (`chat_id`, `kind`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='会话展示名';
+-- NapCat 掉线补拉的游标：每个会话已经补到哪个 message_seq
+CREATE TABLE IF NOT EXISTS `napcat_cursor` (
+  `id`               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `chat_type`        VARCHAR(8)  NOT NULL COMMENT 'GROUP|PRIVATE',
+  `chat_id`          BIGINT UNSIGNED NOT NULL COMMENT '群号；私聊存对方 QQ',
+  `last_message_seq` BIGINT      NOT NULL DEFAULT 0 COMMENT 'NapCat message_seq，只前进不后退',
+  `updated_at`       DATETIME    NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_napcat_cursor` (`chat_type`, `chat_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='NapCat 补拉游标';
+-- 模型调用 token 用量：一次调用一行，只追加不修改
+CREATE TABLE IF NOT EXISTS `token_usage` (
+  `id`                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `source`            VARCHAR(12)  NOT NULL DEFAULT 'spring' COMMENT 'spring|plugin',
+  `task`              VARCHAR(32)  NOT NULL COMMENT 'digest|extract|ask|chat|file …',
+  `model`             VARCHAR(64)  NULL COMMENT 'Dify 不回传模型名，由配置标注；空=未标注',
+  `prompt_tokens`     INT          NOT NULL DEFAULT 0,
+  `completion_tokens` INT          NOT NULL DEFAULT 0,
+  `total_tokens`      INT          NOT NULL DEFAULT 0,
+  `chat_id`           BIGINT       NULL COMMENT '群号；私聊与 Spring 侧任务可空',
+  `created_at`        DATETIME     NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_usage_created` (`created_at`),
+  KEY `idx_usage_task_created` (`task`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='模型调用 token 用量（只读账本）';

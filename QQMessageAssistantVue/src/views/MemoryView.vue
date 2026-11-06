@@ -16,12 +16,14 @@ import {
   updateStyleProfile,
 } from '@/api/memory'
 import { getSettings, putSettings } from '@/api/settings'
-import { createContact, deleteContact, listContacts, type Contact } from '@/api/ask'
+import { deleteContact, listContacts, type Contact } from '@/api/ask'
+import { deleteAlias, listAliases, putAlias, type ChatAlias } from '@/api/aliases'
 import type { ProfileFact, StyleProfile } from '@/api/types'
 import { useOwner } from '@/composables/useOwner'
 import { useRefresh } from '@/composables/useRefresh'
 import { useToast } from '@/composables/useToast'
 import { formatDateTime } from '@/utils/datetime'
+import { firstSegment } from '@/utils/name'
 
 type Frequency = 'DAILY_7D' | 'DAILY_TODAY' | 'WEEKLY'
 
@@ -71,10 +73,6 @@ const senderId = computed(() => owner.senderId)
 const contacts = ref<Contact[]>([])
 const loadingContacts = ref(true)
 const contactsError = ref('')
-const contactSheetOpen = ref(false)
-const contactForm = reactive({ senderId: '', alias: '', relation: '' })
-const contactFormError = ref('')
-const savingContact = ref(false)
 const confirmingContactId = ref<number | null>(null)
 
 // 通讯录是全局的（谁的称呼都记在一起），不按当前主人过滤
@@ -94,43 +92,6 @@ async function loadContacts(silent = false) {
   }
 }
 
-function openContactSheet() {
-  contactForm.senderId = ''
-  contactForm.alias = ''
-  contactForm.relation = ''
-  contactFormError.value = ''
-  contactSheetOpen.value = true
-}
-
-async function saveContact() {
-  const raw = contactForm.senderId.trim()
-  const alias = contactForm.alias.trim()
-  if (!/^\d{5,12}$/.test(raw)) {
-    contactFormError.value = 'QQ 号是 5–12 位数字'
-    return
-  }
-  if (!alias) {
-    contactFormError.value = '称呼不能为空'
-    return
-  }
-  savingContact.value = true
-  contactFormError.value = ''
-  try {
-    const created = await createContact({
-      senderId: Number(raw),
-      alias,
-      relation: contactForm.relation.trim() || undefined,
-    })
-    contacts.value = [created, ...contacts.value.filter((row) => row.id !== created.id)]
-    contactSheetOpen.value = false
-    toast.success('记住了')
-  } catch (e) {
-    contactFormError.value = e instanceof Error ? e.message : '保存失败'
-  } finally {
-    savingContact.value = false
-  }
-}
-
 async function removeContact(contact: Contact) {
   try {
     await deleteContact(contact.id)
@@ -140,6 +101,85 @@ async function removeContact(contact: Contact) {
     toast.error(e instanceof Error ? e.message : '删除失败')
   } finally {
     confirmingContactId.value = null
+  }
+}
+
+/* ── 会话称呼 ─────────────────────────────────────────────── */
+
+const chatAliases = ref<ChatAlias[]>([])
+const loadingAliases = ref(true)
+const aliasesError = ref('')
+const aliasSheetOpen = ref(false)
+const aliasEditing = ref<ChatAlias | null>(null)
+const aliasInput = ref('')
+const savingAlias = ref(false)
+const aliasFormError = ref('')
+const confirmingAliasKey = ref('')
+
+function aliasKey(row: ChatAlias) {
+  return `${row.kind}:${row.chatId}`
+}
+
+/** 只展示第一个；逗号后面的名字留作匹配，不往界面上抖 */
+function firstAlias(raw?: string | null) {
+  // 中文逗号、顿号、分号同样是别名分隔符，别只认半角逗号
+  return firstSegment(raw)
+}
+
+async function loadAliases(silent = false) {
+  if (!silent) {
+    loadingAliases.value = true
+    aliasesError.value = ''
+  }
+  try {
+    chatAliases.value = (await listAliases()) ?? []
+  } catch (e) {
+    const message = e instanceof Error ? e.message : '称呼读取失败'
+    if (silent) toast.error(message)
+    else aliasesError.value = message
+  } finally {
+    loadingAliases.value = false
+  }
+}
+
+function openAliasEdit(row: ChatAlias) {
+  aliasEditing.value = row
+  aliasInput.value = row.aliases
+  aliasFormError.value = ''
+  aliasSheetOpen.value = true
+}
+
+async function saveAlias() {
+  const row = aliasEditing.value
+  if (!row) return
+  if (!firstAlias(aliasInput.value)) {
+    aliasFormError.value = '至少填一个名字'
+    return
+  }
+  savingAlias.value = true
+  aliasFormError.value = ''
+  try {
+    await putAlias({ chatId: row.chatId, kind: row.kind, aliases: aliasInput.value })
+    aliasSheetOpen.value = false
+    toast.success('称呼已保存')
+    // 后端会清洗（去空段、去重、截断），重新拉一次才是真正落库的样子
+    void loadAliases(true)
+  } catch (e) {
+    aliasFormError.value = e instanceof Error ? e.message : '保存失败'
+  } finally {
+    savingAlias.value = false
+  }
+}
+
+async function removeAlias(row: ChatAlias) {
+  try {
+    await deleteAlias(row.chatId, row.kind)
+    chatAliases.value = chatAliases.value.filter((item) => aliasKey(item) !== aliasKey(row))
+    toast.push('已删除称呼')
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : '删除失败')
+  } finally {
+    confirmingAliasKey.value = ''
   }
 }
 
@@ -191,6 +231,7 @@ async function loadFrequency() {
 /** silent = 下拉刷新：保留当前内容，不闪骨架屏 */
 async function loadAll(silent = false) {
   void loadContacts(silent)
+  void loadAliases(silent)
   if (!senderId.value) {
     loadingFacts.value = false
     return
@@ -356,12 +397,8 @@ async function changeFrequency(value: Frequency) {
       <section class="block" aria-labelledby="contacts-title">
         <div class="block-head">
           <h2 id="contacts-title" class="section-title">认识的人</h2>
-          <button type="button" class="add-btn" @click="openContactSheet">
-            <Plus :size="15" :stroke-width="2.2" aria-hidden="true" />
-            认一个
-          </button>
         </div>
-        <p class="block-hint">夜间归纳会自己认人；手动认过的称呼不会再被它覆盖。</p>
+        <p class="block-hint">夜间归纳会自动认人；在 QQ 里新出现的会话可以在草稿中心起名。</p>
 
         <ErrorState v-if="contactsError" :message="contactsError" @retry="loadContacts" />
         <Skeleton v-else-if="loadingContacts" :rows="2" />
@@ -401,7 +438,61 @@ async function changeFrequency(value: Frequency) {
         <EmptyState
           v-else
           title="还不认识任何人"
-          hint="等夜间归纳自己认，或者点右上角「认一个」。"
+          hint="夜间归纳会自动认人；群和私聊的名字在草稿中心设置。"
+        />
+      </section>
+
+      <section class="block" aria-labelledby="aliases-title">
+        <div class="block-head">
+          <h2 id="aliases-title" class="section-title">会话称呼</h2>
+        </div>
+        <p class="block-hint">群和私聊的名字。展示只用第一个，逗号后面的留作匹配。</p>
+
+        <ErrorState v-if="aliasesError" :message="aliasesError" @retry="loadAliases" />
+        <Skeleton v-else-if="loadingAliases" :rows="2" />
+
+        <ul v-else-if="chatAliases.length" class="contacts">
+          <li v-for="row in chatAliases" :key="aliasKey(row)" class="contact">
+            <div class="contact-main">
+              <span class="contact-alias">
+                {{ firstAlias(row.aliases) || '未命名' }}
+                <span class="contact-source auto">{{ row.kind === 'GROUP' ? '群' : '私聊' }}</span>
+              </span>
+              <span class="contact-meta num">{{ row.kind === 'GROUP' ? '群' : 'QQ' }} {{ row.chatId }}</span>
+            </div>
+            <div v-if="confirmingAliasKey === aliasKey(row)" class="contact-confirm">
+              <button type="button" class="btn btn-sm btn-ghost" @click="confirmingAliasKey = ''">
+                算了
+              </button>
+              <button type="button" class="btn btn-sm btn-danger" @click="removeAlias(row)">
+                删除
+              </button>
+            </div>
+            <template v-else>
+              <button
+                type="button"
+                class="contact-del"
+                :aria-label="`修改称呼 ${firstAlias(row.aliases)}`"
+                @click="openAliasEdit(row)"
+              >
+                <Pencil :size="14" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                class="contact-del"
+                :aria-label="`删除称呼 ${firstAlias(row.aliases)}`"
+                @click="confirmingAliasKey = aliasKey(row)"
+              >
+                <Trash2 :size="14" aria-hidden="true" />
+              </button>
+            </template>
+          </li>
+        </ul>
+
+        <EmptyState
+          v-else
+          title="还没有会话称呼"
+          hint="在草稿中心给群或私聊起个名字，这里就会出现。"
         />
       </section>
 
@@ -516,56 +607,39 @@ async function changeFrequency(value: Frequency) {
     </Sheet>
 
     <Sheet
-      :open="contactSheetOpen"
-        title="认一个人"
-      description="记下称呼和 QQ 号，以后问起这个人就不用再猜。"
-      @close="contactSheetOpen = false"
+      :open="aliasSheetOpen"
+      title="修改会话称呼"
+      :description="
+        aliasEditing
+          ? `${aliasEditing.kind === 'GROUP' ? '群' : 'QQ'} ${aliasEditing.chatId}`
+          : ''
+      "
+      @close="aliasSheetOpen = false"
     >
       <div class="form">
         <div class="frow">
-          <label class="frow-label" for="contact-alias">称呼</label>
+          <label class="frow-label" for="alias-input">名字</label>
           <input
-            id="contact-alias"
-            v-model="contactForm.alias"
+            id="alias-input"
+            v-model="aliasInput"
             class="frow-input"
             type="text"
-            placeholder="阿黄"
-            maxlength="64"
+            maxlength="255"
+            placeholder="三班群,班群"
           />
         </div>
-        <div class="frow">
-          <label class="frow-label" for="contact-qq">QQ 号</label>
-          <input
-            id="contact-qq"
-            v-model="contactForm.senderId"
-            class="frow-input"
-            type="text"
-            inputmode="numeric"
-            placeholder="1753800374"
-            maxlength="12"
-          />
-        </div>
-        <div class="frow">
-          <label class="frow-label" for="contact-relation">关系</label>
-          <input
-            id="contact-relation"
-            v-model="contactForm.relation"
-            class="frow-input"
-            type="text"
-            placeholder="室友（可空）"
-            maxlength="64"
-          />
-        </div>
-        <p v-if="contactFormError" class="form-error" role="alert">{{ contactFormError }}</p>
+        <p class="block-hint">第一个名字用于展示，逗号后面的留作匹配。</p>
+        <p v-if="aliasFormError" class="form-error" role="alert">{{ aliasFormError }}</p>
       </div>
 
       <template #footer>
-        <button type="button" class="btn btn-ghost" @click="contactSheetOpen = false">取消</button>
-        <button type="button" class="btn btn-primary" :disabled="savingContact" @click="saveContact">
-          {{ savingContact ? '保存中…' : '保存' }}
+        <button type="button" class="btn btn-ghost" @click="aliasSheetOpen = false">取消</button>
+        <button type="button" class="btn btn-primary" :disabled="savingAlias" @click="saveAlias">
+          {{ savingAlias ? '保存中…' : '保存' }}
         </button>
       </template>
     </Sheet>
+
   </div>
 </template>
 

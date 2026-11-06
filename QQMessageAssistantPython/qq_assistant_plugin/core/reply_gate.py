@@ -3,12 +3,14 @@
 语料来自 `GET /api/chat-settings/reply-context` 的快照（{@link core.reply_rules.normalize}）。
 纯函数，不碰网络也不碰文件：所有判断都能在单测里一眼看完。
 
-三条不能错的语义：
+四条不能错的语义：
 
-1. `TASK` 永远发。会话开关关的是「替主人说日常话」，不是「让它干活」——
-   拿开关去卡备忘确认语，等于把群里的备忘功能一起关了。
-2. 缺 `send_kind` 按 `TASK`。旧 Chatflow 连上来时，行为必须和今天一模一样。
-3. `needs_confirm` 只对 `CHAT` 生效，且只在有内容时才建草稿。
+1. **总开关（`globalEnabled`）关掉 = 彻底闭嘴**：连 `TASK` 一起停，只保留动作与副作用
+   （备忘照建、状态照改），把「要说的话」清空。主人要的是「一个字都不说」，不是「少说点」。
+2. 只是**会话开关 / 限流**关掉时，`TASK` 永远发。会话开关关的是「替主人说日常话」，
+   不是「让它干活」——拿它去卡备忘确认语，等于把群里的备忘功能一起关了。
+3. 缺 `send_kind` 按 `TASK`。旧 Chatflow 连上来时，行为必须和今天一模一样。
+4. `needs_confirm` 只对 `CHAT` 生效，且只在有内容时才建草稿。
 """
 from dataclasses import dataclass, field
 
@@ -40,6 +42,11 @@ def decide(data: dict, reply_ctx: dict) -> GateResult:
     send_kind = str(envelope.get("send_kind") or "TASK").strip().upper()
     if send_kind not in KINDS:
         send_kind = "TASK"
+
+    # 总开关：一键彻底闭嘴。TASK 也停，但动作照跑——备忘照建、状态照改，
+    # 只是不再往外吐一个字。缺字段按「没关」处理（旧版 Spring 不返回它）。
+    if not reply_ctx.get("globalEnabled", True):
+        return GateResult(_silence(envelope), send_kind, suppressed="mute")
 
     if send_kind == "TASK":
         return GateResult(envelope, send_kind)

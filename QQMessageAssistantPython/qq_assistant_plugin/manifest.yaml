@@ -4,7 +4,7 @@ metadata:
   author: Marian
   name: qq_assistant_plugin
   repository: ''
-  version: 0.2.26
+  version: 0.2.32
   description:
     en_US: nothing
     zh_Hans: nothing
@@ -27,6 +27,10 @@ spec:
     - name: spring_timeout
       type: float
       label: { zh_Hans: Spring Boot 超时时间 }
+    - name: spring_agent_token
+      type: string
+      label: { zh_Hans: "Spring Agent Token（与后端 AGENT_OPS_TOKEN 相同；不填则所有接口 401）" }
+      default: ''
     - name: dify_base_url
       type: string
       label: { zh_Hans: Dify API 地址（到 /v1） }
@@ -41,6 +45,19 @@ spec:
     - name: dify_file_workflow_key
       type: string
       label: { zh_Hans: Dify 文件工作流 API Key }
+    - name: token_usage_enabled
+      type: select
+      label: { zh_Hans: "Token 用量上报（把 Dify 调用记进网页只读账本，旁路、不影响回复）" }
+      default: "true"
+      options:
+        - name: "true"
+          label: { zh_Hans: 开启, en_US: On }
+        - name: "false"
+          label: { zh_Hans: 关闭, en_US: Off }
+    - name: dify_chat_model
+      type: string
+      label: { zh_Hans: "模型标注（Dify 不回传模型名，仅用于账本显示；留空=未标注）" }
+      default: ''
     - name: file_confirm_threshold
       type: float
       label: { zh_Hans: 文件回写置信度阈值 }
@@ -53,6 +70,27 @@ spec:
       type: string
       label: { zh_Hans: NapCat HTTP API Token }
       default: ''
+    - name: napcat_backfill_enabled
+      type: select
+      label: { zh_Hans: "掉线补拉（NapCat 重新上线后回查历史，只写日志、不回复）" }
+      default: "true"
+      options:
+        - name: "true"
+          label: { zh_Hans: 开启, en_US: On }
+        - name: "false"
+          label: { zh_Hans: 关闭, en_US: Off }
+    - name: napcat_backfill_interval_s
+      type: int
+      label: { zh_Hans: 掉线补拉：在线状态轮询间隔（秒） }
+      default: 10
+    - name: napcat_backfill_start_delay_s
+      type: int
+      label: { zh_Hans: 掉线补拉：插件启动后延迟多久开始探测（秒） }
+      default: 10
+    - name: napcat_backfill_sweep_s
+      type: int
+      label: { zh_Hans: "掉线补拉：兜底回查间隔（秒）。即使没探到掉线也会周期性补一次，覆盖登录过期 / WS 断开" }
+      default: 300
     - name: bot
       type: bot-selector
       label: { zh_Hans: 使用的机器人 }
@@ -81,20 +119,6 @@ spec:
     - name: delay_max_ms
       type: int
       label: { zh_Hans: 延迟最大时间（毫秒） }
-    - name: intercept_refresh_s
-      type: int
-      label: { zh_Hans: 前置拦截刷新间隔（秒） }
-    - name: intercept_scope
-      type: select
-      label: { zh_Hans: 前置拦截范围 }
-      default: group
-      options:
-        - name: "group"
-          label: { zh_Hans: 群聊, en_US: Group }
-        - name: "all"
-          label: { zh_Hans: 全部, en_US: All }
-        - name: "off"
-          label: { zh_Hans: 关闭, en_US: Off }
     - name: data_dir
       type: string
       label: { zh_Hans: "插件数据目录（留空=自动探测可写目录：LangBot data/qq_assistant，其次用户目录）" }

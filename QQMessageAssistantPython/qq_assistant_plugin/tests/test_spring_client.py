@@ -5,11 +5,18 @@ from core.spring_client import SpringClient
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_check_replied_unwraps_data():
-    respx.post("http://sb/api/collection-tasks/check").mock(
-        return_value=httpx.Response(200, json={"code": 0, "message": "ok", "data": {"replied": True}}))
+async def test_check_noise_posts_to_agent_endpoint():
+    route = respx.post("http://sb/api/agent/noise-filter/check").mock(
+        return_value=httpx.Response(200, json={
+            "code": 0, "message": "ok",
+            "data": {"noise": True, "reason": "punctuation"}}))
     client = SpringClient("http://sb")
-    assert await client.check_replied(1, "学号收集", "k") is True
+
+    data = await client.check_noise("……", "text")
+
+    assert data == {"noise": True, "reason": "punctuation"}
+    body = json.loads(route.calls[0].request.content)
+    assert body == {"text": "……", "msgType": "text"}
 
 @respx.mock
 @pytest.mark.asyncio
@@ -87,3 +94,17 @@ async def test_reply_context_passes_the_three_params():
     assert params["chatId"] == "123"
     assert params["kind"] == "GROUP"
     assert params["limit"] == "15"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_record_token_usage_posts_to_agent_endpoint():
+    route = respx.post("http://sb/api/agent/token-usage").mock(
+        return_value=httpx.Response(200, json={"code": 0, "message": "ok", "data": 9}))
+    client = SpringClient("http://sb")
+
+    assert await client.record_token_usage({
+        "source": "plugin", "task": "chat", "totalTokens": 15,
+    }) == 9
+    body = json.loads(route.calls[0].request.content)
+    assert body == {"source": "plugin", "task": "chat", "totalTokens": 15}

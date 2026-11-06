@@ -1,6 +1,7 @@
 package com.czx.qqmessageassistantjava.controller;
 
 import com.czx.qqmessageassistantjava.common.Result;
+import com.czx.qqmessageassistantjava.dto.DraftConfirmRequest;
 import com.czx.qqmessageassistantjava.dto.DraftCreateRequest;
 import com.czx.qqmessageassistantjava.entity.Draft;
 import com.czx.qqmessageassistantjava.service.DraftService;
@@ -32,10 +33,11 @@ public class DraftController {
         return Result.ok(draftService.getDraftList(type, status));
     }
 
-    @Operation(summary = "确认草稿", description = "PENDING → CONFIRMED，按 type 分发")
+    @Operation(summary = "确认草稿", description = "PENDING → CONFIRMED，按 type 分发；命名草稿在 body 里带 aliases")
     @PostMapping("/{id}/confirm")
-    public Result<Draft> confirmDraft(@PathVariable Long id){
-        return Result.ok(draftService.confirmDraft(id));
+    public Result<Draft> confirmDraft(@PathVariable Long id,
+                                      @RequestBody(required = false) DraftConfirmRequest body){
+        return Result.ok(draftService.confirmDraft(id, body == null ? null : body.getAliases()));
     }
     @Operation(summary = "拒绝草稿", description = "PENDING → REJECTED")
     @PostMapping("/{id}/reject")

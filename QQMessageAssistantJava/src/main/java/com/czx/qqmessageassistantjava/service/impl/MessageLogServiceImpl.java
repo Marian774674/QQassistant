@@ -7,14 +7,18 @@ import com.czx.qqmessageassistantjava.common.BusinessException;
 import com.czx.qqmessageassistantjava.dto.MessageLogItem;
 import com.czx.qqmessageassistantjava.entity.MessageLog;
 import com.czx.qqmessageassistantjava.mapper.MessageLogMapper;
+import com.czx.qqmessageassistantjava.service.ChatAliasService;
 import com.czx.qqmessageassistantjava.service.MessageLogService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Set;
 
@@ -23,6 +27,9 @@ public class MessageLogServiceImpl extends ServiceImpl<MessageLogMapper, Message
 
     private static final Logger log = LoggerFactory.getLogger(MessageLogServiceImpl.class);
     private static final Set<String> DIRECTIONS = Set.of("IN","OUT");
+
+    @Autowired
+    private ChatAliasService chatAliasService;
 
     @Override
     public int batchSave(List<MessageLogItem> items) {
@@ -45,18 +52,45 @@ public class MessageLogServiceImpl extends ServiceImpl<MessageLogMapper, Message
             BeanUtils.copyProperties(item, messageLog);
             // 别用库里的 CURRENT_TIMESTAMP：那台 MySQL 跑在 UTC，而整理的时间窗来自 JVM 本地钟，
             // 差 8 小时后每小时都选不中消息。这里给死本地时间，两边同一个轴。
+            // 补拉回来的消息要落回它原本的时刻，否则整理/归纳会把它当成「刚刚发生」。
             if (messageLog.getCreatedAt() == null) {
-                messageLog.setCreatedAt(LocalDateTime.now());
+                messageLog.setCreatedAt(item.getCreatedAtEpochSeconds() == null
+                        ? LocalDateTime.now()
+                        : LocalDateTime.ofInstant(
+                                Instant.ofEpochSecond(item.getCreatedAtEpochSeconds()),
+                                ZoneId.systemDefault()));
             }
             try {
                 // 逐条写：dedupeKey 撞唯一键时跳过该条，不影响同批其他日志
                 save(messageLog);
                 saved++;
+                triggerNamingDraft(item);
             } catch (DuplicateKeyException e) {
                 log.debug("duplicate message log ignored: {}", item.getDedupeKey());
             }
         }
         return saved;
+    }
+
+    /**
+     * 新会话第一次来消息时发命名草稿。全程吞异常：命名只是锦上添花，
+     * 草稿写失败不能把消息日志一起拖下水。
+     */
+    private void triggerNamingDraft(MessageLogItem item) {
+        if (!"IN".equals(item.getDirection())) {
+            return;
+        }
+        try {
+            boolean group = item.getChatId() != null;
+            Long chatId = group ? item.getChatId() : item.getSenderId();
+            if (chatId == null) {
+                return;
+            }
+            chatAliasService.ensureNamingDraft(chatId, group ? "GROUP" : "PRIVATE",
+                    group ? item.getChatName() : item.getSenderName(), item.getSenderId());
+        } catch (RuntimeException e) {
+            log.warn("naming draft skipped: {}", e.getMessage());
+        }
     }
 
     @Override
