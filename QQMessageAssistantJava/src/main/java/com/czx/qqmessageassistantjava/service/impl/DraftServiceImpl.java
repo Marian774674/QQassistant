@@ -40,6 +40,8 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
 
     private static final Set<String> TYPES = Set.of("REPLY","FILE","MEMO","FACT","NAMING");
     private static final Set<String> STATUS = Set.of("PENDING","CONFIRMED","REJECTED");
+    /** 改写正文的上限。QQ 单条文本本身也有上限，这里只拦「误贴一整篇」这种明显手滑 */
+    private static final int MAX_REPLY_LENGTH = 2000;
 
     @Override
     public Draft createDraft(DraftCreateRequest draftCreateRequest) {
@@ -116,18 +118,53 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
 
     @Override
     @Transactional
-    public Draft confirmDraft(Long id, String aliases) {
+    public Draft confirmDraft(Long id, DraftConfirmRequest request) {
         Draft draft = isPending(id);
         if ("NAMING".equals(draft.getType())) {
             // 命名草稿的「分发」就是写别名，没有要向 QQ 发的东西
-            confirmNaming(draft, aliases);
+            confirmNaming(draft, request == null ? null : request.getAliases());
             return draft;
+        }
+        // 先改写再落库：dispatchReply 读的是 payload.content，改晚了发的还是原文
+        if (request != null && request.getContent() != null) {
+            applyEditedContent(draft, request.getContent());
         }
         draft.setConfirmedAt(LocalDateTime.now());
         draft.setStatus("CONFIRMED");
         updateById(draft);
         dispatch(draft);
         return draft;
+    }
+
+    /**
+     * 把用户改写过的正文写回 payload，之后 {@link #dispatchReply} 发出去的就是这一段。
+     * <p>原正文另存 {@code payload.originalContent}：模型当时写了什么是调提示词的重要反馈；
+     * 而 {@code payload.content} 必须是「实际发出去的那句话」，否则「已处理」列表会骗人。
+     */
+    private void applyEditedContent(Draft draft, String content) {
+        if (!"REPLY".equals(draft.getType())) {
+            throw new BusinessException("只有回复草稿可以改内容，当前草稿类型是 " + draft.getType());
+        }
+        String edited = content == null ? "" : content.trim();
+        if (edited.isEmpty()) {
+            // 发一条空消息在 QQ 上等于什么都没发生，用户还会以为「发了」
+            throw new BusinessException("回复内容不能为空");
+        }
+        if (edited.length() > MAX_REPLY_LENGTH) {
+            throw new BusinessException("回复内容最多 " + MAX_REPLY_LENGTH + " 字");
+        }
+        Map<String, Object> payload = draft.getPayload() == null
+                ? new LinkedHashMap<>()
+                : new LinkedHashMap<>(draft.getPayload());
+        String original = asString(payload.get("content"));
+        if (edited.equals(original == null ? "" : original.trim())) {
+            // 只是多打了几个空格，别留下「已改写」的痕迹
+            return;
+        }
+        payload.put("originalContent", original);
+        payload.put("content", edited);
+        payload.put("edited", true);
+        draft.setPayload(payload);
     }
 
     private void confirmNaming(Draft draft, String aliases) {

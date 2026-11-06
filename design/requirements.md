@@ -244,6 +244,9 @@ Spring Boot ──► 发送桥 send_bridge ──► LangBot / NapCat（主动�
 **FR-8.1 四类草稿**：`REPLY`（回复正文）/ `FILE`（文件引用与目标）/ `MEMO`（备忘字段）/ `FACT`（事实 kv），共用 `draft` 表。
 **FR-8.2 状态**：`PENDING / CONFIRMED / REJECTED`；`PENDING` **不自动过期**，避免丢信息。
 **FR-8.3 确认分发**：`POST /api/drafts/{id}/confirm` 按类型分发——`REPLY`/`FILE` 通知发送桥发 QQ；`MEMO`/`FACT` 写入对应业务表。
+**FR-8.3a 确认前可改写正文**（2026-11 补）：`REPLY` 草稿在确认时可以带 `content` 改写「要发什么」——只给「发/不发」两个选项不够用，
+模型写的句子常常只差一两个词。改写后 `payload.content` 落库为**实际发出的那句话**，原正文存 `payload.originalContent`。
+`content` 只对 `REPLY` 有效，给别的类型传会 `400`（不静默丢弃）；空正文与超 2000 字同样 `400`。
 **FR-8.4 幂等**：重复确认同一草稿不得重复发送；`FILE` 发送成功后 `file_task.status → SENT`，失败保留或回滚为 `PENDING`。
 **FR-8.5 群聊目标**：草稿 payload 必须携带 `targetType` / `targetId`，群聊草稿按群发送，**不得默认按私聊发**。
 

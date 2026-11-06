@@ -2,6 +2,7 @@ package com.czx.qqmessageassistantjava.service;
 
 import com.czx.qqmessageassistantjava.client.LangBotClient;
 import com.czx.qqmessageassistantjava.common.BusinessException;
+import com.czx.qqmessageassistantjava.dto.DraftConfirmRequest;
 import com.czx.qqmessageassistantjava.entity.Draft;
 import com.czx.qqmessageassistantjava.mapper.DraftMapper;
 import com.czx.qqmessageassistantjava.service.impl.DraftServiceImpl;
@@ -64,7 +65,7 @@ class DraftNamingTest {
         Draft draft = namingDraft(1L, 777L, "PRIVATE");
         when(draftMapper.selectById(1L)).thenReturn(draft);
 
-        Draft confirmed = draftService.confirmDraft(1L, "阿黄,黄哥");
+        Draft confirmed = confirmNaming(1L, "阿黄,黄哥");
 
         verify(chatAliasService).saveAliases(777L, "PRIVATE", "阿黄,黄哥");
         assertThat(confirmed.getStatus()).isEqualTo("CONFIRMED");
@@ -80,7 +81,7 @@ class DraftNamingTest {
         Draft draft = namingDraft(1L, 777L, "PRIVATE");
         when(draftMapper.selectById(1L)).thenReturn(draft);
 
-        assertThatThrownBy(() -> draftService.confirmDraft(1L, "  "))
+        assertThatThrownBy(() -> confirmNaming(1L, "  "))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("起个名字");
 
@@ -95,7 +96,7 @@ class DraftNamingTest {
         Draft draft = namingDraft(1L, 777L, "PRIVATE");
         when(draftMapper.selectById(1L)).thenReturn(draft);
 
-        assertThatThrownBy(() -> draftService.confirmDraft(1L, " , , "))
+        assertThatThrownBy(() -> confirmNaming(1L, " , , "))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("起个名字");
 
@@ -110,7 +111,7 @@ class DraftNamingTest {
         draft.setChatId(9999L);
         when(draftMapper.selectById(1L)).thenReturn(draft);
 
-        draftService.confirmDraft(1L, "三班群");
+        confirmNaming(1L, "三班群");
 
         verify(chatAliasService).saveAliases(2002L, "GROUP", "三班群");
     }
@@ -139,7 +140,7 @@ class DraftNamingTest {
         draft.setStatus("PENDING");
         when(draftMapper.selectById(1L)).thenReturn(draft);
 
-        draftService.confirmDraft(1L, "这个参数对回复无意义");
+        confirmNaming(1L, "这个参数对回复无意义");
 
         verify(langBotClient).sendMessage(any());
         verify(chatAliasService, never()).saveAliases(anyLong(), anyString(), anyString());
@@ -197,5 +198,12 @@ class DraftNamingTest {
         payload.put("suggestedName", "阿黄");
         draft.setPayload(payload);
         return draft;
+    }
+
+    /** 确认时只带 aliases：模拟前端命名草稿的调用形状 */
+    private Draft confirmNaming(Long id, String aliases) {
+        DraftConfirmRequest request = new DraftConfirmRequest();
+        request.setAliases(aliases);
+        return draftService.confirmDraft(id, request);
     }
 }

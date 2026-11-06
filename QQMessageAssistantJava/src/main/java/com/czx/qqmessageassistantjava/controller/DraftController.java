@@ -33,11 +33,13 @@ public class DraftController {
         return Result.ok(draftService.getDraftList(type, status));
     }
 
-    @Operation(summary = "确认草稿", description = "PENDING → CONFIRMED，按 type 分发；命名草稿在 body 里带 aliases")
+    @Operation(summary = "确认草稿",
+            description = "PENDING → CONFIRMED，按 type 分发；命名草稿在 body 里带 aliases，"
+                    + "回复草稿可用 content 改写要发出去的正文（不传则按原正文发送）")
     @PostMapping("/{id}/confirm")
     public Result<Draft> confirmDraft(@PathVariable Long id,
                                       @RequestBody(required = false) DraftConfirmRequest body){
-        return Result.ok(draftService.confirmDraft(id, body == null ? null : body.getAliases()));
+        return Result.ok(draftService.confirmDraft(id, body));
     }
     @Operation(summary = "拒绝草稿", description = "PENDING → REJECTED")
     @PostMapping("/{id}/reject")

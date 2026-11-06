@@ -2,6 +2,7 @@ package com.czx.qqmessageassistantjava.controller;
 
 import com.czx.qqmessageassistantjava.client.LangBotClient;
 import com.czx.qqmessageassistantjava.common.BusinessException;
+import com.czx.qqmessageassistantjava.dto.DraftConfirmRequest;
 import com.czx.qqmessageassistantjava.dto.FileTaskSyncRequest;
 import com.czx.qqmessageassistantjava.dto.SendFileRequest;
 import com.czx.qqmessageassistantjava.dto.SendMessageRequest;
@@ -96,6 +97,112 @@ class DraftDispatchTest {
         // 草稿 chatId=2002 是群号，必须按 group 发回群里，不能当私聊发给 2002
         assertThat(captor.getValue().getTarget().getId()).isEqualTo(2002L);
         assertThat(captor.getValue().getTarget().getType()).isEqualTo("group");
+    }
+
+    @Test
+    void replyConfirmSendsEditedContent() {
+        when(langBotClient.sendMessage(any())).thenReturn(new SendResult());
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("content", "好呀，你想去哪吃？");
+        Draft draft = newDraft("REPLY", payload);
+
+        confirmReply(draft, "  好呀，那就楼下那家吧  ");
+
+        ArgumentCaptor<SendMessageRequest> captor = ArgumentCaptor.forClass(SendMessageRequest.class);
+        verify(langBotClient).sendMessage(captor.capture());
+        // 发出去的是改写后的那句，且首尾空白被裁掉
+        assertThat(captor.getValue().getContent()).isEqualTo("好呀，那就楼下那家吧");
+
+        // 落库要能看出「实际发了什么」和「模型原本写了什么」
+        Map<String, Object> saved = draftService.getById(draft.getId()).getPayload();
+        assertThat(saved).containsEntry("content", "好呀，那就楼下那家吧");
+        assertThat(saved).containsEntry("originalContent", "好呀，你想去哪吃？");
+        assertThat(saved).containsEntry("edited", true);
+    }
+
+    @Test
+    void replyConfirmWithoutContentSendsOriginal() {
+        when(langBotClient.sendMessage(any())).thenReturn(new SendResult());
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("content", "原句照发");
+        Draft draft = newDraft("REPLY", payload);
+
+        draftService.confirmDraft(draft.getId(), new DraftConfirmRequest());
+
+        ArgumentCaptor<SendMessageRequest> captor = ArgumentCaptor.forClass(SendMessageRequest.class);
+        verify(langBotClient).sendMessage(captor.capture());
+        assertThat(captor.getValue().getContent()).isEqualTo("原句照发");
+        // 没改写就别留痕迹，否则「已改写」标记会失去意义
+        assertThat(draftService.getById(draft.getId()).getPayload()).doesNotContainKey("edited");
+    }
+
+    @Test
+    void replyConfirmKeepsOriginalWhenEditOnlyDiffersInWhitespace() {
+        when(langBotClient.sendMessage(any())).thenReturn(new SendResult());
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("content", "一样的");
+        Draft draft = newDraft("REPLY", payload);
+
+        confirmReply(draft, "  一样的  ");
+
+        assertThat(draftService.getById(draft.getId()).getPayload()).doesNotContainKey("edited");
+    }
+
+    @Test
+    void replyConfirmRejectsBlankContent() {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("content", "原句");
+        Draft draft = newDraft("REPLY", payload);
+
+        assertThatThrownBy(() -> confirmReply(draft, "   "))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不能为空");
+
+        // 失败必须整单回滚：不能发消息，也不能把草稿推进成 CONFIRMED
+        verify(langBotClient, never()).sendMessage(any());
+        assertThat(draftService.getById(draft.getId()).getStatus()).isEqualTo("PENDING");
+    }
+
+    @Test
+    void replyConfirmRejectsOverlongContent() {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("content", "原句");
+        Draft draft = newDraft("REPLY", payload);
+
+        String tooLong = "字".repeat(2001);
+        assertThatThrownBy(() -> confirmReply(draft, tooLong))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("2000");
+
+        verify(langBotClient, never()).sendMessage(any());
+    }
+
+    @Test
+    void editedContentRejectedForNonReplyDraft() {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("title", "班会");
+        payload.put("importance", 3);
+        Draft draft = newDraft("MEMO", payload);
+
+        DraftConfirmRequest request = new DraftConfirmRequest();
+        request.setContent("这段不该被接受");
+
+        // 给备忘草稿传正文是调用方写错了；静默忽略会让人以为「改了却没生效」
+        assertThatThrownBy(() -> draftService.confirmDraft(draft.getId(), request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("只有回复草稿");
+
+        assertThat(draftService.getById(draft.getId()).getStatus()).isEqualTo("PENDING");
+    }
+
+    /** 模拟前端「改完再发」：只在 body 里带 content */
+    private Draft confirmReply(Draft draft, String content) {
+        DraftConfirmRequest request = new DraftConfirmRequest();
+        request.setContent(content);
+        return draftService.confirmDraft(draft.getId(), request);
     }
 
     @Test

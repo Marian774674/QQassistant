@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
-import { Check, X } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
+import { Check, Pencil, X } from 'lucide-vue-next'
 import StatusPill from '@/components/StatusPill.vue'
 import { confirmDraft, rejectDraft } from '@/api/drafts'
 import type { Draft, DraftType } from '@/api/types'
@@ -38,6 +38,56 @@ const needsConfirm = computed(() => IRREVERSIBLE.includes(props.draft.type))
 const confirmHint = computed(() =>
   props.draft.type === 'FILE' ? '文件会直接发到对应会话，发出后无法撤回。' : '这条回复会以你的身份发出，发出后无法撤回。',
 )
+
+/** 只有待处理的回复草稿能改正文：改的是「发什么」，不是「发不发」 */
+const canEdit = computed(() => isPending.value && props.draft.type === 'REPLY')
+
+/** 和后端 DraftServiceImpl.MAX_REPLY_LENGTH 对齐，前端先拦一次省一趟往返 */
+const MAX_REPLY_LENGTH = 2000
+
+const editing = ref(false)
+const draftText = ref('')
+const editorRef = ref<HTMLTextAreaElement | null>(null)
+
+function startEdit() {
+  draftText.value = field('content')
+  cancelConfirm()
+  editing.value = true
+  void nextTick(() => editorRef.value?.focus())
+}
+
+function cancelEdit() {
+  editing.value = false
+  draftText.value = ''
+}
+
+/**
+ * 编辑态下的「发送」就是确认，不再走二次确认：
+ * 正文是用户刚亲手改过的，再问一遍「确定要发吗」只是多一次点击。
+ * 非编辑态保留二次确认，因为那段话是模型写的，可能没细看就点了。
+ */
+async function sendEdited() {
+  const text = draftText.value.trim()
+  if (!text) {
+    toast.error('回复内容不能为空')
+    return
+  }
+  await resolve('confirm', text)
+}
+
+/** 只有真带了改写内容才放进 body：NAMING 只认 aliases，REPLY 只认 content */
+function confirmBody(editedContent?: string) {
+  if (props.draft.type === 'NAMING') return { aliases: nameInput.value.trim() }
+  if (editedContent !== undefined) return { content: editedContent }
+  return undefined
+}
+
+const confirmToast = computed(() => {
+  if (props.draft.type === 'NAMING') return '名字已保存'
+  // 回复是「真的发出去了」，说「已确认」会让人不确定到底发没发
+  if (props.draft.type === 'REPLY') return '已发送'
+  return '已确认'
+})
 
 onBeforeUnmount(() => window.clearTimeout(confirmTimer))
 
@@ -119,7 +169,7 @@ const preview = computed(() => {
   return ''
 })
 
-async function resolve(action: 'confirm' | 'reject') {
+async function resolve(action: 'confirm' | 'reject', editedContent?: string) {
   const aliases = nameInput.value.trim()
   if (action === 'confirm' && props.draft.type === 'NAMING' && !aliases) {
     toast.error('先给它起个名字')
@@ -128,8 +178,9 @@ async function resolve(action: 'confirm' | 'reject') {
   busy.value = true
   try {
     if (action === 'confirm') {
-      await confirmDraft(props.draft.id, props.draft.type === 'NAMING' ? { aliases } : undefined)
-      toast.success(props.draft.type === 'NAMING' ? '名字已保存' : '已确认')
+      await confirmDraft(props.draft.id, confirmBody(editedContent))
+      editing.value = false
+      toast.success(confirmToast.value)
       emit('resolved', props.draft.id, 'confirmed')
     } else {
       await rejectDraft(props.draft.id)
@@ -160,7 +211,7 @@ async function resolve(action: 'confirm' | 'reject') {
       <span v-if="contextName" class="context-name" :title="contextFullName">{{ contextName }}</span>
       {{ context }}
     </p>
-    <p class="headline">{{ headline }}</p>
+    <p v-if="!editing" class="headline">{{ headline }}</p>
     <p v-if="preview" class="preview clamp-3">{{ preview }}</p>
 
     <div v-if="isPending && draft.type === 'NAMING'" class="naming">
@@ -175,7 +226,33 @@ async function resolve(action: 'confirm' | 'reject') {
       <p class="naming-hint">第一个名字用于展示，全部保留下来方便以后匹配。</p>
     </div>
 
-    <div v-if="isPending && confirming" class="confirm">
+    <div v-if="isPending && editing" class="editor">
+      <textarea
+        ref="editorRef"
+        v-model="draftText"
+        class="editor-input"
+        rows="3"
+        :maxlength="MAX_REPLY_LENGTH"
+        aria-label="修改要发送的回复"
+        @keydown.ctrl.enter.prevent="sendEdited"
+        @keydown.meta.enter.prevent="sendEdited"
+      />
+      <p class="editor-hint">
+        <span>改完直接发出去，发出后无法撤回。</span>
+        <span class="editor-count num">{{ draftText.trim().length }} / {{ MAX_REPLY_LENGTH }}</span>
+      </p>
+      <div class="actions">
+        <button type="button" class="btn btn-sm btn-ghost" :disabled="busy" @click="cancelEdit">
+          取消
+        </button>
+        <button type="button" class="btn btn-sm btn-primary" :disabled="busy" @click="sendEdited">
+          <Check :size="14" :stroke-width="2.6" aria-hidden="true" />
+          发送
+        </button>
+      </div>
+    </div>
+
+    <div v-else-if="isPending && confirming" class="confirm">
       <p class="confirm-text">{{ confirmHint }}</p>
       <div class="actions">
         <button type="button" class="btn btn-sm btn-ghost" :disabled="busy" @click="cancelConfirm">
@@ -192,6 +269,16 @@ async function resolve(action: 'confirm' | 'reject') {
       <button type="button" class="btn btn-sm btn-primary" :disabled="busy" @click="requestConfirm">
         <Check :size="14" :stroke-width="2.6" aria-hidden="true" />
         {{ ACTION_LABEL[draft.type] }}
+      </button>
+      <button
+        v-if="canEdit"
+        type="button"
+        class="btn btn-sm btn-ghost"
+        :disabled="busy"
+        @click="startEdit"
+      >
+        <Pencil :size="13" :stroke-width="2.4" aria-hidden="true" />
+        改一下
       </button>
       <button type="button" class="btn btn-sm btn-ghost" :disabled="busy" @click="resolve('reject')">
         <X :size="14" :stroke-width="2.4" aria-hidden="true" />
@@ -332,6 +419,46 @@ async function resolve(action: 'confirm' | 'reject') {
   margin-top: 5px;
   color: var(--ink-3);
   font-size: 11.5px;
+}
+
+/* 改「发什么」：正文就地变成可编辑的，不跳页面——对方那句话还留在上面当上下文 */
+.editor {
+  margin-top: 2px;
+}
+
+.editor-input {
+  width: 100%;
+  min-height: 76px;
+  padding: 10px 11px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--card-soft, rgba(255, 255, 255, 0.7));
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.editor-input:focus {
+  outline: none;
+  border-color: var(--ink-3);
+}
+
+.editor-hint {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.editor-count {
+  flex: none;
+  font-size: 11px;
 }
 
 .actions {

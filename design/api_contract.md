@@ -163,18 +163,30 @@
 
 ### 3.3 `POST /api/drafts/{id}/confirm` — 确认草稿
 
+**请求体**（可省略；两个字段各自只对一种类型有效）
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `aliases` | string | 否 | 仅 `NAMING`：会话名字，逗号分隔，第一个用于展示 |
+| `content` | string | 否 | 仅 `REPLY`：**改写后要发出去的正文**。不传 = 按模型原本写的发；传空串/纯空白 = `400` |
+
+> `content` 是「改发什么」，不是「改发不发」。落库时写回 `payload.content`（**实际发出的那句话**），
+> 原正文另存 `payload.originalContent` 并置 `payload.edited = true`，方便回头比对「模型写的」和「人改的」。
+> 给非 `REPLY` 类型传 `content` 会直接 `400`，不静默丢弃——否则前端传错字段时用户会以为「改了却没生效」。
+
 **行为**：`PENDING → CONFIRMED`，置 `confirmedAt = now`。
 
 **分发（确认后按 `type` 触发，Phase 2 后逐步接入）**
 
 | type | 分发动作 | 接入阶段 |
 |---|---|---|
-| `REPLY` | 调 LangBot `send_message` 发送 | Plan 2-3（LangBot 接口就绪后） |
+| `REPLY` | 调 LangBot `send_message` 发送（有 `content` 则发改写后的） | Plan 2-3（LangBot 接口就绪后） |
 | `FILE` | 调 LangBot `send_file` 回传 | Plan 2-3 |
 | `MEMO` | 写入 `memo` 表 | Plan 2-2 |
 | `FACT` | 写入 `profile_fact` | Plan 2-3 |
 
-**错误**：草稿不存在 → `400`；当前状态非 `PENDING` → `400`。
+**错误**：草稿不存在 → `400`；当前状态非 `PENDING` → `400`；`REPLY` 的 `content` 为空 → `400`；
+`content` 超过 2000 字 → `400`；非 `REPLY` 类型传了 `content` → `400`。
 
 ### 3.4 `POST /api/drafts/{id}/reject` — 拒绝草稿
 
