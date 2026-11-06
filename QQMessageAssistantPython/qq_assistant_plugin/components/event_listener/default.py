@@ -11,7 +11,7 @@ from langbot_plugin.api.definition.components.common.event_listener import Event
 from langbot_plugin.api.entities import context, events
 
 from core import conversation_store, file_store, reply, reply_gate, reply_rules, usage
-from core.dispatch import parse_answer
+from core.dispatch import parse_answer, reply_draft_source
 from core.event import build_inputs, event_id_of
 from core.reply import reply_text
 from core.text import extract_text, has_file, is_at_bot, peer_names
@@ -249,6 +249,12 @@ async def _respond_inner(deps, ctx, is_group, sender_id, chat_id, text,
 
         # 出口门控：说得成不成看开关与限流；要不要改成人来确认是一条 CHAT 的语义判断
         gate = reply_gate.decide(data, reply_ctx)
+        # 「在回谁、回什么」：两条建 REPLY 草稿的路都要用它，所以在这里取一次
+        draft_source = {
+            "content": (query or "").strip()[:200],
+            "senderName": sender_name or "",
+            "chatName": chat_name or "",
+        }
         if gate.suppressed:
             file_store.debug(f"reply suppressed reason={gate.suppressed} "
                              f"kind={gate.send_kind} chat={chat_id}")
@@ -259,10 +265,7 @@ async def _respond_inner(deps, ctx, is_group, sender_id, chat_id, text,
                 await deps.spring.create_draft(
                     "REPLY", sender_id, chat_id, None,
                     {"content": gate.draft["content"],
-                     "sourceContent": (query or "").strip()[:200],
-                     # 草稿卡要能显示「谁在哪个群说的」；私聊 chat_name 为空串
-                     "sourceSenderName": sender_name or "",
-                     "sourceChatName": chat_name or ""})
+                     **reply_draft_source(draft_source)})
                 file_store.debug(f"reply draft created for chat={chat_id}")
             except Exception as e:
                 # 草稿没建成 = 这条回复彻底没了。宁可让用户等一句「没办成」，也别假装发过
@@ -279,7 +282,7 @@ async def _respond_inner(deps, ctx, is_group, sender_id, chat_id, text,
 
         sent = await deps.dispatcher.handle(
             gate.data, ctx, sender_id, chat_id, file_ctx=file_ctx,
-            conversation_key=key, deps=deps)
+            conversation_key=key, deps=deps, source=draft_source)
         file_store.debug(f"dispatch sent={bool(sent)} text={(sent or '')[:40]!r}")
         if sent:
             deps.log_queue.enqueue({

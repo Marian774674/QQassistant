@@ -649,15 +649,23 @@ def main(query: str) -> dict:
 
 **提示词以 DSL 为准。** 正文每调一次都会变，复制进文档必然漂移；唯一事实来源是
 `design/QQAssistant.chatflow.yml` 的 `chat_decision.prompt_template`。
-这里只钉它必须遵守的契约（`tests/test_chatflow_dsl.py` 守着前四条）：
+这里只钉它必须遵守的契约（`tests/test_chatflow_dsl.py` 守着前六条）：
 
 | 契约 | 内容 |
 |---|---|
 | 动作词表 | `SEND` / `DRAFT` / `SILENT` / `MEMO_OP` / `FACT`；`MEMO` / `MEMO_CLOSE` 只作回滚路径 |
 | `send_kind` | 每个 `SEND` 必带。`TASK` = 替主人办事（默认），`CHAT` = 替主人跟人说话；只有 `CHAT` 受会话开关与每小时限流约束 |
 | `needs_confirm` | 只对 `CHAT` 有效。替主人承诺、定时间、谈钱、涉及第三方评价、被点名表态 → `true`，落地成 `draft(type=REPLY)` 等人工确认 |
-| 材料优先级 | `reply_rules`（硬约束）> `reply_prompt`（主人的额外要求）> `recent_messages`（前文）；`style_prompt` 只管「怎么说」，不是内容来源 |
+| 材料优先级 | `reply_rules`（硬约束）> `reply_prompt`（主人的额外要求）> `recent_messages`（前文）；`style_prompt` 只管「怎么说」，不是内容来源。**硬约束对所有输出生效，不能只在 `CHAT` 时生效**——否则模型判成 `TASK` 就整段绕过 |
+| `DRAFT` 契约 | `title` 一律留空（草稿卡会单独显示对方原话，再写一遍「回复：xxx」会让同一句出现两遍）；`payload.content` **必须有内容且能直接发出去**，拿不准就写一句拖住的话，不能留空 |
 | 写操作 | 一律 `MEMO_OP`，`memoId` 只能取自 `open_memos`；提示词里**不许出现**提醒策略、状态迁移、阈值 |
+
+> **`DRAFT` 的 `content` 为什么不能留空。** 曾经允许「留空让用户去草稿中心写」，结果
+> 库里堆了一批 `payload.content=""` 的回复草稿：卡片上只能拿 `title` 兜底，而 `title`
+> 写的是「回复：今晚是否有空」——同一句话在「对方」那一行和正文各显示一遍；点「发送」
+> 还会把空串发给发送桥，QQ 上什么都没有，草稿却被标成 `CONFIRMED`。现在两头都堵了：
+> 提示词要求必填，`DraftServiceImpl.requireReplyContent` 在状态变更**之前**再拦一次。
+
 
 **User Prompt 必须包含**（插件每轮都发，Start 少声明一个，那一段就永远是空）：
 

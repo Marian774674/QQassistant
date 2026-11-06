@@ -112,6 +112,59 @@ async def test_unknown_action_degrades_to_silent(spring, settings, reply):
     reply.assert_not_awaited()
 
 
+# ---------- DRAFT：草稿卡必须知道「在回谁、回什么」 ----------
+
+@pytest.mark.asyncio
+async def test_draft_reply_carries_the_source_message(spring, settings, reply):
+    """DRAFT 这条路以前不带 source*，草稿卡只能拿 title 兜底。
+
+    title 写的是「回复：今晚是否有空」，于是同一句话在「对方」那一行和正文
+    各显示一遍——卡片看着像坏了。来源字段由插件补，不指望模型记得写。
+    """
+    d = Dispatcher(spring, settings, reply)
+    await d.handle(
+        {"action": "DRAFT", "content": "",
+         "draft": {"type": "REPLY", "title": "",
+                   "payload": {"content": "我看看，晚点回你"}}},
+        ctx="CTX", sender_id=1001, chat_id=2002,
+        source={"content": "今晚有空吗", "senderName": "小号", "chatName": "三班群"})
+
+    args = spring.create_draft.await_args.args
+    assert args[0] == "REPLY"
+    payload = args[4]
+    assert payload["content"] == "我看看，晚点回你"
+    assert payload["sourceContent"] == "今晚有空吗"
+    assert payload["sourceSenderName"] == "小号"
+    assert payload["sourceChatName"] == "三班群"
+
+
+@pytest.mark.asyncio
+async def test_draft_without_source_still_creates(spring, settings, reply):
+    """没有来源快照时字段给空串，不要 KeyError——草稿卡会自己退化显示。"""
+    d = Dispatcher(spring, settings, reply)
+    await d.handle({"action": "DRAFT",
+                    "draft": {"type": "REPLY", "payload": {"content": "好"}}},
+                   ctx="CTX", sender_id=1001, chat_id=None)
+
+    payload = spring.create_draft.await_args.args[4]
+    assert payload["sourceContent"] == ""
+    assert payload["sourceSenderName"] == ""
+
+
+@pytest.mark.asyncio
+async def test_draft_of_other_type_is_passed_through(spring, settings, reply):
+    """非 REPLY 的草稿（备忘、事实）不该被塞来源字段：它们的 payload 另有语义。"""
+    d = Dispatcher(spring, settings, reply)
+    await d.handle({"action": "DRAFT",
+                    "draft": {"type": "MEMO", "payload": {"title": "班会"}}},
+                   ctx="CTX", sender_id=1001, chat_id=None,
+                   source={"content": "明天开班会"})
+
+    args = spring.create_draft.await_args.args
+    assert args[0] == "MEMO"
+    assert args[4] == {"title": "班会"}
+
+
 @pytest.mark.asyncio
 async def test_wait_file_sends_and_records_pending_hint(spring, settings, reply,
                                                         tmp_path, monkeypatch):

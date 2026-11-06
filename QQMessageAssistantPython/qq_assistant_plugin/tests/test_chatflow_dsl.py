@@ -66,6 +66,33 @@ def test_chat_prompt_pins_the_send_kind_contract(graph):
     assert "CHAT" in system and "TASK" in system
 
 
+def test_hard_rules_are_not_scoped_to_chat(graph):
+    """硬性约束曾经被写成「闲聊（CHAT）时」才生效。
+
+    模型一旦把消息判成 TASK，那五条「不替主人承诺 / 不编造 / 不表态」就整段失效，
+    而 TASK 恰恰是「永远发得出去」的那一类——约束和门控同时被绕过。
+    """
+    _, _, nodes = graph
+    system = nodes["chat_decision"]["data"]["prompt_template"][0]["text"]
+    assert "所有输出都适用" in system
+
+
+def test_draft_contract_pins_a_sendable_content(graph):
+    """草稿必须自带一句能直接发出去的话，且 title 留空。
+
+    提示词曾经写的是「content 可以留空，让用户去草稿中心确认」，于是库里真躺着
+    一批空正文的回复草稿：卡片上只能拿 title 兜底（和「对方」那行撞成两遍），
+    点「发送」还会发一条空消息。这条把契约钉在提示词文本上。
+    """
+    _, _, nodes = graph
+    system = nodes["chat_decision"]["data"]["prompt_template"][0]["text"]
+    assert "DRAFT 怎么写" in system
+    assert "title 一律留空" in system
+    assert "必须有内容" in system
+    # 反面：不能再出现「留空让用户自己写」这种授权
+    assert "content 可以留空" not in system
+
+
 # ---------- CLEAN_DECISION 归一化 ----------
 
 def test_missing_send_kind_is_filled_in_as_task(graph):

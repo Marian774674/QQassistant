@@ -129,11 +129,32 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
         if (request != null && request.getContent() != null) {
             applyEditedContent(draft, request.getContent());
         }
+        /*
+         * 「有没有话可说」必须在推进状态之前问。
+         *
+         * 这里以前只靠事务回滚兜底：状态先写成 CONFIRMED，dispatch 抛异常再整体回滚。
+         * 回滚是对的，但它把「发没发出去」和「状态对不对」绑在了一起——只要有人
+         * 在 dispatch 里 catch 住异常（或者哪天事务边界被改动），库里就会留下一条
+         * CONFIRMED、QQ 上却什么都没有的草稿。空正文这条尤其隐蔽：它不抛异常，
+         * 只是把空串发给发送桥，于是「发送成功、对面什么都没收到」。
+         * 所以这一条要在状态变更之前拦死，不依赖回滚。
+         */
+        if ("REPLY".equals(draft.getType())) {
+            requireReplyContent(draft.getPayload());
+        }
         draft.setConfirmedAt(LocalDateTime.now());
         draft.setStatus("CONFIRMED");
         updateById(draft);
         dispatch(draft);
         return draft;
+    }
+
+    /** 回复草稿必须有正文：发一条空消息在 QQ 上等于什么都没发生，用户还会以为「发了」 */
+    private static void requireReplyContent(Map<String, Object> payload) {
+        Object raw = payload == null ? null : payload.get("content");
+        if (raw == null || String.valueOf(raw).isBlank()) {
+            throw new BusinessException("这条草稿还没有正文，先写一句再发");
+        }
     }
 
     /**
@@ -218,9 +239,12 @@ public class DraftServiceImpl extends ServiceImpl<DraftMapper, Draft> implements
 
     private void dispatchReply(Draft draft) {
         Map<String, Object> payload = draft.getPayload();
+        // 第二道闸：confirmDraft 已经拦过一次，这里兜的是「别处直接调 dispatch」的情况
+        requireReplyContent(payload);
+        String content = asString(payload.get("content"));
         SendMessageRequest request = new SendMessageRequest();
         request.setTarget(resolveTarget(payload,draft));
-        request.setContent(asString(payload.get("content")));
+        request.setContent(content);
         request.setBizRef("draft:"+draft.getId());
         langBotClient.sendMessage(request);
     }

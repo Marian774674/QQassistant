@@ -118,10 +118,14 @@
 ```jsonc
 // REPLY —— 拟人回复草稿
 // targetType 默认 "private"；targetId 缺省时按 chatId → senderId 回退
-// content = 要发出去的话（草稿卡主句）；sourceContent = 对方说的那句（卡片顶部的引文），
-// 免得确认时看不出在回谁。title 当摘要用，别把 content 再塞一遍——
-// 前端会同时渲染 title 与 content，重复的内容在卡片上会出现两次。
+// content = 要发出去的话（草稿卡主句），**必填**：空正文的草稿点「发送」只会把空串
+//   发给发送桥，QQ 上什么都没有、草稿却被标成 CONFIRMED。
+// sourceContent = 对方说的那句（卡片顶部的引文），免得确认时看不出在回谁；
+// sourceSenderName / sourceChatName = 谁在哪个群说的，私聊时 chatName 为空串。
+// title 对 REPLY 没有意义，留空即可——前端渲染的是 sourceContent + content，
+// 把 content 再塞进 title 会让同一句话在卡片上出现两次。
 { "content": "好的，我看看", "sourceContent": "明天几点呀？",
+  "sourceSenderName": "小张", "sourceChatName": "三班群",
   "targetType": "private", "targetId": 2002 }
 
 // FILE —— 文件回传草稿
@@ -185,7 +189,9 @@
 | `MEMO` | 写入 `memo` 表 | Plan 2-2 |
 | `FACT` | 写入 `profile_fact` | Plan 2-3 |
 
-**错误**：草稿不存在 → `400`；当前状态非 `PENDING` → `400`；`REPLY` 的 `content` 为空 → `400`；
+**错误**：草稿不存在 → `400`；当前状态非 `PENDING` → `400`；
+`REPLY` 的 `payload.content` 为空 → `400`（在状态改成 `CONFIRMED` **之前**拦，
+不靠事务回滚兜底——回滚会把「发没发出去」和「状态对不对」绑在一起）；
 `content` 超过 2000 字 → `400`；非 `REPLY` 类型传了 `content` → `400`。
 
 ### 3.4 `POST /api/drafts/{id}/reject` — 拒绝草稿

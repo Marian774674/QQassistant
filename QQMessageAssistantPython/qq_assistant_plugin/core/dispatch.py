@@ -58,6 +58,26 @@ def parse_answer(answer: str) -> dict:
     return {"action": "SILENT"}
 
 
+def reply_draft_source(source=None) -> dict:
+    """回复草稿里的「在回谁、回什么」三个字段。
+
+    两个建 REPLY 草稿的入口共用这一份：
+    - ``needs_confirm``（reply_gate 判定要人工确认）；
+    - ``action=DRAFT``（Dify 直接要求出草稿）。
+
+    DRAFT 那条路以前**没带**这三个字段，草稿卡拿不到对方原话，只能退回去用 title
+    兜底；而 title 写的又是「回复：今晚是否有空」——于是同一句话在「对方」那一行
+    和正文各显示一遍，卡片看着像坏了。来源字段在这里收口，两个入口就不会再分叉。
+    """
+    src = source or {}
+    return {
+        "sourceContent": str(src.get("content") or "").strip()[:200],
+        # 草稿卡要能显示「谁在哪个群说的」；私聊 chat_name 为空串
+        "sourceSenderName": str(src.get("senderName") or ""),
+        "sourceChatName": str(src.get("chatName") or ""),
+    }
+
+
 class Dispatcher:
     def __init__(self, spring, settings, reply):
         self._spring = spring
@@ -66,7 +86,7 @@ class Dispatcher:
 
     async def handle(self, data: dict, ctx, sender_id: int, chat_id: int | None,
                      file_ctx: dict | None = None, conversation_key: str = "",
-                     deps=None) -> str | None:
+                     deps=None, source: dict | None = None) -> str | None:
         action = data.get("action", "SILENT")
 
         if action == "SILENT":
@@ -106,9 +126,14 @@ class Dispatcher:
 
         if action == "DRAFT":
             draft = data.get("draft") or {}
+            kind = str(draft.get("type") or "REPLY").strip().upper() or "REPLY"
+            payload = dict(draft.get("payload") or {})
+            if kind == "REPLY":
+                # 来源字段一律由插件补：模型只该决定「说什么」，
+                # 不该决定「卡片上显示谁说的」——它没这个信息，也记不住要写
+                payload.update(reply_draft_source(source))
             await self._spring.create_draft(
-                draft.get("type", "REPLY"), sender_id, chat_id,
-                draft.get("title"), draft.get("payload") or {}
+                kind, sender_id, chat_id, draft.get("title"), payload
             )
             return None
 

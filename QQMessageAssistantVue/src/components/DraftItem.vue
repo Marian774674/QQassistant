@@ -177,15 +177,15 @@ const nameInput = ref(field('suggestedName'))
 
 /**
  * 回复草稿要让人看清「在回谁」。
- * 新草稿把对方那句话存在 payload.sourceContent；老草稿没有，只能退回 title——
- * 但 title 要是和正文一样（旧版本拿正文前 20 字当标题），就不能再显示一遍。
+ *
+ * 只认 payload.sourceContent。以前还拿 title 兜底，结果「回复：是否忘记带书」
+ * 这种标题被当成**对方说的话**显示在「对方」那一行——既和正文重复一遍，
+ * 又是一句假话：对方根本没说过这句话。
+ * 不知道对方说了什么就什么都不显示，比编一句出来强。
  */
 const context = computed(() => {
   if (props.draft.type !== 'REPLY') return ''
-  const source = field('sourceContent').trim()
-  if (source) return source
-  const title = (props.draft.title ?? '').trim()
-  return title && title !== field('content').trim() ? title : ''
+  return field('sourceContent').trim()
 })
 
 /**
@@ -203,10 +203,19 @@ const contextFullName = computed(() =>
   joinNames(field('sourceDisplayName'), field('sourceSenderName')),
 )
 
+/**
+ * 正文是空的。
+ *
+ * 模型偶尔会输出一条 `payload.content` 为空的回复草稿（提示词里曾允许「留空让用户去
+ * 草稿中心写」）。这种草稿：卡片上不能拿 title 顶上来（会和「对方」那一行撞成两遍），
+ * 「发送」也不能点——后端会拦，但让人点进一个必然失败的按钮更糟。
+ */
+const emptyReply = computed(() => props.draft.type === 'REPLY' && !field('content').trim())
+
 const headline = computed(() => {
   const { title, type } = props.draft
   // 回复的主句永远是「要发出去的那句话」，标题只是摘要，不能替代它
-  if (type === 'REPLY') return field('content') || title || '一条回复'
+  if (type === 'REPLY') return emptyReply.value ? '这条还没写内容' : field('content')
   if (title) return title
   if (type === 'MEMO') return field('title') || '一条备忘'
   if (type === 'FACT') return `${field('factKey') || '事实'}：${field('factValue')}`
@@ -278,7 +287,7 @@ async function resolve(action: 'confirm' | 'reject', editedContent?: string) {
       <span v-if="contextName" class="context-name" :title="contextFullName">{{ contextName }}</span>
       {{ context }}
     </p>
-    <p v-if="!editing" class="headline">{{ headline }}</p>
+    <p v-if="!editing" class="headline" :class="{ 'is-empty': emptyReply }">{{ headline }}</p>
     <p v-if="preview" class="preview clamp-3">{{ preview }}</p>
 
     <div v-if="isPending && draft.type === 'NAMING'" class="naming">
@@ -351,7 +360,8 @@ async function resolve(action: 'confirm' | 'reject', editedContent?: string) {
         type="button"
         class="btn btn-sm btn-primary"
         :class="{ 'is-waiting': busy }"
-        :disabled="busy"
+        :disabled="busy || emptyReply"
+        :title="emptyReply ? '这条草稿还没有正文，点「改一下」写一句再发' : undefined"
         @click="requestConfirm"
       >
         <span v-if="busy" class="spinner" aria-hidden="true" />
@@ -621,6 +631,13 @@ async function resolve(action: 'confirm' | 'reject', editedContent?: string) {
 
 .closed .headline {
   color: var(--ink-2);
+}
+
+/* 空正文的占位：浅一档、不用正文的字重，一眼看出「这里还缺一句话」而不是「这就是内容」 */
+.headline.is-empty {
+  color: var(--ink-3);
+  font-weight: 400;
+  font-style: italic;
 }
 
 .preview {

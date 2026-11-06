@@ -181,8 +181,38 @@ class DraftDispatchTest {
     }
 
     @Test
-    void editedContentRejectedForNonReplyDraft() {
+    void replyDispatchRejectsEmptyPayloadContent() {
         Map<String, Object> payload = new HashMap<>();
+        payload.put("content", "   ");
+        Draft draft = newDraft("REPLY", payload);
+
+        // Dify 的 DRAFT 分支曾经被要求「content 留空，让用户去草稿中心写」，
+        // 于是库里真有一批空正文的回复草稿。发出去 = QQ 上什么都没发生，
+        // 草稿却被标成已确认，用户以为发了、对面什么都没收到。
+        assertThatThrownBy(() -> draftService.confirmDraft(draft.getId()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("还没有正文");
+
+        verify(langBotClient, never()).sendMessage(any());
+        assertThat(draftService.getById(draft.getId()).getStatus()).isEqualTo("PENDING");
+    }
+
+    @Test
+    void replyDispatchRejectsMissingContent() {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("sourceContent", "今晚有空吗");
+        Draft draft = newDraft("REPLY", payload);
+
+        assertThatThrownBy(() -> draftService.confirmDraft(draft.getId()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("还没有正文");
+
+        verify(langBotClient, never()).sendMessage(any());
+        assertThat(draftService.getById(draft.getId()).getStatus()).isEqualTo("PENDING");
+    }
+
+    @Test
+    void editedContentRejectedForNonReplyDraft() {        Map<String, Object> payload = new HashMap<>();
         payload.put("title", "班会");
         payload.put("importance", 3);
         Draft draft = newDraft("MEMO", payload);

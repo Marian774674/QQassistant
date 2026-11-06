@@ -76,7 +76,7 @@ docker compose ps              # 4 个服务都应是 running
 > 噪音规则改到网页 **更多 → 噪音过滤（`/rules`）** 配置，插件侧没有对应配置项。
 
 1. LangBot WebUI → 插件 → 安装 → 上传
-   `QQMessageAssistantPython/qq_assistant_plugin/dist/Marian-qq_assistant_plugin-0.2.33.lbpkg`
+   `QQMessageAssistantPython/qq_assistant_plugin/dist/Marian-qq_assistant_plugin-0.2.34.lbpkg`
 2. 打开插件配置，按容器网络填：
 
 | 配置项 | 值 |
