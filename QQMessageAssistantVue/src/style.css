@@ -1098,18 +1098,36 @@ textarea.frow-input:focus {
   }
 }
 
-/* 路由切换：纯淡入淡出。旧页先淡出（160ms），新页再淡入（280ms） */
+/*
+ * 路由切换：新页面从**按下去的那一点**圆形扩散，铺满全屏。
+ *
+ * 圆心和半径是 utils/tapOrigin.ts 在 pointerdown 时写到根元素上的 CSS 变量——
+ * 点底部导航就从底部那颗图标长出来，点卡片就从卡片长出来。
+ * 没有记录（键盘回车、程序化跳转、直接刷新）时退回中心 + 120vmax，
+ * 看上去仍然是一次「从中间展开」，不会变成硬切。
+ *
+ * 旧页面只淡出 140ms：扩散本身就是「覆盖」，旧页多留一秒反而像卡住。
+ */
 .page-enter-active {
-  transition: opacity 280ms var(--ease-out);
+  /* 缓动不用 --ease-out：那条曲线前段太快，圆一眨眼就铺满了，看不出是「从这一点长出来的」 */
+  animation: page-unfold 460ms var(--ease) both;
 }
 
 .page-leave-active {
-  transition: opacity 160ms var(--ease-out);
+  transition: opacity 140ms var(--ease-out);
 }
 
-.page-enter-from,
 .page-leave-to {
   opacity: 0;
+}
+
+@keyframes page-unfold {
+  from {
+    clip-path: circle(0px at var(--tap-x, 50%) var(--tap-y, 50%));
+  }
+  to {
+    clip-path: circle(var(--tap-r, 120vmax) at var(--tap-x, 50%) var(--tap-y, 50%));
+  }
 }
 
 /* 内容替换骨架屏时的交叉淡入 */
@@ -1202,6 +1220,28 @@ textarea.frow-input:focus {
 
 ::view-transition-new(memo-morph) {
   animation: none;
+}
+
+/* ── 按压波纹（跟手）─────────────────────────────────────── */
+
+/*
+ * 由 utils/ripple.ts 在 pointerdown 时往元素里塞一个 .ripple-ink，
+ * 圆心就是手指/鼠标落下的那一点——所以它是「跟手」的，不是从元素中心扩散。
+ *
+ * 用 currentColor 上色：深色主按钮上自动是白波纹，纸面上的行是墨色波纹，
+ * 一处定义就适配两种底色，不用给每个按钮再写一遍颜色。
+ */
+.ripple-host {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple-ink {
+  position: absolute;
+  border-radius: 50%;
+  background: currentColor;
+  pointer-events: none;
+  will-change: transform, opacity;
 }
 
 @media (prefers-reduced-motion: reduce) {

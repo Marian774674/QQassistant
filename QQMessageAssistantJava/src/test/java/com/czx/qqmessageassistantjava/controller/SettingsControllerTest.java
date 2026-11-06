@@ -102,8 +102,29 @@ class SettingsControllerTest {
     }
 
     @Test
-    void noiseFilterKeysAreEditable() throws Exception {
-        mockMvc.perform(utNoiseBody())
+    void chatPreferencesAreEditable() throws Exception {
+        // 这一段就是「群设置」页「保存偏好」真正发出去的 body。
+        // digest_enabled 曾经漏在 USER_EDITABLE 外面，而 putAll 是先全量校验再落库，
+        // 于是整次保存一起失败——表现成「点保存弹配置键不允许修改，别名和关注点也没存上」。
+        mockMvc.perform(put("/api/settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"digest_enabled":"1","owner_aliases":"小明,明哥",
+                                 "digest_focus_prompt":"导师的通知优先",
+                                 "digest_refresh_min_messages":"1",
+                                 "digest_refresh_min_minutes":"60"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+
+        mockMvc.perform(get("/api/settings"))
+                .andExpect(jsonPath("$.data.digest_enabled").value("1"))
+                .andExpect(jsonPath("$.data.owner_aliases").value("小明,明哥"))
+                .andExpect(jsonPath("$.data.digest_focus_prompt").value("导师的通知优先"));
+    }
+
+    @Test
+    void noiseFilterKeysAreEditable() throws Exception {        mockMvc.perform(utNoiseBody())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0));
 

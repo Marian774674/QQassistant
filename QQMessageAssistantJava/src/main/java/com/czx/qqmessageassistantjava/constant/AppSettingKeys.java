@@ -58,13 +58,18 @@ public final class AppSettingKeys {
     /**
      * 前端可以通过 {@code PUT /api/settings} 写的键。
      * 不在名单里的（密码哈希、游标、锚点）由后端服务自己维护。
+     *
+     * <p>「群设置」页的「开启消息整理」写的是 {@link #DIGEST_ENABLED}，
+     * 它和下面几个 digest 键是**同一次提交**：漏掉任何一个，整张表都会被拒
+     * （{@code putAll} 是先全量校验再落库），表现成「点保存弹一句『配置键不允许从网页修改』，
+     * 而且连别名、关注点一起没存上」。加键时对着前端 {@code putSettings} 的调用点核一遍。
      */
     public static final Set<String> USER_EDITABLE = Set.of(
             OWNER_SENDER_ID, OWNER_ALIASES,
             REPLY_ENABLED, REPLY_PROMPT, REPLY_RATE_LIMIT,
             NOISE_FILTER_ENABLED, NOISE_FILTER_KEYWORDS,
             NOISE_FILTER_REGEX, NOISE_FILTER_KEEP_REGEX,
-            DIGEST_FOCUS_PROMPT, DIGEST_REFRESH_MIN_MESSAGES,
+            DIGEST_ENABLED, DIGEST_FOCUS_PROMPT, DIGEST_REFRESH_MIN_MESSAGES,
             DIGEST_REFRESH_MIN_MINUTES, DIGEST_MAX_MESSAGES, DIGEST_MAX_ATTEMPTS,
             SUMMARY_FREQUENCY);
 }

@@ -214,20 +214,42 @@ async function end() {
 }
 
 /* 鼠标 */
+/** 这次按压的 pointerId；只有「真的开始下拉」时才拿它去捕获指针 */
+let captureId: number | null = null
+
+function releaseCapture() {
+  const el = screenEl.value
+  if (captureId !== null && el?.hasPointerCapture?.(captureId)) {
+    el.releasePointerCapture(captureId)
+  }
+  captureId = null
+}
+
 function onPointerDown(event: PointerEvent) {
   if (event.pointerType === 'touch') return
   if (event.pointerType === 'mouse' && event.button !== 0) return
   if (!begin(event.clientY, event.clientX)) return
-  ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
+  /*
+   * 这里**不能**立刻 setPointerCapture。
+   * 一旦捕获，后续的 mouseup / click 会被改派到 .screen，页面里的按钮和路由链接就全都点不动了
+   * （触摸走 onTouchStart，不经过这里，所以手机上一直没暴露这个问题）。
+   * 改成「真开始下拉了再捕获」——那时用户是在拖，本来就不该触发点击。
+   */
+  captureId = event.pointerId
 }
 
 function onPointerMove(event: PointerEvent) {
   if (event.pointerType === 'touch') return
+  const wasPulling = pulling.value
   drag(event.clientY)
+  if (!wasPulling && pulling.value && captureId !== null) {
+    screenEl.value?.setPointerCapture?.(captureId)
+  }
 }
 
 function onPointerUp(event: PointerEvent) {
   if (event.pointerType === 'touch') return
+  releaseCapture()
   void end()
 }
 

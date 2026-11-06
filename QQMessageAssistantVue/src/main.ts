@@ -2,8 +2,16 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
 import './style.css'
+import { installPressRipple } from './utils/ripple'
+import { installTapOrigin } from './utils/tapOrigin'
 
 createApp(App).use(router).mount('#app')
+
+// 全站按压波纹：一次委托覆盖所有 .btn / .row / .stat / .seg-item / .tab
+installPressRipple()
+
+// 记下每次按下的位置，切页时新页面就从那一点圆形扩散开
+installTapOrigin()
 
 /**
  * 首屏只下载当前页。等浏览器空闲下来，再把其余路由的 chunk 预热掉，

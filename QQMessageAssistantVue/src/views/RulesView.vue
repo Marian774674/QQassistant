@@ -258,7 +258,7 @@ async function runPreview() {
             :disabled="previewing || !loaded"
             @click="runPreview"
           >
-            {{ previewing ? '试跑中…' : '试跑' }}
+            试跑
           </button>
           <p v-if="previewError" class="error" role="alert">{{ previewError }}</p>
           <ul v-if="previewItems.length" class="preview-list">

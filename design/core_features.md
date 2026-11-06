@@ -580,6 +580,8 @@ CREATE TABLE `chat_digest_item` (
 
 - `PUT /api/settings` 只接受 `AppSettingKeys.USER_EDITABLE` 白名单。`auth_password_hash`、
   补拉游标、归纳锚点这类系统键不允许网页改写，否则一次误提交就能把登录锁死或把补拉游标倒退。
+  **白名单是「整表校验」而不是「逐键丢弃」**：一个越权键就让整次提交失败，
+  所以前端一次提交的键必须**全部**在表里（`digest_enabled` 漏过一次，见 `api_contract.md` §10.2）。
 - 能配置的（`digest_max_messages` / `digest_max_attempts` / 四个噪音键）走 `app_setting`；
   不能配置的（刷新阈值、默认关键词、账本窗口上限）集中在 `TuningDefaults`。
   `intSetting()` 对写坏 / 越界的值一律回落出厂值——「用户填了个错别字」不能让整理整体停摆。

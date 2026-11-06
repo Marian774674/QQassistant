@@ -21,7 +21,7 @@ const emit = defineEmits<{ close: []; confirm: [value: string] }>()
 
 const WEEK = ['一', '二', '三', '四', '五', '六', '日']
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
-const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5)
+const MINUTES = Array.from({ length: 60 }, (_, i) => i)
 /** 滚轮一格的高度，必须和 CSS 里的 44px 对上 */
 const ITEM_H = 44
 
@@ -114,7 +114,8 @@ watch(
     draft.value = new Date(seed.getFullYear(), seed.getMonth(), seed.getDate())
     viewMonth.value = startOfMonth(seed)
     hour.value = seed.getHours()
-    minute.value = MINUTES.reduce((best, m) => (Math.abs(m - seed.getMinutes()) < Math.abs(best - seed.getMinutes()) ? m : best), MINUTES[0])
+    // 逐分钟之后不存在「就近取整」了，直接取原值
+    minute.value = seed.getMinutes()
     await nextTick()
     syncWheels()
   },

@@ -62,7 +62,8 @@ src/
   composables/   # useOwner（全局 QQ 号）、useToast、useFab、useDraftStore
   views/         # 8 个页面
   router/        # 8 条路由，路由级懒加载
-  utils/         # datetime（时间解析/格式化）、meta（状态、类型、图标映射）
+  utils/         # datetime（时间解析/格式化）、meta（状态、类型、图标映射）、
+                 # ripple（全站按压波纹，从落点扩散）、tapOrigin（记按下位置，给转场当圆心）
   style.css      # 设计 token + 基础排版
 ```
 
@@ -120,7 +121,7 @@ src/
 
 | 交互 | 行为 |
 |---|---|
-| 切页 | 纯淡入淡出：旧页淡出 160ms → 新页淡入 280ms，不做位移 |
+| 切页 | 新页面从**按下去的那一点**圆形扩散铺满全屏（`clip-path: circle()` 460ms）；旧页只淡出 140ms |
 | 点备忘卡 | View Transitions 让卡片**变形**成抽屉；不支持或减少动效时退回抽屉滑入 |
 | 完成一条 | 圆点填充 → 对勾描边 → 卡片收拢淡出（TransitionGroup FLIP），**乐观更新**，失败回滚 |
 | 分段 / 底部导航 | 选中块是滑动的（`translateX` + spring），不是整块跳变 |
@@ -129,6 +130,49 @@ src/
 | 下拉 | 顶部下拉出现圆形指示器，过 52px 松手刷新 |
 | 键盘 | 抽屉监听 `visualViewport`，弹起时整体上推，输入行不被遮 |
 | 触感 | 完成 / 确认 / 删除触发 `navigator.vibrate(6)`（Android 有效） |
+| 按压波纹 | 从**手指/鼠标落点**扩散（不是从元素中心），560ms 三段关键帧，`currentColor` 上色：深色主按钮出白波纹、纸面行出墨色波纹 |
+| 等待 | 草稿确认时按钮转成进行时 + 窄光带扫过 + 卡片呼吸，2.5 秒后补一句说明和一个在涨的秒数（见下） |
+
+波纹由 `utils/ripple.ts` 一个 `pointerdown` 委托覆盖 `.btn / .icon-btn / .row / .stat / .seg-item / .tab`，
+不用每个组件各写一套。圆心是 `clientX/clientY` 相对元素 `boundingClientRect` 的偏移，所以按在行的右端
+就从右端扩散。`prefers-reduced-motion: reduce` 时根本不注册监听。强度三个旋钮：`ALPHA 0.12`（盖住按压点
+周围就够，整行铺满会像盖了块灰布）、`SPREAD 1.6`（直径 = 元素长边 × 1.6）、`DURATION 560`。
+
+**宽扁的控件必须封顶。** 直径按长边算，对卡片和整行是对的，但底部导航没有可见边框，
+直径一大就盖满整个格子、看着像泼到了邻居头上。所以宿主表里给 `.tab` 写了 `max: 44`、`.seg-item` 写了
+`max: 72`；宿主本身带 `overflow: hidden`，圆再大也只会被裁在格子内。
+
+**圆形扩散转场的圆心来自按下那一刻。** `utils/tapOrigin.ts` 在 `document` 上收 `pointerdown`（capture 阶段），
+把落点换算成 `.screen` 盒内坐标，连半径一起写到根元素的 `--tap-x / --tap-y / --tap-r` 上。
+之所以不等路由变化再算：新页的进入动画在 DOM 插入后的下一帧就跑，那时设变量已经晚了一拍，
+第一帧会从旧位置起跳。没有记录时退回中心 + `120vmax`。
+
+> **别在 `pointerdown` 里立刻 `setPointerCapture`。** `AppShell` 的下拉手势曾经这么写，结果捕获把后续的
+> `mouseup` / `click` 全改派到了 `.screen` 上——页面里所有按钮和路由链接在鼠标下都点不动。触摸走
+> `touchstart`，不经这条路径，所以手机上一直没暴露。现在的写法是「真的开始下拉（`pulling` 变 true）
+> 才捕获」，并在 `pointerup` 里主动 `releasePointerCapture`。波纹那边同理，只读坐标、不碰捕获。
+
+### 等待态
+
+草稿确认要绕一圈（后端 → 发送桥 → LangBot → QQ），几秒钟是常态。**这里不优化速度，只处理「空」**：
+按钮一 disable 就被 `.btn:disabled` 压到 40% 透明，几颗按钮一起变灰，屏幕上只剩一小圈转圈——
+看不出系统在动，也看不出在等什么。所以等待期间四件事一起做：
+
+| 层 | 做法 |
+|---|---|
+| 文案 | 动词换进行时：发送 → **发送中**、记下 → **记录中**、保存名字 → **保存中** |
+| 主按钮 | 不再变淡（`.is-waiting:disabled { opacity: 1 }`），一条**窄光带**从左扫到右，把整条按钮当进度条用 |
+| 卡片 | 外圈 2.4s 极慢地呼吸一次（`box-shadow` 扩散 3px），整块都在工作；次要按钮压到 0.26 透明 |
+| 2.5 秒后 | 补一句 `SLOW_NOTE[type]` + 一个一直在涨的秒数 |
+
+**秒数不是装饰。** 死掉的界面不会数数——数字一直在涨，就是最硬的「它还活着」的证据，比任何转圈动画都可信。
+文案按类型分开写：只有 `REPLY` / `FILE` 真的走出服务器去找 QQ，备忘、事实、命名只是写库，对着写库说
+「QQ 那边还没回话」是拿现成的话糊弄人。
+
+两个坑：**主按钮要定 `min-width`**，否则「发送」两个字变「发送中」三个字时按钮自己长胖，把旁边的
+「改一下」「拒绝」推着走；**扫光只能逐个点名 `.btn-label / .spinner / svg`**，不能写 `> *`——
+按压波纹的 `.ripple-ink` 也是直接子元素，它靠 `position: absolute` 才不占位，被改成 `relative` 后
+会变成一个 160×160 的普通 flex item，直接把按钮撑成一块黑板（实测 96px → 256px）。
 
 设计稿截图在 [`design/preview/`](./design/preview/)，除最后一张外都是 390×844 的 Android 视口、2 倍图：
 

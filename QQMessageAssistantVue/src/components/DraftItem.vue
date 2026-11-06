@@ -27,6 +27,63 @@ const ACTION_LABEL: Record<DraftType, string> = {
   NAMING: '保存名字',
 }
 
+/** 等待期间按钮上的文案：动词换成进行时，别让按钮变成一块没有字的灰条 */
+const WAIT_LABEL: Record<DraftType, string> = {
+  REPLY: '发送中',
+  FILE: '发送中',
+  MEMO: '记录中',
+  FACT: '记录中',
+  NAMING: '保存中',
+}
+
+/**
+ * 等太久了。
+ *
+ * 发送要绕一圈（后端 → 发送桥 → LangBot → QQ），几秒钟是常态。
+ * 光转圈还不够：转久了人会怀疑是不是卡死。所以过了 2.5 秒补一句「还在等」，
+ * 让「慢」和「坏了」能区分开——这一句比任何进度条都管用。
+ *
+ * 但话得说对：只有 REPLY / FILE 真的会走出这台服务器去找 QQ，
+ * 备忘、事实、命名只是写库。对着一个写库的操作说「QQ 那边还没回话」，
+ * 就是拿一句现成的话糊弄人。
+ *
+ * 后面那个秒数不是装饰：死掉的界面不会数数。数字一直在涨，就是最硬的
+ * 「它还活着」的证据，比任何转圈动画都可信。
+ */
+const SLOW_AFTER = 2500
+const SLOW_NOTE: Record<DraftType, string> = {
+  REPLY: 'QQ 那边还没回话，再等一会儿',
+  FILE: '文件还在路上，再等一会儿',
+  MEMO: '还在写，再等一会儿',
+  FACT: '还在写，再等一会儿',
+  NAMING: '还在存，再等一会儿',
+}
+
+const slow = ref(false)
+const waited = ref(0)
+let slowTimer = 0
+let tickTimer = 0
+
+function beginWait() {
+  slow.value = false
+  waited.value = 0
+  window.clearTimeout(slowTimer)
+  window.clearInterval(tickTimer)
+  slowTimer = window.setTimeout(() => {
+    slow.value = true
+  }, SLOW_AFTER)
+  tickTimer = window.setInterval(() => {
+    waited.value += 1
+  }, 1000)
+}
+
+function endWait() {
+  window.clearTimeout(slowTimer)
+  window.clearInterval(tickTimer)
+  slow.value = false
+  waited.value = 0
+}
+
 /** 回复和文件是「以你的身份发出去」，发出去就收不回，必须先问一句 */
 const IRREVERSIBLE: DraftType[] = ['REPLY', 'FILE']
 
@@ -89,7 +146,11 @@ const confirmToast = computed(() => {
   return '已确认'
 })
 
-onBeforeUnmount(() => window.clearTimeout(confirmTimer))
+onBeforeUnmount(() => {
+  window.clearTimeout(confirmTimer)
+  window.clearTimeout(slowTimer)
+  window.clearInterval(tickTimer)
+})
 
 function requestConfirm() {
   if (!needsConfirm.value) {
@@ -176,6 +237,7 @@ async function resolve(action: 'confirm' | 'reject', editedContent?: string) {
     return
   }
   busy.value = true
+  beginWait()
   try {
     if (action === 'confirm') {
       await confirmDraft(props.draft.id, confirmBody(editedContent))
@@ -191,12 +253,17 @@ async function resolve(action: 'confirm' | 'reject', editedContent?: string) {
     toast.error(error instanceof Error ? error.message : '操作失败')
   } finally {
     busy.value = false
+    endWait()
   }
 }
 </script>
 
 <template>
-  <article class="draft" :class="{ closed: !isPending }">
+  <article
+    class="draft"
+    :class="{ closed: !isPending, 'is-sending': busy }"
+    :aria-busy="busy"
+  >
     <header class="head">
       <span class="type">
         <component :is="typeIcon" :size="12" :stroke-width="2" aria-hidden="true" />
@@ -245,9 +312,16 @@ async function resolve(action: 'confirm' | 'reject', editedContent?: string) {
         <button type="button" class="btn btn-sm btn-ghost" :disabled="busy" @click="cancelEdit">
           取消
         </button>
-        <button type="button" class="btn btn-sm btn-primary" :disabled="busy" @click="sendEdited">
-          <Check :size="14" :stroke-width="2.6" aria-hidden="true" />
-          发送
+        <button
+          type="button"
+          class="btn btn-sm btn-primary"
+          :class="{ 'is-waiting': busy }"
+          :disabled="busy"
+          @click="sendEdited"
+        >
+          <span v-if="busy" class="spinner" aria-hidden="true" />
+          <Check v-else :size="14" :stroke-width="2.6" aria-hidden="true" />
+          <span class="btn-label">{{ busy ? WAIT_LABEL[draft.type] : '发送' }}</span>
         </button>
       </div>
     </div>
@@ -258,17 +332,31 @@ async function resolve(action: 'confirm' | 'reject', editedContent?: string) {
         <button type="button" class="btn btn-sm btn-ghost" :disabled="busy" @click="cancelConfirm">
           再想想
         </button>
-        <button type="button" class="btn btn-sm btn-primary" :disabled="busy" @click="resolve('confirm')">
-          <Check :size="14" :stroke-width="2.6" aria-hidden="true" />
-          确认{{ ACTION_LABEL[draft.type] }}
+        <button
+          type="button"
+          class="btn btn-sm btn-primary"
+          :class="{ 'is-waiting': busy }"
+          :disabled="busy"
+          @click="resolve('confirm')"
+        >
+          <span v-if="busy" class="spinner" aria-hidden="true" />
+          <Check v-else :size="14" :stroke-width="2.6" aria-hidden="true" />
+          <span class="btn-label">{{ busy ? WAIT_LABEL[draft.type] : `确认${ACTION_LABEL[draft.type]}` }}</span>
         </button>
       </div>
     </div>
 
     <div v-else-if="isPending" class="actions">
-      <button type="button" class="btn btn-sm btn-primary" :disabled="busy" @click="requestConfirm">
-        <Check :size="14" :stroke-width="2.6" aria-hidden="true" />
-        {{ ACTION_LABEL[draft.type] }}
+      <button
+        type="button"
+        class="btn btn-sm btn-primary"
+        :class="{ 'is-waiting': busy }"
+        :disabled="busy"
+        @click="requestConfirm"
+      >
+        <span v-if="busy" class="spinner" aria-hidden="true" />
+        <Check v-else :size="14" :stroke-width="2.6" aria-hidden="true" />
+        <span class="btn-label">{{ busy ? WAIT_LABEL[draft.type] : ACTION_LABEL[draft.type] }}</span>
       </button>
       <button
         v-if="canEdit"
@@ -285,6 +373,12 @@ async function resolve(action: 'confirm' | 'reject', editedContent?: string) {
         {{ draft.type === 'NAMING' ? '不用了' : '拒绝' }}
       </button>
     </div>
+
+    <p v-if="busy && slow" class="wait-note" role="status">
+      <span class="wait-dot" aria-hidden="true" />
+      <span>{{ SLOW_NOTE[draft.type] }}</span>
+      <span class="wait-count num" aria-hidden="true">{{ waited }}s</span>
+    </p>
   </article>
 </template>
 
@@ -299,6 +393,148 @@ async function resolve(action: 'confirm' | 'reject', editedContent?: string) {
 .draft.closed {
   background: rgba(255, 255, 255, 0.62);
   box-shadow: none;
+}
+
+/*
+ * 等待态。
+ *
+ * 这里真正难看的不是「慢」，是「空」：按钮一 disable 就被 .btn:disabled 压到
+ * 40% 透明，三颗按钮一起变灰，屏幕上只剩一小圈转圈——看不出系统在动，也看不出
+ * 在等什么，几秒钟就变成一大片死掉的灰。
+ *
+ * 所以等待期间做三件事：
+ * 1. 主按钮保持实心，一道光从左扫到右，把整条按钮变成进度条；
+ * 2. 卡片外圈极慢地呼吸一次，整块都在「工作」，不是只有按钮在转；
+ * 3. 次要按钮再压暗一档，明确「现在别碰它们」，视觉焦点只剩正在干活的那个。
+ */
+.draft.is-sending {
+  animation: draft-breathe 2400ms var(--ease) infinite;
+}
+
+@keyframes draft-breathe {
+  0%,
+  100% {
+    box-shadow: var(--shadow-card), 0 0 0 0 rgba(46, 38, 26, 0);
+  }
+  50% {
+    box-shadow: var(--shadow-card), 0 0 0 3px rgba(46, 38, 26, 0.055);
+  }
+}
+
+.draft.is-sending .btn-ghost:disabled {
+  opacity: 0.26;
+}
+
+/* 正在干活的按钮不能变灰：灰条等于「这里什么都没有」 */
+.btn.is-waiting:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+
+.btn.is-waiting {
+  position: relative;
+  overflow: hidden;
+}
+
+/*
+ * 扫过去的那道光。比转圈更能填满「空白时间」——它占的是整条按钮的宽度。
+ * 光带要窄：btn-sm 只有 104px 宽，渐变拉太开就不是「一道光」，而是糊在
+ * 深色按钮上的一团脏印子。
+ */
+.btn.is-waiting::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 34%,
+    rgba(255, 255, 255, 0.1) 44%,
+    rgba(255, 255, 255, 0.22) 50%,
+    rgba(255, 255, 255, 0.1) 56%,
+    transparent 66%
+  );
+  transform: translateX(-100%);
+  animation: btn-sweep 1500ms linear infinite;
+  pointer-events: none;
+}
+
+@keyframes btn-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/*
+ * 光从字底下走，别糊在字上面。
+ *
+ * 这里必须逐个点名，不能用 `> *`：按压波纹的 .ripple-ink 也是直接子元素，
+ * 它是靠 position: absolute 才不占位的，一旦被这条规则改成 relative，
+ * 就变成一个 150×160 的普通 flex item，把按钮直接撑成一块黑板。
+ * 标签外面那层 .btn-label 就是为这件事加的——文字是裸文本节点，选不中。
+ */
+.btn.is-waiting > .btn-label,
+.btn.is-waiting > .spinner,
+.btn.is-waiting > svg {
+  position: relative;
+  z-index: 1;
+}
+
+/* 全局 .spinner 是 15px，配 btn-sm 的 13.5px 字太大，会把文字挤到换行 */
+.btn.is-waiting .spinner {
+  width: 13px;
+  height: 13px;
+  border-width: 1.5px;
+}
+
+/* 2.5 秒后才出现的那句话：晚一点来，才不像一开始就在找借口 */
+.wait-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+  animation: wait-note-in 260ms var(--ease-out) both;
+}
+
+@keyframes wait-note-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.wait-dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: wait-pulse 1600ms var(--ease) infinite;
+}
+
+@keyframes wait-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.wait-count {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .head {
@@ -465,6 +701,19 @@ async function resolve(action: 'confirm' | 'reject', editedContent?: string) {
   display: flex;
   gap: 8px;
   margin-top: 12px;
+}
+
+/*
+ * 主按钮定个下限：「发送」两个字和「发送中」三个字宽度不一样，
+ * 不定住的话点下去按钮会自己长胖，把旁边的「改一下」「拒绝」推着走。
+ * 104px 刚好装得下最长的「确认发送」，三个状态共用同一个宽度，一动不动。
+ */
+.actions .btn-primary {
+  min-width: 104px;
+}
+
+.btn-label {
+  white-space: nowrap;
 }
 
 .confirm {

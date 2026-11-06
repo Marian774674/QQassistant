@@ -575,6 +575,12 @@ Dify 的 `OP_HTTP` 节点直接调用本接口。**鉴权**：请求头 `X-Agent
 请求整体不落库。四个 `noise_filter_*` 键也在白名单里，但建议走 §17.1 / §17.2 的专用接口
 （保存前会编译正则、校验长度、拒绝嵌套量词，通用接口不做这些检查）。
 
+> **「请求整体不落库」是个连坐条款**：`/chat-settings` 的「保存偏好」一次提交五个键
+> （`digest_enabled` + `owner_aliases` + 三个 `digest_*`），只要其中一个不在白名单里，
+> 整张表都会被拒——界面上的表现是「弹一句配置键不允许修改，别名和关注点也一起没存上」。
+> 5.5 收口时漏了 `digest_enabled`，直到 2026-11 才补上。**加键时对着前端 `putSettings` 的调用点核一遍**，
+> `SettingsControllerTest.chatPreferencesAreEditable` 用页面真实发的那段 body 钉住了这件事。
+
 ---
 
 ## 十一、文件任务镜像（`file_task`）

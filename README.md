@@ -130,7 +130,7 @@ flowchart LR
 | 存储 | MySQL 8 | 单库单实例，时间由 Java 写本地时间（那台库跑 UTC） |
 | 部署 | Docker Compose | LangBot / 插件运行时 / NapCat / 发送桥，四个容器 |
 
-测试：Java 61 个测试类 / 460 个用例（`mvn -o test`），Python 246 个用例（插件 215 + 发送桥 31，`pytest`），Vue `npm run build`（含 `vue-tsc` 类型检查）。当前全绿。
+测试：Java 61 个测试类 / 461 个用例（`mvn -o test`），Python 246 个用例（插件 215 + 发送桥 31，`pytest`），Vue `npm run build`（含 `vue-tsc` 类型检查）。当前全绿。
 
 | 端 | 命令 |
 | --- | --- |
