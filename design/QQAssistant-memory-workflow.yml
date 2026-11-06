@@ -49,7 +49,55 @@ workflow:
       id: e0000000-0000-4000-8000-000000000201
       source: start
       sourceHandle: source
+      target: is_style
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: e0000000-0000-4000-8000-000000000901
+      source: is_style
+      sourceHandle: 'true'
+      target: style_llm
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: if-else
+      id: e0000000-0000-4000-8000-000000000902
+      source: is_style
+      sourceHandle: 'false'
       target: is_digest
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: code
+      id: e0000000-0000-4000-8000-000000000903
+      source: style_llm
+      sourceHandle: source
+      target: parse_style
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: end
+      id: e0000000-0000-4000-8000-000000000904
+      source: parse_style
+      sourceHandle: source
+      target: end_style
       targetHandle: target
       type: custom
       zIndex: 0
@@ -361,6 +409,171 @@ workflow:
       targetPosition: left
       type: custom
       width: 242
+      zIndex: 0
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: c0000000-0000-4000-8000-000000000901
+            value: style
+            varType: string
+            variable_selector:
+            - start
+            - task
+          id: 'true'
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: 是风格总结
+        type: if-else
+      height: 122
+      id: is_style
+      position:
+        x: 400
+        y: 520
+      positionAbsolute:
+        x: 400
+        y: 520
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        memory:
+          query_prompt_template: ''
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 10
+        model:
+          completion_params:
+            temperature: 0.3
+          mode: chat
+          name: qwen3.8-flash
+          provider: langgenius/tongyi/tongyi
+        prompt_template:
+        - id: 7a1c0000-0000-4000-8000-000000000901
+          role: system
+          text: |
+            你是「说话风格画像」生成器。你会收到主人（下称「我」）最近在 QQ 里亲手发出的若干条消息，请据此归纳出「我」的说话风格，供另一个模型模仿。
+
+            只输出一段中文说明，不要 JSON、不要 Markdown 代码块、不要逐条点评。
+
+            要求：
+            1. 只描述「怎么说话」，不写「说了什么」：不要复述具体事件、人名、时间、数字、承诺。
+            2. 覆盖这些维度（有则写，没有就不写）：
+               - 句长与节奏（短句/长句、是否爱拆成多条）
+               - 语气与态度（随和/直接/冷淡/爱开玩笑）
+               - 常用词与口头禅（照抄原文里的高频词，如「嗯」「行」「哈哈哈」）
+               - 标点与表情习惯（是否用感叹号/省略号、emoji、颜文字）
+               - 称呼方式（怎么称呼朋友、用不用敬语）
+               - 回复习惯（是否秒回式短答、爱不爱解释）
+            3. 用第二人称「你」给模仿者下指令式描述，例如「你说话很短，常用『嗯』『行』开头」。
+            4. 200–400 字，宁可具体也不要空泛；不要写「这是一个友好的人」这类套话。
+            5. 如果已有旧画像（profile 非空），在它基础上修正和补充，不要丢掉仍然成立的结论。
+            6. 消息太少、看不出风格时，输出一句「暂无明显风格特征，保持中性简洁」即可，不要编造。
+        - id: 7a1c0000-0000-4000-8000-000000000902
+          role: user
+          text: |
+            旧画像（可能为空）：
+            {{#start.profile#}}
+
+            我最近亲手发的消息（每行一条，旧→新）：
+            {{#start.messages#}}
+        selected: false
+        title: 归纳风格
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 98
+      id: style_llm
+      position:
+        x: 720
+        y: 520
+      positionAbsolute:
+        x: 720
+        y: 520
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: |
+          def main(text: str) -> dict:
+              """把模型输出收成一段纯文本画像；剥掉可能的代码围栏与首尾引号。
+
+              解析失败/为空一律返回空串，由 Spring 判定「这次没产出」而不覆盖旧画像。
+              """
+              raw = (text or "").strip()
+              if raw.startswith("```"):
+                  raw = raw.strip("`")
+                  if raw.lower().startswith("json"):
+                      raw = raw[4:].lstrip()
+              raw = raw.strip().strip('"').strip()
+              return {"style_prompt": raw[:8000]}
+        code_language: python3
+        desc: ''
+        outputs:
+          style_prompt:
+            children: null
+            type: string
+        selected: false
+        title: 解析风格
+        type: code
+        variables:
+        - value_selector:
+          - style_llm
+          - text
+          variable: text
+      height: 50
+      id: parse_style
+      position:
+        x: 1040
+        y: 520
+      positionAbsolute:
+        x: 1040
+        y: 520
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - parse_style
+          - style_prompt
+          variable: style_prompt
+        selected: false
+        title: 结束
+        type: end
+      height: 110
+      id: end_style
+      position:
+        x: 1360
+        y: 520
+      positionAbsolute:
+        x: 1360
+        y: 520
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
       zIndex: 0
     - data:
         cases:

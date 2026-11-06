@@ -557,6 +557,7 @@ workflow:
         sourceType: if-else
         targetType: variable-aggregator
       id: e0000000-0000-4000-8000-000000000039
+      selected: false
       source: is_op
       sourceHandle: 'false'
       target: merge_decision
@@ -744,14 +745,14 @@ workflow:
           required: false
           type: text-input
           variable: reply_rules
-      height: 575
+      height: 576
       id: start
       position:
-        x: 80
-        y: 480
+        x: -857.692707992896
+        y: 283.7761400083477
       positionAbsolute:
-        x: 80
-        y: 480
+        x: -857.692707992896
+        y: 283.7761400083477
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -781,14 +782,14 @@ workflow:
           - start
           - current_time
           variable: current_time
-      height: 50
+      height: 51
       id: clock
       position:
-        x: 320
-        y: 480
+        x: -536.5019036307012
+        y: 442.3139162402491
       positionAbsolute:
-        x: 320
-        y: 480
+        x: -536.5019036307012
+        y: 442.3139162402491
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -812,14 +813,14 @@ workflow:
         selected: false
         title: IS_FILE
         type: if-else
-      height: 122
+      height: 123
       id: is_file
       position:
-        x: 560
-        y: 480
+        x: -231.40775895476804
+        y: 411.4798477095439
       positionAbsolute:
-        x: 560
-        y: 480
+        x: -231.40775895476804
+        y: 411.4798477095439
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -871,13 +872,13 @@ workflow:
           - clock
           - now_epoch
           variable: now_epoch
-      height: 50
+      height: 51
       id: check_request
       position:
-        x: 800
+        x: 131.92851516805263
         y: 160
       positionAbsolute:
-        x: 800
+        x: 131.92851516805263
         y: 160
       selected: false
       sourcePosition: right
@@ -902,14 +903,14 @@ workflow:
         selected: false
         title: HAS_REQUEST
         type: if-else
-      height: 146
+      height: 147
       id: has_request
       position:
-        x: 1040
-        y: 160
+        x: 471.28273598921396
+        y: 115.46190101120351
       positionAbsolute:
-        x: 1040
-        y: 160
+        x: 471.28273598921396
+        y: 115.46190101120351
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -972,14 +973,14 @@ workflow:
         variables: []
         vision:
           enabled: false
-      height: 86
+      height: 87
       id: fill_file_llm
       position:
-        x: 1280
-        y: 60
+        x: 824.340987268467
+        y: 20
       positionAbsolute:
-        x: 1280
-        y: 60
+        x: 824.340987268467
+        y: 20
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -1023,14 +1024,14 @@ workflow:
           - fill_file_llm
           - text
           variable: text
-      height: 50
+      height: 51
       id: parse_fill_file
       position:
-        x: 1520
-        y: 60
+        x: 1211.6593146929476
+        y: 20
       positionAbsolute:
-        x: 1520
-        y: 60
+        x: 1211.6593146929476
+        y: 20
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -1092,14 +1093,14 @@ workflow:
           - parse_fill_file
           - needs_confirm
           variable: needs_confirm
-      height: 50
+      height: 51
       id: check_missing
       position:
-        x: 1760
-        y: 60
+        x: 1551.0135355141088
+        y: 20
       positionAbsolute:
-        x: 1760
-        y: 60
+        x: 1551.0135355141088
+        y: 20
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -1123,14 +1124,14 @@ workflow:
         selected: false
         title: HAS_MISSING
         type: if-else
-      height: 146
+      height: 147
       id: has_missing
       position:
-        x: 2000
-        y: 60
+        x: 1897.219771564316
+        y: 5.183878167635108
       positionAbsolute:
-        x: 2000
-        y: 60
+        x: 1897.219771564316
+        y: 5.183878167635108
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -1172,14 +1173,14 @@ workflow:
         title: KEEP_FILE_INPUT
         type: assigner
         version: '2'
-      height: 160
+      height: 161
       id: keep_file_input
       position:
         x: 2240
-        y: 20
+        y: -144.44836549709467
       positionAbsolute:
         x: 2240
-        y: 20
+        y: -144.44836549709467
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -1231,7 +1232,7 @@ workflow:
         title: CLEAR_AFTER_FILL
         type: assigner
         version: '2'
-      height: 212
+      height: 213
       id: clear_after_fill
       position:
         x: 2240
@@ -1264,14 +1265,14 @@ workflow:
           - start
           - file_task_ref
           variable: task_ref
-      height: 50
+      height: 51
       id: ask_no_request
       position:
-        x: 1280
-        y: 260
+        x: 824.340987268467
+        y: 277.13003807261407
       positionAbsolute:
-        x: 1280
-        y: 260
+        x: 824.340987268467
+        y: 277.13003807261407
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -1319,14 +1320,14 @@ workflow:
         title: SET_FILE_INPUT
         type: assigner
         version: '2'
-      height: 186
+      height: 187
       id: set_file_input
       position:
-        x: 1520
-        y: 260
+        x: 1211.6593146929476
+        y: 246.29596954190873
       positionAbsolute:
-        x: 1520
-        y: 260
+        x: 1211.6593146929476
+        y: 246.29596954190873
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -1357,14 +1358,14 @@ workflow:
         selected: false
         title: IS_AWAITING
         type: if-else
-      height: 148
+      height: 149
       id: is_awaiting
       position:
-        x: 800
-        y: 720
+        x: 131.92851516805263
+        y: 733.7040304580911
       positionAbsolute:
-        x: 800
-        y: 720
+        x: 131.92851516805263
+        y: 733.7040304580911
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -1409,14 +1410,14 @@ workflow:
         selected: false
         title: IS_CANCEL
         type: if-else
-      height: 200
+      height: 201
       id: is_cancel
       position:
-        x: 1040
-        y: 600
+        x: 471.28273598921396
+        y: 500.6457791788387
       positionAbsolute:
-        x: 1040
-        y: 600
+        x: 471.28273598921396
+        y: 500.6457791788387
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -1442,14 +1443,14 @@ workflow:
           - start
           - query
           variable: query
-      height: 50
+      height: 51
       id: cancel_reply
       position:
-        x: 1280
-        y: 540
+        x: 824.340987268467
+        y: 533.1479847709544
       positionAbsolute:
-        x: 1280
-        y: 540
+        x: 824.340987268467
+        y: 533.1479847709544
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -1493,14 +1494,14 @@ workflow:
         title: CLEAR_CANCEL
         type: assigner
         version: '2'
-      height: 186
+      height: 187
       id: clear_cancel
       position:
-        x: 1520
-        y: 540
+        x: 1211.6593146929476
+        y: 495.4619010112035
       positionAbsolute:
-        x: 1520
-        y: 540
+        x: 1211.6593146929476
+        y: 495.4619010112035
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -1534,13 +1535,13 @@ workflow:
           - conversation
           - pending_file_request
           variable: pending
-      height: 50
+      height: 51
       id: build_request
       position:
-        x: 1280
+        x: 824.340987268467
         y: 720
       positionAbsolute:
-        x: 1280
+        x: 824.340987268467
         y: 720
       selected: false
       sourcePosition: right
@@ -1598,21 +1599,21 @@ workflow:
             {{#build_request.request#}}
 
             '
-        selected: true
+        selected: false
         title: FILL_TEXT_LLM
         type: llm
         variables: []
         vision:
           enabled: false
-      height: 86
+      height: 87
       id: fill_text_llm
       position:
-        x: 1520
+        x: 1108.879086257264
         y: 720
       positionAbsolute:
-        x: 1520
+        x: 1108.879086257264
         y: 720
-      selected: true
+      selected: false
       sourcePosition: right
       targetPosition: left
       type: custom
@@ -1655,13 +1656,13 @@ workflow:
           - fill_text_llm
           - text
           variable: text
-      height: 50
+      height: 51
       id: parse_fill_text
       position:
-        x: 1760
+        x: 1389.9911776315366
         y: 720
       positionAbsolute:
-        x: 1760
+        x: 1389.9911776315366
         y: 720
       selected: false
       sourcePosition: right
@@ -1724,13 +1725,13 @@ workflow:
           - parse_fill_text
           - needs_confirm
           variable: needs_confirm
-      height: 50
+      height: 51
       id: check_missing_text
       position:
-        x: 2000
+        x: 1684.807299463902
         y: 720
       positionAbsolute:
-        x: 2000
+        x: 1684.807299463902
         y: 720
       selected: false
       sourcePosition: right
@@ -1755,13 +1756,13 @@ workflow:
         selected: false
         title: HAS_MISSING_TEXT
         type: if-else
-      height: 146
+      height: 147
       id: has_missing_text
       position:
-        x: 2240
+        x: 2000.1794669834035
         y: 720
       positionAbsolute:
-        x: 2240
+        x: 2000.1794669834035
         y: 720
       selected: false
       sourcePosition: right
@@ -1796,14 +1797,14 @@ workflow:
         title: KEEP_FILE_INPUT_TEXT
         type: assigner
         version: '2'
-      height: 134
+      height: 135
       id: keep_file_input_text
       position:
-        x: 2480
-        y: 660
+        x: 2339.533687804565
+        y: 579.5336878045649
       positionAbsolute:
-        x: 2480
-        y: 660
+        x: 2339.533687804565
+        y: 579.5336878045649
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -1855,14 +1856,14 @@ workflow:
         title: CLEAR_AFTER_FILL_TEXT
         type: assigner
         version: '2'
-      height: 212
+      height: 213
       id: clear_after_fill_text
       position:
-        x: 2480
-        y: 780
+        x: 2339.533687804565
+        y: 880
       positionAbsolute:
-        x: 2480
-        y: 780
+        x: 2339.533687804565
+        y: 880
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -1896,20 +1897,20 @@ workflow:
         query_variable_selector:
         - start
         - query
-        selected: false
+        selected: true
         title: TEXT_INTENT
         type: question-classifier
         vision:
           enabled: false
-      height: 176
+      height: 177
       id: text_intent
       position:
-        x: 1040
-        y: 920
+        x: 471.28273598921396
+        y: 900
       positionAbsolute:
-        x: 1040
-        y: 920
-      selected: false
+        x: 471.28273598921396
+        y: 900
+      selected: true
       sourcePosition: right
       targetPosition: left
       type: custom
@@ -1935,13 +1936,13 @@ workflow:
           - start
           - query
           variable: query
-      height: 50
+      height: 51
       id: wait_file_reply
       position:
-        x: 1280
+        x: 1211.6593146929476
         y: 880
       positionAbsolute:
-        x: 1280
+        x: 1211.6593146929476
         y: 880
       selected: false
       sourcePosition: right
@@ -1990,7 +1991,7 @@ workflow:
         title: SET_FILE_REQUEST
         type: assigner
         version: '2'
-      height: 186
+      height: 187
       id: set_file_request
       position:
         x: 1520
@@ -2119,14 +2120,14 @@ workflow:
         variables: []
         vision:
           enabled: false
-      height: 86
+      height: 87
       id: chat_decision
       position:
-        x: 1280
-        y: 1040
+        x: 824.340987268467
+        y: 1235.2824340278
       positionAbsolute:
-        x: 1280
-        y: 1040
+        x: 824.340987268467
+        y: 1235.2824340278
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -2224,14 +2225,14 @@ workflow:
           - start
           - event_id
           variable: event_id
-      height: 50
+      height: 51
       id: clean_decision
       position:
-        x: 1520
-        y: 1040
+        x: 1211.6593146929476
+        y: 1386.0267690668034
       positionAbsolute:
-        x: 1520
-        y: 1040
+        x: 1211.6593146929476
+        y: 1386.0267690668034
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -2255,14 +2256,14 @@ workflow:
         selected: false
         title: IS_OP
         type: if-else
-      height: 150
+      height: 151
       id: is_op
       position:
-        x: 1800
-        y: 1040
+        x: 1520
+        y: 1386.0267690668034
       positionAbsolute:
-        x: 1800
-        y: 1040
+        x: 1520
+        y: 1386.0267690668034
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -2290,6 +2291,7 @@ workflow:
           retry_enabled: true
           retry_interval: 100
         selected: false
+        ssl_verify: true
         timeout:
           max_connect_timeout: 5
           max_read_timeout: 20
@@ -2301,11 +2303,11 @@ workflow:
       height: 219
       id: op_http
       position:
-        x: 2080
-        y: 960
+        x: 1857.8165522890804
+        y: 1580.1073782286278
       positionAbsolute:
-        x: 2080
-        y: 960
+        x: 1857.8165522890804
+        y: 1580.1073782286278
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -2349,14 +2351,14 @@ workflow:
           - op_http
           - body
           variable: body
-      height: 78
+      height: 79
       id: read_op_result
       position:
-        x: 2360
-        y: 900
+        x: 2325.739923854772
+        y: 1492.6993173124454
       positionAbsolute:
-        x: 2360
-        y: 900
+        x: 2325.739923854772
+        y: 1492.6993173124454
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -2379,14 +2381,14 @@ workflow:
         title: OP_FAILED
         type: code
         variables: []
-      height: 78
+      height: 79
       id: op_failed
       position:
-        x: 2360
-        y: 1180
+        x: 2346.3857030336108
+        y: 1817.2374163012416
       positionAbsolute:
-        x: 2360
-        y: 1180
+        x: 2346.3857030336108
+        y: 1817.2374163012416
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -2416,14 +2418,14 @@ workflow:
           - decision
         - - clean_decision
           - decision
-      height: 290
+      height: 295
       id: merge_decision
       position:
-        x: 2760
-        y: 540
+        x: 3318.439241167217
+        y: 790.0985558601648
       positionAbsolute:
-        x: 2760
-        y: 540
+        x: 3318.439241167217
+        y: 790.0985558601648
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -2440,11 +2442,11 @@ workflow:
       height: 101
       id: answer
       position:
-        x: 3000
-        y: 540
+        x: 3774.2777208821544
+        y: 790.0985558601648
       positionAbsolute:
-        x: 3000
-        y: 540
+        x: 3774.2777208821544
+        y: 790.0985558601648
       selected: false
       sourcePosition: right
       targetPosition: left
@@ -2452,7 +2454,7 @@ workflow:
       width: 241
       zIndex: 0
     viewport:
-      x: -69.52039439974692
-      y: 123.96921949203175
-      zoom: 0.6217388650146322
+      x: 351.2013302246296
+      y: 306.3783950970087
+      zoom: 0.32166621981622806
   rag_pipeline_variables: []

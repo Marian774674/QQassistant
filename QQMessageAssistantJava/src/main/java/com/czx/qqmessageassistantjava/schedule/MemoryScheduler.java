@@ -5,6 +5,8 @@ import com.czx.qqmessageassistantjava.service.AppSettingService;
 import com.czx.qqmessageassistantjava.service.MemoryJobService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -43,5 +45,30 @@ public class MemoryScheduler {
             return 0;
         }
         return memoryJobService.runOnce();
+    }
+
+    /**
+     * 启动补做：宕机错过了 0:10 的夜间归纳，重启后把游标之后的积压消息补算掉。
+     *
+     * <p>游标是持久的，所以这里不会重跑已处理的批次，只是把落下的赶上来；放在守护线程里，
+     * 不拖住应用启动。开关没开就直接返回，不产生任何 Dify 调用。
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void catchUpOnStartup() {
+        if (!"1".equals(appSettingService.getOrDefault(AppSettingKeys.MEMORY_JOB_ENABLED, "0").trim())) {
+            return;
+        }
+        Thread worker = new Thread(() -> {
+            try {
+                int written = memoryJobService.catchUp();
+                if (written > 0) {
+                    log.info("夜间归纳启动补做：写入 {} 条事实", written);
+                }
+            } catch (Exception e) {
+                log.error("夜间归纳启动补做失败", e);
+            }
+        }, "memory-job-startup");
+        worker.setDaemon(true);
+        worker.start();
     }
 }

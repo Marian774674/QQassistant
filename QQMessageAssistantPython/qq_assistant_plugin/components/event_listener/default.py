@@ -152,6 +152,19 @@ async def _respond_inner(deps, ctx, is_group, sender_id, chat_id, text,
         if reply_ctx is None:
             reply_ctx = await _fetch_reply_context(deps, is_group, sender_id, chat_id)
 
+        # 风格画像要用「主人」的，不是这条消息发送者的：自动回复是替主人说话。
+        # 群里 @ 机器人的多半不是主人，直接用 sender 的画像会取到空值 ——
+        # 表现就是「网页里设了风格，机器人说话却没变化」。facts 仍用发送者的（用于认识对方）。
+        owner = str((reply_ctx or {}).get("ownerSenderId") or "").strip()
+        if owner and owner != str(sender_id):
+            try:
+                style = await deps.spring.style_profile(int(owner))
+                owner_prompt = (style or {}).get("profilePrompt") or ""
+                if owner_prompt:
+                    profile = {**(profile or {}), "stylePrompt": owner_prompt}
+            except Exception as e:
+                file_store.debug(f"owner style fetch failed, keep sender style: {e!r}")
+
         pending = await file_store.load_pending(deps, key) or {}
         # 幂等键在此生成一次：下面「会话丢失重试」必须复用同一个值，
         # 否则后端会把同一条改期/取消执行两遍
@@ -168,6 +181,7 @@ async def _respond_inner(deps, ctx, is_group, sender_id, chat_id, text,
             reply_rules=reply_rules.RULES)
         file_store.debug(
             f"profile ok facts={len(profile.get('facts') or {})} "
+            f"style={len(profile.get('stylePrompt') or '')} "
             f"open_memos={len(open_memos)} event_id={event_id[:12]} "
             f"event={event_type} file={inputs['file_task_ref'] or '-'}")
 

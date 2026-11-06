@@ -4,6 +4,7 @@ import com.czx.qqmessageassistantjava.common.Result;
 import com.czx.qqmessageassistantjava.dto.StyleProfileUpdateRequest;
 import com.czx.qqmessageassistantjava.entity.StyleProfile;
 import com.czx.qqmessageassistantjava.service.StyleProfileService;
+import com.czx.qqmessageassistantjava.service.StyleSummaryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +17,8 @@ public class StyleProfileController {
 
     @Autowired
     private StyleProfileService styleProfileService;
+    @Autowired
+    private StyleSummaryService styleSummaryService;
 
     @Operation(summary = "查看当前画像·风格")
     @GetMapping("/{senderId}")
@@ -27,6 +30,13 @@ public class StyleProfileController {
     @PostMapping("/update")
     public Result<StyleProfile> update(@RequestBody StyleProfileUpdateRequest request) {
         return Result.ok(styleProfileService.upsert(request.getSenderId(), request.getProfilePrompt()));
+    }
+
+    @Operation(summary = "立即总结一次风格画像",
+            description = "手动触发，不等定时点；没有主人消息 / Dify 未配置时返回 false，旧画像不变")
+    @PostMapping("/summarize")
+    public Result<Boolean> summarize() {
+        return Result.ok(styleSummaryService.summarize());
     }
 
 }

@@ -39,7 +39,11 @@ def test_branches_are_wired(graph):
     _, g, _ = graph
     edges = {(e["source"], e["sourceHandle"]): e["target"] for e in g["edges"]}
     assert edges == {
-        ("start", "source"): "is_digest",
+        ("start", "source"): "is_style",
+        ("is_style", "true"): "style_llm",
+        ("is_style", "false"): "is_digest",
+        ("style_llm", "source"): "parse_style",
+        ("parse_style", "source"): "end_style",
         ("is_digest", "true"): "digest_llm",
         ("is_digest", "false"): "is_extract",
         ("digest_llm", "source"): "parse_digest",
@@ -212,9 +216,28 @@ def test_end_nodes_expose_unique_output_names(graph):
     ]
     assert len(names) == len(set(names)), f"结束节点输出变量重名：{names}"
     assert set(names) == {
+        "style_prompt",
         "items", "contacts", "notes",
         "entities", "keywords", "queries", "time_hint", "time_from", "time_to",
         "answer", "used_ids",
         "expand_queries", "expand_entities", "expand_time_hint",
         "expand_time_from", "expand_time_to",
     }
+
+
+def test_style_prompt_pins_the_contract(graph):
+    """风格总结只描述「怎么说话」，不许编造内容；这条一松，画像就会被事件/人名污染。"""
+    _, _, nodes = graph
+    system = nodes["style_llm"]["data"]["prompt_template"][0]["text"]
+    assert "怎么说话" in system
+    assert "不要复述" in system
+    assert "200" in system
+
+
+def test_parse_style_strips_fences_and_quotes(graph):
+    _, _, nodes = graph
+    main = _main(nodes, "parse_style")
+    assert main("```\n你说话很短，常用「嗯」开头。\n```")["style_prompt"] == "你说话很短，常用「嗯」开头。"
+    assert main('"你说话很短"')["style_prompt"] == "你说话很短"
+    assert main("")["style_prompt"] == ""
+    assert main("模型胡说")["style_prompt"] == "模型胡说"

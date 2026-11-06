@@ -143,11 +143,13 @@ Spring 侧新增 `client/DifyWorkflowClient`（`POST /v1/workflows/run`，blocki
 | 任务 | 频率 | 内容 |
 |---|---|---|
 | 每小时整理 | `@Scheduled(cron = "0 5 * * * *")` | 取上一小时新增消息，按群切段 → `digest` → 写 `chat_digest_item` |
-| 夜间归纳 | `@Scheduled(cron = "0 10 0 * * *")` | 取当天新增消息 → `extract` → 更新 `contact` / `memory_note` |
+| 夜间归纳 | `@Scheduled(cron = "0 10 0 * * *")` + **启动补做** | 取游标之后的新消息 → `extract` → 更新 `contact` / `memory_note`；重启时 `catchUp()` 把积压批次赶上 |
+| 风格画像总结 | 每日 `0 20 0 * * *` + 每 3 小时兜底 + **启动补做** | 取主人亲手发的 IN 消息 → `style` → upsert `style_profile`；窗口/到期由 `summary_frequency` 决定 |
 | 回溯补算 | 手动接口 | 首次启用或改规则后，把历史全量跑一遍 |
 
-两个定时任务都通过 `app_setting` 里的开关控制（默认**关**，与提醒扫描一致）：
-`digest_enabled`、`memory_job_enabled`。开之前先在日志里能看到「这次会处理 N 条消息」。
+整理与归纳通过 `app_setting` 里的开关控制（默认**关**）：`digest_enabled`、`memory_job_enabled`。
+风格总结不另设开关——绑定主人 QQ 后即按 `summary_frequency` 生效，失败/无消息不推进时间。
+两个「总结类」任务都带**启动补做**：宕机错过定时点，重启后第一次检查就会补上。
 
 每小时整理与「进首页按需整理」（§6.1）是两条并列的触发路径，都写 `chat_digest_item`；
 后者只在攒够了（条数/时长阈值）时补跑一次，避免用户刚打开页面却看到几小时前的旧内容。
@@ -377,6 +379,11 @@ Spring 侧新增 `client/DifyWorkflowClient`（`POST /v1/workflows/run`，blocki
 **一次取齐**：它们同属一轮提示词输入，分两次取会出现「开关是新的、计数是旧的」这种
 自相矛盾的快照，还多一个失败点。`reply_rules` 是 Dify 输入拼装的一部分，所以放插件
 （与 `open_memos` 的 `json.dumps` 同一层），不进 Spring。
+
+> **`style_prompt` 取「主人」的画像，不是消息发送者的**：自动回复是替主人说话，
+> 群里 @ 机器人的多半不是主人。插件用 `reply-context.ownerSenderId` 单独取一次
+> `GET /api/style-profile/{ownerId}` 覆盖 `style_prompt`；`facts` 仍取发送者的（用于认识对方）。
+> 这正是「网页里设了风格、机器人却没变化」的根因修复。
 
 **私聊按对方 QQ 计**：私聊的 `message_log.chat_id` 是 NULL，`sender_id` 才是会话键；
 `chat_setting` 的私聊行也存对方 QQ。`listAll` 会从日志里把私聊对象一并列出来，

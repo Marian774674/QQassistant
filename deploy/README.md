@@ -76,7 +76,7 @@ docker compose ps              # 4 个服务都应是 running
 > 噪音规则改到网页 **更多 → 噪音过滤（`/rules`）** 配置，插件侧没有对应配置项。
 
 1. LangBot WebUI → 插件 → 安装 → 上传
-   `QQMessageAssistantPython/qq_assistant_plugin/dist/Marian-qq_assistant_plugin-0.2.32.lbpkg`
+   `QQMessageAssistantPython/qq_assistant_plugin/dist/Marian-qq_assistant_plugin-0.2.33.lbpkg`
 2. 打开插件配置，按容器网络填：
 
 | 配置项 | 值 |
@@ -168,8 +168,24 @@ docker compose exec langbot_plugin_runtime tail -n 60 /app/data/qq_assistant/dat
 > **2026-11 用量页饼图部署顺序**：`/api/token-usage/summary` 新增的 `byChat` 字段由 Spring 侧
 > `TokenUsageService` / `TokenUsageMapper` 产出，前端 `/usage` 消费。上线时**必须同时**
 > 重新部署 Spring Boot 与前端 `dist/`；只换前端会拿到没有 `byChat` 的响应（饼图整块不渲染，
-> 其它分账照常），只换后端则页面不显示饼图。**数据库不用再迁移，插件也不用升级**
-> （仍是 `0.2.32`、不用重新打包上传）。
+> 其它分账照常），只换后端则页面不显示饼图。**数据库不用再迁移**；那一轮插件本身不用动
+> （但后续的风格画像修正已把插件升到 `0.2.33`，见下一段）。
+
+> **2026-11 风格画像部署顺序**：本轮修了三件事——①插件取风格画像的来源由「消息发送者」
+> 改为「主人」；②风格画像的定期总结此前**根本没实现**，本轮补了 Dify `style` 分支 +
+> `StyleSummaryServiceImpl` + `StyleSummaryScheduler`；③所有定时任务加「启动补做」，
+> 宕机错过时间点后重启会补。
+>
+> 上线必须按顺序：
+> 1. **Dify**：重新导入 `design/QQAssistant-memory-workflow.yml` 并**发布**。不发布会仍跑旧图，
+>    `task=style` 会走到 `end` 之外的兜底分支，Spring 拿到空 `style_prompt` 就不覆盖旧画像
+>    （不会报错、也不会写坏数据，但总结永远不生效）。
+> 2. **重启 Spring Boot**：新 Service/Scheduler 是新增 Bean，热更新不生效；启动日志应能看到
+>    `风格总结补做` 或 `风格总结跳过` 中的一条。
+> 3. **重新上传插件 `0.2.33`**：`style_prompt` 的来源改了，旧插件仍按发送者取画像。
+>
+> **数据库不用迁移**：`style_profile` 表结构与 `app_setting.summary_frequency` 都没变，
+> 频率取值仍是 `DAILY_7D` / `DAILY_TODAY` / `WEEKLY`。
 
 ### 6.1 语义检索模型（可选，但 `/api/ask` 的语义通道需要）
 
@@ -431,12 +447,63 @@ cd QQMessageAssistantPython/qq_assistant_plugin
 > **另查历史遗留目录**（2026-11 补）：`.pytest_cache` / `__pycache__` / `dist` 会被 `lbp` 自动跳过，
 > 但任意其它目录都会照打。实测 `build_tmp/restore_021.py`（10 月一次性回退脚本，已 tracked，
 > 引用的还是 0.2.21 包）被安静地打进了 0.2.32 包。它不会被 LangBot 加载、无功能风险，
-> 但属于包污染；已移出插件目录并重新打包，最终 **61 文件 / 285267 B**。
+> 但属于包污染；已移出插件目录并重新打包（0.2.32 → **61 文件 / 285267 B**）。
+>
+> **它会自己长回来**（2026-11 二次确认）：0.2.33 打包前发现 `build_tmp/restore_021.py`
+> 又出现在插件目录里——仓库的 git 索引当时处于失步状态（索引丢了 88 个条目，`git status`
+> 把 HEAD 已删除的文件重新标成「暂存新增」，工作树就被补回了副本）。
+>
+> **索引已修复**（2026-11-06，见 §10.5）：`git add -A` 重算全部哈希后，`build_tmp/`、
+> `core/rules.py`、`tests/test_rules.py`、`InterceptRule*` 这批「复活」文件已移出工作树，
+> 0.2.33 最终产物 **61 文件 / 289641 B**，与 0.2.32 的文件数一致、无死代码。
+> 但**每次打包前仍然建议 `ls -a` 复查**，这类污染成本低但很容易漏。
+>
 > 打包后建议把下面这条也加进校验：
 >
 > ```bash
-> python -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); bad=[n for n in z.namelist() if any(k in n.lower() for k in ('build_tmp','pytest_tmp','.pyc','__pycache__','_debug.log'))]; print('残留:', bad); sys.exit(bool(bad))" dist/Marian-qq_assistant_plugin-0.2.32.lbpkg
+> python -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); bad=[n for n in z.namelist() if any(k in n.lower() for k in ('build_tmp','pytest_tmp','.pyc','__pycache__','_debug.log'))]; print('残留:', bad); sys.exit(bool(bad))" dist/Marian-qq_assistant_plugin-0.2.33.lbpkg
 > ```
+
+### 10.5 git 索引失步的识别与修复（2026-11-06）
+
+**症状**（这几种同时出现基本可以确诊）：
+
+- `git status` 显示大量 `D`（暂存删除），但 `ls` 看文件好好在磁盘上；
+- 同一批文件又被列成 `??`（未跟踪）——**同一文件出现两行**，这是索引里根本没这条记录；
+- `git status` 报几百个 ` M`，但 `git diff` 只列出十几个，且对某个 ` M` 文件跑
+  `git diff -- <file>` 输出为空。
+
+**确诊命令**（拿一个可疑文件）：
+
+```bash
+git ls-files --error-unmatch <file>   # 报 "did not match any file(s) known to git" = 索引没这条
+git rev-parse "HEAD:<file>"           # 有值 = HEAD 里确实有
+git hash-object <file>                # 与上面相同 = 工作树内容其实是干净的，只是 stat 缓存坏了
+```
+
+**根因**：索引条目丢了（本次丢了 88 条），且存活条目的 stat 缓存（size/mtime）与工作树不匹配。
+`core.autocrlf=true` 让磁盘上是 CRLF（1499 B）而索引记的是 LF（1441 B），size 对不上后 git
+不再逐字节比对，直接按「已修改」上报。
+
+**修复步骤**（全程不动工作树内容）：
+
+```bash
+cp .git/index ".git/index.bak.$(date +%Y%m%d_%H%M%S)"   # 先备份索引
+git reset                                              # 索引重建为 HEAD（工作树不动）
+git add --refresh .                                    # 刷 stat；修不干净时直接下一步
+git add -A                                             # 重算全部哈希，顺带修掉幽灵 M
+git status                                             # 应只剩真实改动
+```
+
+> `git reset` 单独用不够：它重建的索引条目 stat 全为零，`git status` 仍会把 200+ 个文件报成
+> ` M`（`git diff` 却是空的）。必须再用 `git add -A` 让 git 真正重算哈希。
+> 注意 `git add -A` 会把真实改动和新文件**暂存**；如果不想暂存，别用 `git reset` 去撤销
+> ——那会把 stat 清零，幽灵 ` M` 立刻复发。想保持未暂存只能在修之前就别 `add`。
+
+**副作用清理**：索引失步期间被「复活」的 HEAD 已删除文件（本次是 `build_tmp/`、
+`core/rules.py`、`tests/test_rules.py`、6 个 `InterceptRule*`）修复后会变成 `??`，
+确认 `git ls-tree -r HEAD --name-only | grep -x <file>` 为空即可移出工作树。
+移出后跑一遍 `mvn -o -q test` 与插件 `pytest`，确认没有残留引用。
 
 ## 11. 地址对照表
 

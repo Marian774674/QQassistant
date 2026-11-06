@@ -35,6 +35,10 @@ class SpringClient:
     async def profile(self, sender_id):
         return await self._request("GET", f"/api/profile/{sender_id}")
 
+    async def style_profile(self, sender_id):
+        """取某个人的风格画像（替主人说话时要用**主人**的风格，而不是消息发送者的）。"""
+        return await self._request("GET", f"/api/style-profile/{sender_id}")
+
     async def resolve_conversation(self, bot_uuid, chat_type, chat_id, sender_id):
         params = {
             "botUuid": bot_uuid,

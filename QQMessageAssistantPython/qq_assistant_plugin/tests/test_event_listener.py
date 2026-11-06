@@ -41,6 +41,7 @@ def deps(tmp_path, monkeypatch):
         spring=SimpleNamespace(
             check_noise=AsyncMock(return_value={"noise": False, "reason": ""}),
             profile=AsyncMock(return_value={"facts": {}, "stylePrompt": ""}),
+            style_profile=AsyncMock(return_value={"profilePrompt": ""}),
             list_open_memos=AsyncMock(return_value=[]),
             reply_context=AsyncMock(return_value={
                 "enabled": True, "replyPrompt": "", "rateLimit": 20,
@@ -654,3 +655,41 @@ async def test_token_usage_can_be_switched_off(deps):
     for _ in range(3):
         await asyncio.sleep(0)
     deps.spring.record_token_usage.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_group_reply_uses_owner_style_not_sender_style(deps):
+    """替主人说话要用主人的风格：群里 @ 机器人的是别人，不能拿别人的画像。
+
+    之前直接用 sender 的 profile.stylePrompt，群里发送者不是主人时永远是空，
+    表现就是「网页里设了风格，机器人说话没变化」。
+    """
+    deps.spring.reply_context = AsyncMock(return_value={
+        "enabled": True, "ownerSenderId": "9999", "replyPrompt": "",
+        "rateLimit": 20, "outLastHour": 0, "recentMessages": []})
+    deps.spring.style_profile = AsyncMock(return_value={"profilePrompt": "你说话很短，常用「嗯」开头"})
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="!你好")]), sender_id="1001", launcher_id="8888")
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=True)
+
+    inputs = deps.dify.chat.await_args.kwargs["inputs"]
+    assert inputs["style_prompt"] == "你说话很短，常用「嗯」开头"
+    deps.spring.style_profile.assert_awaited_once_with(9999)
+
+
+@pytest.mark.asyncio
+async def test_private_chat_keeps_sender_style_without_extra_call(deps):
+    """私聊里 sender 就是主人：不额外查一次，直接用 profile 带回的 stylePrompt。"""
+    deps.spring.profile = AsyncMock(return_value={"facts": {}, "stylePrompt": "随口的风格"})
+    deps.spring.reply_context = AsyncMock(return_value={
+        "enabled": True, "ownerSenderId": "1001", "replyPrompt": "",
+        "rateLimit": 20, "outLastHour": 0, "recentMessages": []})
+    ctx = FakeCtx(pm.MessageChain([pm.Plain(text="在吗")]), sender_id="1001")
+
+    with patch("core.file_store.load_active_input", AsyncMock(return_value=None)):
+        await DefaultEventListener._handle(SimpleNamespace(plugin=deps), ctx, is_group=False)
+
+    inputs = deps.dify.chat.await_args.kwargs["inputs"]
+    assert inputs["style_prompt"] == "随口的风格"
+    deps.spring.style_profile.assert_not_awaited()

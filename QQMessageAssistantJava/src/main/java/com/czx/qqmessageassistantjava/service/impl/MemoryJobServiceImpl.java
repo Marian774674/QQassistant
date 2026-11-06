@@ -178,6 +178,23 @@ public class MemoryJobServiceImpl implements MemoryJobService {
         return total;
     }
 
+    @Override
+    public int catchUp() {
+        int total = 0;
+        for (int i = 0; i < MAX_REBUILD_BATCHES; i++) {
+            long before = cursor();
+            total += runOnce();
+            // 游标没前进 = 没料 / 没开 / Dify 失败，都别空转
+            if (cursor() <= before) {
+                break;
+            }
+        }
+        if (total > 0) {
+            log.info("夜间归纳补做结束：累计 {} 条事实", total);
+        }
+        return total;
+    }
+
     private int write(List<Map<String, Object>> contacts,
                       List<Map<String, Object>> notes,
                       Set<Long> senders,

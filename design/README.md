@@ -32,8 +32,8 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 | 阶段 | 内容 | 状态 | 文档 |
 |---|---|---|---|
 | ① 架构 + 表结构 | 分层、红线、三个抽象、21 张表 DDL | ✅ 完成 | `architecture.md` / `optimization_schemes.md` / `database_schema.md` |
-| ② Spring Boot API | 19 个控制器 / 67 个对外端点 + 调度 + LangBot 客户端 | ✅ 代码完成（442/442 测试绿）；Phase 2 加固计划保留作历史记录 | `api_contract.md` + `plans/2026-10-18-phase2-hardening.md` |
-| ③ LangBot 插件 | 收发 / 前置噪音判定 / 拟人延迟 / 文件 I/O / 主动发送 / 掉线补拉（边沿 + 周期兜底）/ 用量上报 | ✅ 3-1/3-2/3-3 已落地；当前版本 **0.2.32**（`dist/Marian-qq_assistant_plugin-0.2.32.lbpkg`）；待真机联调 | `plans/2026-10-18-phase3-*.md` |
+| ② Spring Boot API | 19 个控制器 / 68 个对外端点 + 调度 + LangBot 客户端 | ✅ 代码完成（454/454 测试绿）；Phase 2 加固计划保留作历史记录 | `api_contract.md` + `plans/2026-10-18-phase2-hardening.md` |
+| ③ LangBot 插件 | 收发 / 前置噪音判定 / 拟人延迟 / 文件 I/O / 主动发送 / 掉线补拉（边沿 + 周期兜底）/ 用量上报 | ✅ 3-1/3-2/3-3 已落地；当前版本 **0.2.33**（`dist/Marian-qq_assistant_plugin-0.2.33.lbpkg`）；待真机联调 | `plans/2026-10-18-phase3-*.md` |
 | ④ Dify 工作流 | 意图识别 / 对话状态 / 文件决策 / 风格总结 | 🟡 Chatflow + 文件 Workflow 已搭好；待真机联调 | `agent_contract.md` / `dify_chatflow.md` |
 | ⑤ Vue 前端 | 草稿中心 / 备忘 / 记忆总控台 / 设置 / Token 用量（含会话占比饼图） | ✅ 14 页已对接真实接口（`npm run build` 通过）；待真机联调 | [`../QQMessageAssistantVue/README.md`](../QQMessageAssistantVue/README.md) |
 
@@ -69,9 +69,10 @@ QQ 消息智能助手的项目设计文档。**开发时的唯一准据**。
 > 噪音过滤顶到它原来的前置位置；前端 `/rules` 改为噪音过滤页，设置页不再放该分区。
 > 两张旧表保留不 DROP。见 `api_contract.md` §七 / §17.7。
 >
-> 全量回归：Java 442/442（60 类）、插件 211/211、发送桥 31/31、`npm run build` 通过。
-> 插件当前版本 **0.2.32**（本轮饼图只改 Spring 汇总 VO / Service / Mapper 与 Vue `/usage`，
-> 插件不用动、不用重新打包）。细节见 [`../README.md`](../README.md) 的「测试」一节与
+> 全量回归：Java 454/454（61 类）、插件 215/215、发送桥 31/31、`npm run build` 通过。
+> 插件当前版本 **0.2.33**（本轮风格画像修正改了插件侧取画像的来源：由消息发送者改为主人，
+> 因此必须重新打包上传；Spring 与 Dify 也各有改动，部署顺序见
+> [`../deploy/README.md`](../deploy/README.md) §6）。细节见 [`../README.md`](../README.md) 的「测试」一节与
 > [`../deploy/README.md`](../deploy/README.md) §10.3（共享测试库 FULLTEXT 维护）。
 
 > 仓库根的 `.github/pull_request_template.md` 已配置，PR 会自动带出自查清单。

@@ -66,7 +66,8 @@
 | | PUT | `/api/profile/facts/{id}` | Vue 总控台 | 否 | 手动修改事实 |
 | | DELETE | `/api/profile/facts/{id}` | Vue 总控台 | 否 | 手动删除事实 |
 | 画像·风格 | GET | `/api/style-profile/{senderId}` | Vue | 是 | 查看当前画像 |
-| | POST | `/api/style-profile/update` | Dify 总结工作流 | 否 | 写回画像 |
+| | POST | `/api/style-profile/update` | Vue 手动编辑 | 否 | 写回画像 |
+| | POST | `/api/style-profile/summarize` | Vue / 兜底 | 否 | 立即按消息日志总结一次 |
 | 设置 | GET | `/api/settings` | Vue | 是 | 读取全部配置 |
 | | PUT | `/api/settings` | Vue | 否 | 更新配置（5.5 起只接受白名单键，见 §10.2） |
 | 噪音过滤 | GET | `/api/settings/noise-filter` | Vue | 是 | 当前规则 + 出厂默认值（§17.1） |
@@ -528,7 +529,19 @@ Dify 的 `OP_HTTP` 节点直接调用本接口。**鉴权**：请求头 `X-Agent
 | `profilePrompt` | string | 是 | 新的画像正文 |
 
 **行为**：upsert 到 `UNIQUE(sender_id)`，置 `lastSummarizedAt=now`。
-> 更新后由 Spring Boot 调 **Dify 应用配置 API** 把该画像写进用户画像 Prompt（Phase 4 确认调用方式）。
+> 画像的注入不走 Dify 应用配置 API，而是由插件在每轮 `/chat-messages` 里作为 `style_prompt` 输入带过去
+> （见 `agent_contract.md` §1.1）。**风格总结只写库，不实时改 Prompt**（FR C-3）。
+
+### 9.3 `POST /api/style-profile/summarize` — 立即总结一次（手动 / 兜底）
+
+无请求体。**响应** `data` = `true`（写了新画像）/ `false`（没有主人消息、Dify 未配置或模型没产出，旧画像不变）。
+
+**取数**：`message_log` 中 `sender_id = owner_sender_id AND direction = 'IN'` 的消息（主人亲手发的），
+窗口按 `summary_frequency`：`DAILY_TODAY` 取当日、`DAILY_7D` / `WEEKLY` 取近 7 天。
+
+> 定时总结走同一套逻辑（`StyleSummaryService`）：每日 00:20 + 每 3 小时兜底 + **应用启动时**各检查一次；
+> 到期判定看 `summary_frequency` 与 `style_profile.last_summarized_at`，**宕机错过定时点会在重启后补做**。
+> 失败 / 无消息 / 空产出都不推进 `lastSummarizedAt`，下一轮重试。
 
 ---
 

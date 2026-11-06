@@ -221,6 +221,10 @@ Spring Boot ──► 发送桥 send_bridge ──► LangBot / NapCat（主动�
 
 **FR-6.2 事实冲突**：用户改口时**直接覆盖**旧值。
 **FR-6.3 风格记忆（定期总结）**：定时任务按可配频率（每日+近 7 天 / 每日当日 / 每周）读取 `message_log`，调 Dify 风格总结工作流，写回 `style_profile`。**任何单条消息都不得触发画像更新。**
+> **实现（2026-11）**：`StyleSummaryServiceImpl` 取主人亲手发的 IN 消息（`sender_id=owner AND direction='IN'`），
+> 调 memory Workflow 的 `task=style` 生成 `style_prompt` 并 upsert。窗口按 `summary_frequency`：`DAILY_TODAY` 当日、
+> `DAILY_7D`/`WEEKLY` 近 7 天。调度为每日 00:20 + 每 3 小时兜底 + **应用启动时**各检查一次——宕机错过定时点，
+> 重启后立即补做；失败/无消息/空产出都不推进 `lastSummarizedAt`。另提供 `POST /api/style-profile/summarize` 手动触发。
 **FR-6.4 注入**：每次调 Dify 前由插件读取该用户事实与画像，作为输入变量注入。
 **FR-6.5 记忆总控台（Vue）**：事实列表可增删改；风格画像可查看与手动编辑；总结频率可配。这是对「模型抽错」的最终兜底。
 
@@ -445,7 +449,7 @@ Dify Chatflow 的 Start 节点共 **14 个变量**，且必须与插件发送的
 | ~~FR-3 防重拦截~~ → FR-3' 前置噪音过滤 | ✅（拦截规则已下线，判定在 Spring 侧） | — | ⬜ 待真机验收 |
 | FR-4 备忘提醒 | ✅（调度默认关闭，需显式开启） | ✅ | ⬜ |
 | FR-5 文件任务 | ✅ | 🟡 Chatflow 已搭，Code 节点待修 | ⬜ |
-| FR-6 记忆 | ✅（事实）/ 🟡（风格总结任务） | 🟡 | ⬜ |
+| FR-6 记忆 | ✅（事实 + 风格定期总结 + 宕机补做） | ✅ | ⬜ |
 | FR-7 会话连续性 | ✅ | ✅ | 🟡 |
 | FR-8 草稿中心 | ✅ | — | ⬜ |
 | FR-9 消息日志 | ✅ | — | ✅ |

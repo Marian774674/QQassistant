@@ -10,13 +10,14 @@
 
 ## 1. 调用契约（Spring 侧：`DifyWorkflowClient`）
 
-同一个应用、同一个 Key，用 `inputs.task` 分派四种活。`run(task, extra)` 会自动把 `task` 塞进 inputs，
+同一个应用、同一个 Key，用 `inputs.task` 分派五种活。`run(task, extra)` 会自动把 `task` 塞进 inputs，
 其余键由调用方给；Start 节点必须把下面每一个键都声明出来，否则 Dify 直接 400。
 
 | task | 调用方 | 额外输入 | 读的 outputs |
 |---|---|---|---|
 | `digest` | `ChatDigestServiceImpl` | `chat_name` `messages` `profile` `focus` | `items` |
 | `extract` | `MemoryJobServiceImpl` | `messages` `known_contacts` `owner_aliases` | `contacts` `notes` |
+| `style` | `StyleSummaryServiceImpl` | `messages` `profile` `current_time` | `style_prompt` |
 | `ask`（`stage=resolve`） | `AskServiceImpl` | `question` `known_contacts` `owner_aliases` | `entities` `keywords` `time_hint` |
 | `ask`（`stage=answer`） | `AskServiceImpl` | `question` `candidates` `time_hint` | `answer` `used_ids` |
 
@@ -92,6 +93,30 @@ Authorization: Bearer {dify.workflow.api-key}
    总量截断到约 12000 字符）交给模型，模型只能在这堆行里作答，并用 `used_ids` 标出处。
    Spring 再验一次 `used_ids ⊆ 候选集`：不在里面、或者有结论却零引用 → **结论作废**，只把证据回给用户。
 
+### 1.4 style（风格画像定期总结）
+
+`inputs`：`messages`（主人亲手发的 IN 消息，一行一条、旧→新）、`profile`（当前画像，用于增量修正）、`current_time`。
+
+```json
+{
+  "inputs": {
+    "task": "style",
+    "messages": "哈哈哈\n行\n明天再说吧",
+    "profile": "（旧的画像正文，可为空）",
+    "current_time": "2026-11-06T21:30:00"
+  },
+  "response_mode": "blocking",
+  "user": "spring"
+}
+```
+
+响应取 `data.outputs.style_prompt`（**字符串**，一段 200–400 字的「怎么说话」说明）。
+
+- 取数**只用主人自己发的 IN 消息**（`sender_id = owner AND direction = 'IN'`）：OUT 是机器人替主人说的，拿来学习会自我强化；别人的消息更不是主人的风格。
+- 只描述「怎么说话」，不写「说了什么」——具体事件、人名、时间、数字都不进画像（那些属于 `extract` 的事实）。
+- Spring 侧失败语义：Dify 抛异常、`style_prompt` 为空、窗口内没有消息，都**不覆盖旧画像、不推进 `lastSummarizedAt`**，下一次检查重试。
+- 调用方 `StyleSummaryServiceImpl` 按 `app_setting.summary_frequency` 决定窗口与到期：`DAILY_TODAY` 取当日、`DAILY_7D` / `WEEKLY` 取近 7 天；`DAILY_*` 每天一次、`WEEKLY` 每 7 天一次。调度器在每日 00:20、每 3 小时、以及**应用启动时**各检查一次——宕机错过定时点，重启后立刻补做。
+
 ## 2. 输入行格式
 
 ### 2.1 digest
@@ -116,18 +141,21 @@ id|sender_id|昵称|群名|HH:mm|正文
 ## 3. 图结构
 
 ```
-start ─► is_digest ─true─► digest_llm ─► parse_digest ─► end_digest(items)
-                 └false─► is_extract ─true─► extract_llm ─► parse_extract ─► end_extract(contacts, notes)
-                                  └false─► is_resolve ─true─► resolve_llm ─► parse_resolve ─► end_resolve(entities, keywords, time_hint)
-                                                    └false─► answer_llm ─► parse_ask_answer ─► end_answer(answer, used_ids)
+start ─► is_style ─true─► style_llm ─► parse_style ─► end_style(style_prompt)
+              └false─► is_digest ─true─► digest_llm ─► parse_digest ─► end_digest(items)
+                               └false─► is_extract ─true─► extract_llm ─► parse_extract ─► end_extract(contacts, notes)
+                                                └false─► is_resolve ─true─► resolve_llm ─► parse_resolve ─► end_resolve(entities, keywords, time_hint)
+                                                                  └false─► is_expand ─true─► expand_llm ─► parse_expand ─► end_expand(...)
+                                                                                   └false─► answer_llm ─► parse_ask_answer ─► end_answer(answer, used_ids)
 ```
 
-- `is_digest`：`task is digest`；`is_extract`：`task is extract`；`is_resolve`：`stage is resolve`。
-  `task` 只剩这三种取值，`ask` 的第二段（`stage=answer`）落在最后一条兜底支路上。
+- `is_style`：`task is style`；`is_digest`：`task is digest`；`is_extract`：`task is extract`；
+  `is_resolve`：`stage is resolve`。`task` 的取值是 `style` / `digest` / `extract` / `ask`；
+  `ask` 的第二段（`stage=answer`）落在最后一条兜底支路上。
 - 每个分支都是「LLM → parse(code) → end」：代码节点只做**形状清洗**（剥围栏、`json.loads`、
   丢掉没证据的条目），不做事实校验，也不碰数据库。
-- 结束节点的输出名必须全局唯一（`items` / `contacts`,`notes` / `entities`,`keywords`,`time_hint` /
-  `answer`,`used_ids`），Dify 的「发布」检查清单会卡这件事。
+- 结束节点的输出名必须全局唯一（`style_prompt` / `items` / `contacts`,`notes` /
+  `entities`,`keywords`,`time_hint` / `answer`,`used_ids` / `expand_*`），Dify 的「发布」检查清单会卡这件事。
 - `parse_ask_answer` 在有结论却零引用时会把 `answer` 清空——这条规则在 DSL 里也钉一遍，
   免得模型绕过 Spring 的校验直接说话。
 

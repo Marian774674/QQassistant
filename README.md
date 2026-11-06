@@ -123,14 +123,14 @@ flowchart LR
 | 层 | 选型 | 备注 |
 | --- | --- | --- |
 | 前端 | Vue 3.5 + TypeScript + Vite | `<script setup>`，**零 UI 库**，390dp 画布优先，11 条路由全部懒加载 |
-| 后端 | Java 21 + Spring Boot 3.4.12 | MyBatis-Plus 3.5.9、RestClient、springdoc；19 个控制器 / 67 个端点（按 `@*Mapping` 注解核准，含登录 / 整理 / 会话别名等） |
+| 后端 | Java 21 + Spring Boot 3.4.12 | MyBatis-Plus 3.5.9、RestClient、springdoc；19 个控制器 / 68 个端点（按 `@*Mapping` 注解核准，含登录 / 整理 / 会话别名等） |
 | 插件 | Python 3.12 + httpx | LangBot 插件形态，`openpyxl` / `python-docx` / `pypdf` 做文件 IO |
 | 发送桥 | Python 3.12 + FastAPI | 单职责：把「发文本 / 发文件」做成幂等 HTTP 接口 |
 | 编排 | Dify Chatflow + Workflow | 一份对话流做决策，一份「记忆与整理」做整理 / 归纳 / 回答；两份 DSL 已入库 |
 | 存储 | MySQL 8 | 单库单实例，时间由 Java 写本地时间（那台库跑 UTC） |
 | 部署 | Docker Compose | LangBot / 插件运行时 / NapCat / 发送桥，四个容器 |
 
-测试：Java 60 个测试类 / 442 个用例（`mvn -o test`），Python 242 个用例（插件 211 + 发送桥 31，`pytest`），Vue `npm run build`（含 `vue-tsc` 类型检查）。当前全绿。
+测试：Java 61 个测试类 / 454 个用例（`mvn -o test`），Python 246 个用例（插件 215 + 发送桥 31，`pytest`），Vue `npm run build`（含 `vue-tsc` 类型检查）。当前全绿。
 
 | 端 | 命令 |
 | --- | --- |
@@ -225,7 +225,7 @@ docker compose up -d
 
 ```
 .
-├── QQMessageAssistantJava/       Spring Boot：19 控制器 / 67 端点 / 21 表 / 60 测试类
+├── QQMessageAssistantJava/       Spring Boot：19 控制器 / 68 端点 / 21 表 / 61 测试类
 │   └── src/main/resources/db/    schema.sql 与增量 migrations
 ├── QQMessageAssistantPython/
 │   ├── qq_assistant_plugin/      LangBot 插件：事件、前置噪音判定、文件 IO、决策执行、幂等
