@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { Check } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
@@ -28,6 +28,21 @@ const minMessages = ref<number | ''>(100)
 const minMinutes = ref<number | ''>(60)
 const savingPrefs = ref(false)
 const prefsSaved = ref(false)
+
+/**
+ * 只收「字段级」说明，一段一个 ?。
+ *
+ * 大分类（群列表 / 私聊）下面的说明是一整节的入口，读之前就得看见它在讲什么，
+ * 按用户要求保持常驻；要收的是夹在输入框之间的解释文字和列表尾的补充注记。
+ * 原来它们整段摊在页面上，说明和选项都是灰字，一路读下来就成了「一片字」。
+ */
+const hints = reactive({
+  aliases: false, focus: false, threshold: false,
+  autoReplyNote: false,
+})
+function toggleHint(key: keyof typeof hints) {
+  hints[key] = !hints[key]
+}
 
 const groups = computed(() => chats.value.filter((chat) => chat.kind === 'GROUP'))
 // 私聊没有群号，会话键是对方 QQ；私聊不参与整理，只有自动回复一个开关
@@ -141,7 +156,7 @@ function chatTitle(chat: ChatSetting) {
       <section class="block">
         <h2 class="block-title">整理偏好</h2>
 
-        <div class="card card-pad">
+        <div class="card card-pad prefs-card">
           <label class="switch-row">
             <span class="switch-text">
               <span class="switch-label">开启消息整理</span>
@@ -159,7 +174,17 @@ function chatTitle(chat: ChatSetting) {
           </label>
 
           <div class="field">
-            <label for="owner-aliases">我在群里叫什么</label>
+            <div class="field-head">
+              <label for="owner-aliases">我在群里叫什么</label>
+              <button
+                type="button"
+                class="icon-btn hint-dot"
+                :aria-expanded="hints.aliases"
+                aria-controls="hint-aliases"
+                aria-label="「我在群里叫什么」的说明"
+                @click="toggleHint('aliases')"
+              >?</button>
+            </div>
             <input
               id="owner-aliases"
               v-model="aliases"
@@ -168,13 +193,25 @@ function chatTitle(chat: ChatSetting) {
               autocomplete="off"
               placeholder="小明,明哥"
             />
-            <p class="field-hint">
-              逗号分隔。这些名字出现在消息里，那条就会被标成「在叫你」，整理时不会漏掉。
-            </p>
+            <Transition name="hint">
+              <p v-if="hints.aliases" id="hint-aliases" class="field-hint">
+                逗号分隔。这些名字出现在消息里，那条就会被标成「在叫你」，整理时不会漏掉。
+              </p>
+            </Transition>
           </div>
 
           <div class="field">
-            <label for="digest-focus">我想留意什么</label>
+            <div class="field-head">
+              <label for="digest-focus">我想留意什么</label>
+              <button
+                type="button"
+                class="icon-btn hint-dot"
+                :aria-expanded="hints.focus"
+                aria-controls="hint-focus"
+                aria-label="「我想留意什么」的说明"
+                @click="toggleHint('focus')"
+              >?</button>
+            </div>
             <textarea
               id="digest-focus"
               v-model="focus"
@@ -182,7 +219,11 @@ function chatTitle(chat: ChatSetting) {
               rows="3"
               placeholder="导师和实习相关的通知优先；游戏群里的活动可以忽略"
             />
-            <p class="field-hint">写进整理提示词。留空就按「有时间地点的通知 &gt; 要我做的事 &gt; 提到我」取舍。</p>
+            <Transition name="hint">
+              <p v-if="hints.focus" id="hint-focus" class="field-hint">
+                写进整理提示词。留空就按「有时间地点的通知 &gt; 要我做的事 &gt; 提到我」取舍。
+              </p>
+            </Transition>
           </div>
 
           <div class="field-pair">
@@ -209,10 +250,23 @@ function chatTitle(chat: ChatSetting) {
               />
             </div>
           </div>
-          <p class="field-hint">
-            每次进首页都会看一眼：这段时间收到超过 {{ minMessages || '?' }} 条消息，或距上次整理超过
-            {{ minMinutes || '?' }} 分钟，任一满足就整理一次；都没到就攒着，下次一起算。
-          </p>
+          <!-- 这条同时解释两个数字框，所以挂在整组右下角，不塞进任何一列 -->
+          <div class="pair-hint">
+            <Transition name="hint">
+              <p v-if="hints.threshold" id="hint-threshold" class="field-hint pair-hint-text">
+                每次进首页都会看一眼：这段时间收到超过 {{ minMessages || '?' }} 条消息，或距上次整理超过
+                {{ minMinutes || '?' }} 分钟，任一满足就整理一次；都没到就攒着，下次一起算。
+              </p>
+            </Transition>
+            <button
+              type="button"
+              class="icon-btn hint-dot"
+              :aria-expanded="hints.threshold"
+              aria-controls="hint-threshold"
+              aria-label="整理门槛的说明"
+              @click="toggleHint('threshold')"
+            >?</button>
+          </div>
 
           <button
             type="button"
@@ -272,10 +326,22 @@ function chatTitle(chat: ChatSetting) {
             </div>
           </li>
         </ul>
-        <p v-if="groups.length" class="faint note">
-          自动回复管的是<span>替你说日常话</span>；备忘和查资料照常。
-          别人发来的文件要这个开关开着才会处理，你自己发文件不受影响。
-        </p>
+        <div v-if="groups.length" class="note-row">
+          <Transition name="hint">
+            <p v-if="hints.autoReplyNote" id="hint-auto-reply-note" class="faint note note-text">
+              自动回复管的是<span>替你说日常话</span>；备忘和查资料照常。
+              别人发来的文件要这个开关开着才会处理，你自己发文件不受影响。
+            </p>
+          </Transition>
+          <button
+            type="button"
+            class="icon-btn hint-dot"
+            :aria-expanded="hints.autoReplyNote"
+            aria-controls="hint-auto-reply-note"
+            aria-label="自动回复开关的说明"
+            @click="toggleHint('autoReplyNote')"
+          >?</button>
+        </div>
       </section>
 
       <section class="block">
@@ -353,12 +419,81 @@ function chatTitle(chat: ChatSetting) {
   gap: 10px;
 }
 
+/* 保存按钮和收起态的 ? 之间留一点气口；不用线，靠间距分层 */
+.prefs-card > .btn {
+  margin-top: 16px;
+}
+
+/* 标题行：标签在左、? 在右端，三个 ? 排成一条可扫的竖线 */
+.field-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+/*
+ * 这四个表单标签和上面的「开启消息整理」是同一层级的标题，不该比它小半号、淡一档。
+ * 以前沿用全局 .field > label（12.5px / --ink-2），摆在 14px 主色的 switch-label
+ * 下面，看着像提示文字，主次就反了。字号、字重、颜色全部对齐 .switch-label。
+ */
 .field label {
   display: block;
   margin-bottom: 6px;
-  color: var(--ink-2);
-  font-size: 12.5px;
+  color: var(--ink);
+  font-size: 14px;
   font-weight: 500;
+}
+
+/* 标题行里的 margin 交给 .field-head，label 自己别再顶一道 */
+.field .field-head label {
+  margin-bottom: 0;
+}
+
+/*
+ * ? 小圆钮：套 .icon-btn 只为复用全站按压波纹（ripple.ts 的 HOSTS 里有它），
+ * 这里把 40px 方块收成 18px 圆。overflow:hidden 让波纹裁在圆内，不会泼到标签上。
+ */
+.hint-dot {
+  width: 18px;
+  height: 18px;
+  margin-left: auto;
+  flex: none;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  /* 栏目线标题带 0.16em 字距和 uppercase，? 不能跟着被拉歪 */
+  letter-spacing: 0;
+  text-transform: none;
+  overflow: hidden;
+}
+
+.hint-dot[aria-expanded='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+/*
+ * 门槛那条说明属于两个数字框整体，挂在整组下方。
+ * 用 grid 让说明占满整行、? 单独右对齐在它下面——之前两者并排时，
+ * 圆点会从文字里挖掉 26px，长句末尾被挤成孤零零一行。
+ */
+.pair-hint {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pair-hint .pair-hint-text {
+  justify-self: stretch;
+  margin: 0;
 }
 
 .textarea {
@@ -371,6 +506,38 @@ function chatTitle(chat: ChatSetting) {
   color: var(--ink-3);
   font-size: 12px;
   line-height: 1.55;
+}
+
+/* 展开时 max-height 够装三行说明；收起把 margin 一起收掉，别留一条空白 */
+.hint-enter-active,
+.hint-leave-active {
+  overflow: hidden;
+  transition: opacity var(--dur) var(--ease),
+    max-height var(--dur-2) var(--ease),
+    margin var(--dur-2) var(--ease);
+}
+
+.hint-enter-from,
+.hint-leave-to {
+  opacity: 0;
+  max-height: 0;
+  /* .field-hint 用 margin-top、.block-hint 用 margin-bottom，两边都得收掉，
+     否则收起后会留一条空白，看着像没关干净 */
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.hint-enter-to,
+.hint-leave-from {
+  opacity: 1;
+  max-height: 120px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hint-enter-active,
+  .hint-leave-active {
+    transition: none;
+  }
 }
 
 /* 开关本体样式在全局 style.css（设置页也用同一套） */
@@ -448,5 +615,22 @@ function chatTitle(chat: ChatSetting) {
 .note {
   margin: 12px 0 0;
   line-height: 1.55;
+}
+
+/*
+ * 列表尾部那条说明：文字占满整行，? 单独右对齐在下方，
+ * 和上半部分「门槛」那组的排法一致——两者并排会把长句从右边挖掉一块。
+ * 收起时这一行只剩一个 18px 圆点，不再夹在群列表和私聊之间糊成一片。
+ */
+.note-row {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.note-row .note-text {
+  justify-self: stretch;
+  margin: 0;
 }
 </style>

@@ -89,6 +89,18 @@ const router = createRouter({
       component: () => import('@/views/RulesView.vue'),
       meta: { title: '噪音过滤' },
     },
+    {
+      path: '/rules/words',
+      name: 'rules-words',
+      component: () => import('@/views/NoiseWordsView.vue'),
+      meta: { title: '整句噪音词' },
+    },
+    {
+      path: '/rules/keep',
+      name: 'rules-keep',
+      component: () => import('@/views/NoiseKeepView.vue'),
+      meta: { title: '一定要保留' },
+    },
     { path: '/:pathMatch(.*)*', redirect: '/home' },
   ],
   scrollBehavior() {

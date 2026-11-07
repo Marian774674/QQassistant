@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Check } from 'lucide-vue-next'
 import ErrorState from '@/components/ErrorState.vue'
 import PageHead from '@/components/PageHead.vue'
@@ -11,6 +12,28 @@ import { useToast } from '@/composables/useToast'
 
 const owner = useOwner()
 const toast = useToast()
+const route = useRoute()
+
+/** 从记忆页跳过来时，直接把人送到 QQ 号输入框，而不是停在设置页顶部 */
+const qqEl = ref<HTMLInputElement | null>(null)
+const qqTargeted = ref(false)
+
+/**
+ * 大分类（我的 QQ 号 / 自动回复 / 后端配置）下面的说明保持常驻：
+ * 那是一整节在讲什么，读之前就该看见。要收的是字段级和开关级的长解释，
+ * 一段一个 ?，和 Chats 页同一套圆钮与展开动画。
+ *
+ * QQ 号那句是「填之前就得看懂」的操作说明，不收——它讲清了这个号会同时
+ * 决定消息归属和验证码收件人，藏进 ? 反而让人不敢填。
+ */
+const hints = reactive({
+  global: false,
+  prompt: false,
+  limit: false,
+})
+function toggleHint(key: keyof typeof hints) {
+  hints[key] = !hints[key]
+}
 
 const qqInput = ref('')
 const savingOwner = ref(false)
@@ -88,6 +111,15 @@ function hydrateReply(snapshot: Record<string, string>) {
 onMounted(async () => {
   if (!owner.loaded) await loadOwner()
   await loadSettings()
+  if (route.hash !== '#owner-qq') return
+  await nextTick()
+  const el = qqEl.value
+  if (!el) return
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  qqTargeted.value = true
+  // 等滚动落定再聚焦，免得软键盘把刚滚到的位置又顶飞
+  window.setTimeout(() => qqEl.value?.focus({ preventScroll: true }), 280)
+  window.setTimeout(() => { qqTargeted.value = false }, 2000)
 })
 
 useRefresh(() => loadSettings(true))
@@ -183,11 +215,15 @@ const otherSettings = computed(() =>
 
       <div class="card card-pad">
         <div class="field">
-          <label for="owner-qq">QQ 号</label>
+          <div class="field-head">
+            <label for="owner-qq">QQ 号</label>
+          </div>
           <input
             id="owner-qq"
+            ref="qqEl"
             v-model="qqInput"
             class="input"
+            :class="{ 'is-target': qqTargeted }"
             type="text"
             inputmode="numeric"
             autocomplete="off"
@@ -222,16 +258,29 @@ const otherSettings = computed(() =>
       </p>
 
       <div class="card card-pad">
-        <label class="switch-row">
-          <span class="switch-text">
-            <span class="switch-label">总开关</span>
-            <span class="switch-hint">
-              关掉后机器人一个字都不说：闲聊、备忘确认语、文件任务全部停。
-              备忘照建、整理照跑，只是不再替你发任何消息。到点的提醒仍会私聊发给你——
-              那不是回复别人，是提醒你自己。
-            </span>
-          </span>
+        <div class="switch-row">
+          <div class="switch-text">
+            <div class="switch-label-line">
+              <label for="reply-enabled" class="switch-label">总开关</label>
+              <button
+                type="button"
+                class="icon-btn hint-dot"
+                :aria-expanded="hints.global"
+                aria-controls="hint-global"
+                aria-label="「总开关」的说明"
+                @click="toggleHint('global')"
+              >?</button>
+            </div>
+            <Transition name="hint">
+              <p v-if="hints.global" id="hint-global" class="switch-hint">
+                关掉后机器人一个字都不说：闲聊、备忘确认语、文件任务全部停。
+                备忘照建、整理照跑，只是不再替你发任何消息。到点的提醒仍会私聊发给你——
+                那不是回复别人，是提醒你自己。
+              </p>
+            </Transition>
+          </div>
           <input
+            id="reply-enabled"
             type="checkbox"
             class="switch"
             role="switch"
@@ -240,10 +289,22 @@ const otherSettings = computed(() =>
             :disabled="savingGlobal"
             @change="toggleReplyEnabled"
           />
-        </label>
+        </div>
 
         <div class="field">
-          <label for="reply-prompt">额外要求</label>
+          <div class="field-head">
+            <label for="reply-prompt">额外要求</label>
+            <!-- 字数是要一直看得见的，不能跟着说明一起收进 ? 里 -->
+            <span class="faint char-count">{{ replyPrompt.length }}/500</span>
+            <button
+              type="button"
+              class="icon-btn hint-dot"
+              :aria-expanded="hints.prompt"
+              aria-controls="hint-reply-prompt"
+              aria-label="「额外要求」的说明"
+              @click="toggleHint('prompt')"
+            >?</button>
+          </div>
           <textarea
             id="reply-prompt"
             v-model="replyPrompt"
@@ -253,18 +314,29 @@ const otherSettings = computed(() =>
             placeholder="例如：语气随便点；别提我的工作；群里被 @ 才回"
             @input="replyDirty = true"
           ></textarea>
-          <p class="field-hint">
-            大白话写就行，比如：
-            <span v-for="(hint, i) in PROMPT_HINTS" :key="hint">
-              {{ hint }}<span v-if="i < PROMPT_HINTS.length - 1">、</span>
-            </span>。
-            不替你承诺、不说自己是机器人这些底线，写在这里也改不掉。
-            <span class="faint">{{ replyPrompt.length }}/500</span>
-          </p>
+          <Transition name="hint">
+            <p v-if="hints.prompt" id="hint-reply-prompt" class="field-hint">
+              大白话写就行，比如：
+              <span v-for="(hint, i) in PROMPT_HINTS" :key="hint">
+                {{ hint }}<span v-if="i < PROMPT_HINTS.length - 1">、</span>
+              </span>。
+              不替你承诺、不说自己是机器人这些底线，写在这里也改不掉。
+            </p>
+          </Transition>
         </div>
 
         <div class="field">
-          <label for="reply-limit">每小时最多替你说几句</label>
+          <div class="field-head">
+            <label for="reply-limit">每小时最多替你说几句</label>
+            <button
+              type="button"
+              class="icon-btn hint-dot"
+              :aria-expanded="hints.limit"
+              aria-controls="hint-reply-limit"
+              aria-label="「每小时最多替你说几句」的说明"
+              @click="toggleHint('limit')"
+            >?</button>
+          </div>
           <input
             id="reply-limit"
             v-model.number="replyLimit"
@@ -278,7 +350,13 @@ const otherSettings = computed(() =>
             @input="replyDirty = true"
           />
           <p v-if="replyError" class="error" role="alert">{{ replyError }}</p>
-          <p v-else class="field-hint">说得太多容易露馅。超过这个数就只做事、不说话。默认 20。</p>
+          <template v-else>
+            <Transition name="hint">
+              <p v-if="hints.limit" id="hint-reply-limit" class="field-hint">
+                说得太多容易露馅。超过这个数就只做事、不说话。默认 20。
+              </p>
+            </Transition>
+          </template>
         </div>
 
         <button
@@ -360,14 +438,164 @@ const otherSettings = computed(() =>
   margin-top: 16px;
 }
 
+/* 从记忆页带 #owner-qq 跳过来时，短暂把输入框点亮一次，指明「就是这里」 */
+.input.is-target {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  transition: border-color var(--dur-2) var(--ease),
+    box-shadow var(--dur-2) var(--ease);
+}
+
 /* 总开关与下面的输入框拉开距离，别挤成一行 */
 .switch-row {
   padding-bottom: 16px;
   border-bottom: 1px solid var(--hairline);
+  /* 整行不再是 <label>，只有标签文字和开关可点 */
+  cursor: default;
 }
 
-.field + .field {
+.switch-row .switch-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/*
+ * 开关是 26px 高、整行 align-items:flex-start（说明展开时开关得留在顶上，
+ * 不能跟着往下居中）。标签行只有 18px 的 ? 和一行 14px 字，比开关矮，
+ * 顶部一齐就会让「总开关 / ? / 拨钮」差 3~4px。把标签行撑到和开关等高，
+ * 三者中心都落在 y=13，视觉上才是同一条水平线。
+ */
+.switch-label-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+
+/*
+ * checkbox 的 UA 默认 margin 是 3px 3px 3px 4px，会把拨钮整块往下推 3px，
+ * 正好把上面那一下居中抵消掉。只清上下，margin-left:auto 得留着把开关顶到右端。
+ */
+.switch-row .switch {
+  margin: 0 0 0 auto;
+}
+
+/* 标签行左半条仍然都是开关的点击区 */
+.switch-label-line .switch-label {
+  flex: 1;
+  cursor: pointer;
+}
+
+/*
+ * 「总开关」自带 16px 下内边距和一条 border-bottom。紧跟其后的「额外要求」
+ * 是第一个 .field，.field + .field 管不到它，于是贴在线上；补上同样的 16px，
+ * 让线上下留白对称。
+ */
+.field + .field,
+.switch-row + .field {
   margin-top: 16px;
+}
+
+/* ── 字段/分节说明的 ? 折叠（与 Chats 页同一套） ───────────── */
+/* 标题行：标签在左、? 在右端 */
+.field-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+/*
+ * 表单标签和「总开关」是同一层级的标题。全局 .field > label 是
+ * 12.5px / --ink-2，摆在 14px 主色的 .switch-label 下面主次就反了。
+ */
+.field label {
+  display: block;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* 标题行里的 margin 交给 .field-head，label 自己别再顶一道 */
+.field .field-head label {
+  margin-bottom: 0;
+}
+
+/* 字数一直可见：说明收起时它还得留在标签行右端 */
+.char-count {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * ? 小圆钮：套 .icon-btn 只为复用全站按压波纹，这里把 40px 方块收成 18px 圆。
+ * overflow:hidden 让波纹裁在圆内，不会泼到标签上。
+ */
+.hint-dot {
+  width: 18px;
+  height: 18px;
+  margin-left: auto;
+  flex: none;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  /* 栏目线标题带 0.16em 字距和 uppercase，? 不能跟着被拉歪 */
+  letter-spacing: 0;
+  text-transform: none;
+  overflow: hidden;
+}
+
+/* 字数 / 开关标签已经占住右端，? 紧跟在后面，别再顶一个 auto */
+.char-count + .hint-dot,
+.switch-label-line .hint-dot {
+  margin-left: 0;
+}
+
+.hint-dot[aria-expanded='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.field-hint {
+  margin: 6px 0 0;
+}
+
+/* 展开时 max-height 够装三行；收起把 margin 一起收掉，别留一条空白 */
+.hint-enter-active,
+.hint-leave-active {
+  overflow: hidden;
+  transition: opacity var(--dur) var(--ease),
+    max-height var(--dur-2) var(--ease),
+    margin var(--dur-2) var(--ease);
+}
+
+.hint-enter-from,
+.hint-leave-to {
+  opacity: 0;
+  max-height: 0;
+  /* .field-hint 用 margin-top、.block-hint 用 margin-bottom，两边都得收掉 */
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.hint-enter-to,
+.hint-leave-from {
+  opacity: 1;
+  max-height: 120px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hint-enter-active,
+  .hint-leave-active {
+    transition: none;
+  }
 }
 
 .textarea {

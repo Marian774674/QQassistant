@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
@@ -29,6 +30,7 @@ type Frequency = 'DAILY_7D' | 'DAILY_TODAY' | 'WEEKLY'
 
 const owner = useOwner()
 const toast = useToast()
+const router = useRouter()
 
 const facts = ref<ProfileFact[]>([])
 const loadingFacts = ref(true)
@@ -67,6 +69,26 @@ const FREQUENCIES = [
 ]
 
 const senderId = computed(() => owner.senderId)
+
+/**
+ * 没填 QQ 号时这一页没有任何可看的内容。与其摆一个空屏让人再点一次按钮，
+ * 不如直接把人送到填号的位置：/settings#owner-qq 会滚动并聚焦到输入框。
+ * 用 replace，历史里不留一个空壳页，填完按返回直接回到「更多」。
+ */
+const redirecting = ref(false)
+watch(
+  () => owner.loaded && !senderId.value,
+  (needOwner) => {
+    if (!needOwner || redirecting.value) return
+    redirecting.value = true
+    // 等 setup 走完再导航，避免在组件创建过程中触发路由跳转
+    void nextTick(() => {
+      toast.push('先填上 QQ 号，才能查看属于你的记忆')
+      void router.replace({ path: '/settings', hash: '#owner-qq' })
+    })
+  },
+  { immediate: true },
+)
 
 /* ── 认识的人 ─────────────────────────────────────────────── */
 
@@ -353,14 +375,19 @@ async function changeFrequency(value: Frequency) {
       sub="事实是即时生效的硬信息；风格画像只在手动保存或定时总结时更新。"
     />
 
-    <p v-if="!owner.loaded" class="faint">正在读取设置…</p>
+    <p v-if="redirecting" class="faint">正在带你去填 QQ 号…</p>
+    <p v-else-if="!owner.loaded" class="faint">正在读取设置…</p>
 
+    <!-- 自动跳转没走通时的兜底：这一颗也直达输入框，不再绕回「更多」 -->
     <EmptyState
       v-else-if="!senderId"
       title="还不知道你是谁"
       hint="先填上你的 QQ 号，才能查看和整理属于你的记忆。"
     >
-      <RouterLink to="/more" class="btn btn-sm btn-quiet">去设置里填 QQ 号</RouterLink>
+      <RouterLink
+        :to="{ path: '/settings', hash: '#owner-qq' }"
+        class="btn btn-sm btn-primary"
+      >去填 QQ 号</RouterLink>
     </EmptyState>
 
     <template v-else>
